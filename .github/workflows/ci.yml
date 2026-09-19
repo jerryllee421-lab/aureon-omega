@@ -1,15 +1,22 @@
 name: AUREON validation
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 permissions:
   contents: read
+concurrency:
+  group: aureon-validation-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22.18.0'
-      - run: npm install --package-lock=false
+      - run: npm install --package-lock=false --no-audit --no-fund
       - run: npm test
       - run: npm run build
