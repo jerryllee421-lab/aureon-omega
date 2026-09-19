@@ -1,0 +1,8 @@
+[
+  {"name":"Owner authentication","expected":"Unconfigured workspace blocks sign-in; configured owner can sign in; other users cannot access journal or AI routes."},
+  {"name":"Preserved MTF scanner","expected":"One to four real chart images pass through vision, specialists and lead with visible progress and errors."},
+  {"name":"Conditional output","expected":"All opportunities remain non-executable. Missing source levels remain unavailable and RR comes from arithmetic."},
+  {"name":"Persistence","expected":"A completed real scan appears in Journal after reload. Events stay attached to the correct owner, scan and opportunity."},
+  {"name":"Provider outage","expected":"Unavailable providers show no invented price or analysis result."},
+  {"name":"Mobile QA","expected":"All chart controls, tabs, forms and event actions remain readable and usable at 390px and 200% text zoom."}
+]

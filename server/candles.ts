@@ -17,6 +17,7 @@ export async function acquireCandles(symbol:string):Promise<CandlePack> {
     if(!r.ok)throw new Error('BTC_CANDLES_UNAVAILABLE');
     const body=await r.json(); const rows=body.result?.XXBTZUSD;
     if(body.error?.length||!Array.isArray(rows))throw new Error('BTC_INSTRUMENT_UNVERIFIED');
+    // Kraken explicitly declares its last row uncommitted; discard regardless of local clock.
     const candles=validateCandles(rows.slice(0,-1).map((v:unknown[])=>({time:Number(v[0])*1000,open:Number(v[1]),high:Number(v[2]),low:Number(v[3]),close:Number(v[4])})),intervalMs,observedAt);
     return {symbol,provider:'Kraken',providerInstrument:'XXBTZUSD',intervalMs,observedAt,candles};
   }
