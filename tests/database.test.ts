@@ -29,7 +29,7 @@ test('Postgres schema enforces owner isolation, server-only writes, quota, repla
  await assert.rejects(()=>db.query('select record_setup_event($1,$2,0,$3,$4)',[other,scan,'WATCH','Wrong owner']));
  await db.query('select record_setup_event($1,$2,0,$3,$4)',[owner,scan,'INVALIDATED','Setup invalidated']);
  await assert.rejects(()=>db.query('select record_setup_event($1,$2,0,$3,$4)',[owner,scan,'WATCH','Cannot reopen terminal state']));
- await db.exec(`insert into analysis_claims(user_id,run_id,stage) select '${owner}',gen_random_uuid(),'VISION' from generate_series(1,58)`);
+ await db.exec(`insert into private.analysis_claims(user_id,run_id,stage) select '${owner}',gen_random_uuid(),'VISION' from generate_series(1,58)`);
  assert.equal(await claim('FINAL'),false);
  } finally {await db.close();}
 });
