@@ -5,6 +5,13 @@ export function dbConfig() {
   return { url, key, modernSecret: key.startsWith('sb_secret_') };
 }
 
+export function credentialKind(key: string) {
+  if (key.startsWith('sb_secret_')) return 'SB_SECRET';
+  if (key.startsWith('sb_publishable_')) return 'SB_PUBLISHABLE';
+  if (key.split('.').length === 3) return 'LEGACY_JWT';
+  return 'UNKNOWN';
+}
+
 export function serverHeaders(key: string) {
   const headers: Record<string,string> = {
     apikey: key,
@@ -26,7 +33,7 @@ export async function database(path: string, method = 'GET', body?: unknown) {
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) {
-    console.error(JSON.stringify({service:'supabase-rest',status:r.status,path:path.split('?')[0],method}));
+    console.error(JSON.stringify({service:'supabase-rest',status:r.status,path:path.split('?')[0],method,credentialKind:credentialKind(key)}));
     throw new Error('DATABASE_REQUEST_FAILED');
   }
   return r.status === 204 ? null : r.json();
