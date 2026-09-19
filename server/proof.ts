@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-function secret() { const key = process.env.PIPELINE_SIGNING_KEY; if (!key || key.length < 32) throw new Error('SIGNING_KEY_UNCONFIGURED'); return key; }
+function secret() {
+  const source = process.env.PIPELINE_SIGNING_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!source || source.length < 32) throw new Error('SIGNING_KEY_UNCONFIGURED');
+  return createHmac('sha256', source).update('AUREON_PIPELINE_SIGNING_V1').digest();
+}
 export function sign(payload: unknown, userId: string, stage: string) {
   const body = Buffer.from(JSON.stringify({ payload, userId, stage, expires: Date.now() + 15 * 60_000 })).toString('base64url');
   return body + '.' + createHmac('sha256', secret()).update(body).digest('base64url');
