@@ -86,7 +86,7 @@ export default async function api(req: Request, res: ServerResponse) {
       const hints = Object.fromEntries(['symbolHint','timeframeHint','session','tradeMode'].map(k => [k, typeof body[k] === 'string' ? body[k].slice(0,40) : null]));
       context = { runId:randomUUID(), hints, chartHashes: body.imageDataUrls.map((image: string) => createHash('sha256').update(image).digest('hex')) }; input = { ...hints, imageDataUrls:body.imageDataUrls };
     } else {
-      context = verify(body.visionProof,userId,'VISION');
+      context = await verify(body.visionProof,userId,'VISION');
       input = { ...context.hints, canonical:context.canonical, vision:context.report };
       if (path.endsWith('/specialist')) {
         if (!roles.includes(body.role)) return send(400,{error:'VALID_SPECIALIST_ROLE_REQUIRED'});
@@ -95,7 +95,7 @@ export default async function api(req: Request, res: ServerResponse) {
         stage = 'FINAL'; const reports: any[] = [];
         for (const envelope of Array.isArray(body.reports) ? body.reports : []) {
           if (!roles.includes(envelope.role) || reports.some(v => v.role === envelope.role)) return send(400,{error:'INVALID_SPECIALIST_REPORTS'});
-          const signed = verify(envelope.proof,userId,envelope.role);
+          const signed = await verify(envelope.proof,userId,envelope.role);
           if (signed.runId !== context.runId) return send(400,{error:'CROSS_SCAN_REPORT_REJECTED'});
           reports.push(signed.report);
         }
@@ -109,8 +109,8 @@ export default async function api(req: Request, res: ServerResponse) {
     const response = await handler(method,path,input);
     const data = await response.json();
     if (!response.ok) return send(response.status,data);
-    if (stage === 'VISION') data.proof = sign({...context,canonical:data.canonical,report:data.report},userId,stage);
-    else if (stage !== 'FINAL') data.proof = sign({runId:context.runId,report:data},userId,stage);
+    if (stage === 'VISION') data.proof = await sign({...context,canonical:data.canonical,report:data.report},userId,stage);
+    else if (stage !== 'FINAL') data.proof = await sign({runId:context.runId,report:data},userId,stage);
     else {
       harden(data,context.canonical); data.scanId = context.runId; data.chartHashes = context.chartHashes;
       await database('scans','POST',{id:context.runId,user_id:userId,canonical:context.canonical,result:data,engine_version:'aureon-migration-1'});
@@ -120,7 +120,7 @@ export default async function api(req: Request, res: ServerResponse) {
   } catch (caught) {
     const code = caught instanceof Error ? caught.message : 'REQUEST_FAILED';
     const status = code === 'SIGN_IN_REQUIRED' ? 401 : code === 'OWNER_ACCESS_REQUIRED' ? 403 : code === 'INVALID_STAGE_PROOF' ? 400 : 503;
-    const allowed = ['SIGN_IN_REQUIRED','OWNER_ACCESS_REQUIRED','INVALID_STAGE_PROOF','DATABASE_UNCONFIGURED','DATABASE_REQUEST_FAILED','AUTH_UNCONFIGURED','SIGNING_KEY_UNCONFIGURED'];
+    const allowed = ['SIGN_IN_REQUIRED','OWNER_ACCESS_REQUIRED','INVALID_STAGE_PROOF','DATABASE_UNCONFIGURED','DATABASE_REQUEST_FAILED','AUTH_UNCONFIGURED','SIGNING_KEY_UNCONFIGURED','SIGNING_SERVICE_UNAVAILABLE'];
     return send(status,{error:allowed.includes(code) ? code : 'REQUEST_FAILED'});
   }
 }

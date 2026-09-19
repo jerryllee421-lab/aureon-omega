@@ -9,18 +9,18 @@ import api from '../api/[...path].ts';
 import { createServer } from 'node:http';
 
 process.env.PIPELINE_SIGNING_KEY = 'test-only-signing-key-with-32-characters';
-test('signed stages reject cross-user, cross-stage and changed payloads',()=>{
- const proof=sign({runId:'test-run',canonical:{symbol:'TEST'}},'owner','VISION');
- assert.equal(verify(proof,'owner','VISION').runId,'test-run');
- assert.throws(()=>verify(proof,'attacker','VISION'));
- assert.throws(()=>verify(proof,'owner','RISK CRITIC'));
+test('signed stages reject cross-user, cross-stage and changed payloads',async()=>{
+ const proof=await sign({runId:'test-run',canonical:{symbol:'TEST'}},'owner','VISION');
+ assert.equal((await verify(proof,'owner','VISION')).runId,'test-run');
+ await assert.rejects(()=>verify(proof,'attacker','VISION'));
+ await assert.rejects(()=>verify(proof,'owner','RISK CRITIC'));
  const [body,mac]=proof.split('.');
  const altered=JSON.parse(Buffer.from(body,'base64url').toString());altered.payload.canonical.symbol='ALTERED';
- assert.throws(()=>verify(Buffer.from(JSON.stringify(altered)).toString('base64url')+'.'+mac,'owner','VISION'));
+ await assert.rejects(()=>verify(Buffer.from(JSON.stringify(altered)).toString('base64url')+'.'+mac,'owner','VISION'));
 });
-test('expired stage cannot authorize a later analysis',()=>{
- const now=Date.now; Date.now=()=>1000; const proof=sign({},'owner','VISION'); Date.now=()=>10000000;
- try {assert.throws(()=>verify(proof,'owner','VISION'));} finally {Date.now=now;}
+test('expired stage cannot authorize a later analysis',async()=>{
+ const now=Date.now; Date.now=()=>1000; const proof=await sign({},'owner','VISION'); Date.now=()=>10000000;
+ try {await assert.rejects(()=>verify(proof,'owner','VISION'));} finally {Date.now=now;}
 });
 test('maximal AI gates never grant execution authority',()=>{
  const opportunity=normalizeOpportunity({direction:'BUY',status:'CONFIRMED',entryZone:'100',stopLoss:'95',tp1:'110',trigger:'AI claim',invalidation:'AI claim',gates:{structure:'HIGH',trigger:'CONFIRMED',invalidation:'CLEAR',target:'CLEAR',mtf:'ALIGNED',contradiction:'LOW'}},3);

@@ -55,7 +55,7 @@ async function aiRuntime(): Promise<AiRuntime> {
 
 export function configurationIssues() {
   const issues = ['SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'OWNER_USER_ID'].filter(k => !process.env[k]);
-  if (!process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY) issues.push('SUPABASE_SECRET_KEY');
+  if (!process.env.VERCEL && !process.env.VERCEL_OIDC_TOKEN && !process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY) issues.push('SUPABASE_SECRET_KEY');
   if (!process.env.VERCEL && !process.env.VERCEL_OIDC_TOKEN && !process.env.AI_GATEWAY_API_KEY && !process.env.AI_API_KEY) {
     issues.push('AI_GATEWAY_OR_API_KEY');
   }
