@@ -878,7 +878,7 @@ export const handler = router({
         });
 
         const normalized = normalizeFinal(
-          result.data,
+          result.data as Record<string, unknown>,
           input,
           reports.length,
           charts.length
