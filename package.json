@@ -12,8 +12,8 @@
     "dev:api": "node --experimental-strip-types scripts/dev-server.ts"
   },
   "dependencies": {
-    "ajv": "8.17.1",
-    "lucide-react": "0.469.0",
+    "ajv": "8.20.0",
+    "lucide-react": "1.46.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "@vercel/oidc": "3.8.8"
