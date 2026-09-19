@@ -19,7 +19,6 @@ import {
   Clock3,
   Crosshair,
   Gauge,
-  Image as ImageIcon,
   Layers3,
   LoaderCircle,
   Plus,
@@ -393,8 +392,8 @@ function App() {
   const refreshStatus = useCallback(async () => {
     setStatusBusy(true);
     try {
-      const response = await api<BackendStatus>('/status');
-      setBackendStatus(response);
+      const response = await api.get('/api/status');
+      setBackendStatus(response.data as BackendStatus);
     } catch (error) {
       setBackendStatus({
         ready: false,
@@ -529,16 +528,14 @@ function App() {
           : 'Reading chart evidence'
       );
 
-      const vision = await api<VisionResponse>('/analyze/vision', {
-        method: 'POST',
-        body: JSON.stringify({
-          imageDataUrls: charts.map(item => item.dataUrl),
-          symbolHint: symbol,
-          timeframeHint: timeframe,
-          session,
-          tradeMode: mode,
-        }),
+      const visionResponse = await api.post('/api/analyze/vision', {
+        imageDataUrls: charts.map(item => item.dataUrl),
+        symbolHint: symbol,
+        timeframeHint: timeframe,
+        session,
+        tradeMode: mode,
       });
+      const vision = visionResponse.data as VisionResponse;
 
       if (runRef.current !== runId) return;
 
@@ -557,13 +554,11 @@ function App() {
         updateStage(specialist.key, 'running', specialist.label);
 
         try {
-          const response = await api<SpecialistResponse>('/analyze/specialist', {
-            method: 'POST',
-            body: JSON.stringify({
-              role: specialist.role,
-              visionProof: vision.proof,
-            }),
+          const specialistResponse = await api.post('/api/analyze/specialist', {
+            role: specialist.role,
+            visionProof: vision.proof,
           });
+          const response = specialistResponse.data as SpecialistResponse;
 
           if (runRef.current !== runId) return;
 
@@ -584,16 +579,14 @@ function App() {
 
       updateStage('lead', 'running', 'Ranking conditional opportunities');
 
-      const finalResult = await api<ScanResult>('/analyze/final', {
-        method: 'POST',
-        body: JSON.stringify({
-          visionProof: vision.proof,
-          reports: specialistResults.map(item => ({
-            role: item.role,
-            proof: item.proof,
-          })),
-        }),
+      const finalResponse = await api.post('/api/analyze/final', {
+        visionProof: vision.proof,
+        reports: specialistResults.map(item => ({
+          role: item.role,
+          proof: item.proof,
+        })),
       });
+      const finalResult = finalResponse.data as ScanResult;
 
       if (runRef.current !== runId) return;
 
@@ -633,7 +626,6 @@ function App() {
   );
 
   const completedRoles = result?.rolesCompleted?.length ?? 0;
-  const topOpportunity = result?.opportunities?.[0] ?? null;
 
   return (
     <main className='scanner-shell'>
