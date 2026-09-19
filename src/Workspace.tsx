@@ -8,13 +8,16 @@ type Event={id:string;scan_id:string;opportunity_index:number;state:string;note:
 type Strategy={family:string;registered:number;evidenceMaturity:string;states:Record<string,number>;providerErrors:number;favorableRObserved:{count:number;mean:number|null;max:number|null};adverseRObserved:{count:number;mean:number|null;max:number|null}};
 type Research={scope:{scans:number;monitoredSetups:number};qualification:string;explanation:string;strategies:Strategy[]};
 type QuantFrame={status:string;timeframe:string;provider?:string;providerInstrument?:string;close?:number;ema20?:number;ema50?:number;rsi14?:number;atr14?:number;atrPercent?:number;adx14?:number;recentHigh?:number;recentLow?:number;structure?:string;bias?:string;regime?:string;lastClosedAt?:string;reason?:string;authority:string;executionEligible:false};
-type QuantResult={symbol:string;generatedAt:string;authority:string;executionEligible:false;explanation:string;mtf:{alignment:string;up:number;down:number;neutral:number};frames:QuantFrame[]};
+type SessionSnapshot={generatedAt:string;ownerLocal:{zone:string;localDate:string;localTime:string;weekday:string};london:{localTime:string;weekday:string;active:boolean;openWindow:boolean};newYork:{localTime:string;weekday:string;active:boolean;openWindow:boolean};overlap:boolean;focusWindow:string;authority:string;explanation:string};
+type Capability={state:string;detail:string};
+type Diagnostics={health:Health;providers:Quote[];capabilities:Record<string,Capability>;sessions:SessionSnapshot;obsoleteLongLivedSecrets:string[];generatedAt:string};
+type QuantResult={symbol:string;generatedAt:string;authority:string;executionEligible:false;explanation:string;mtf:{alignment:string;up:number;down:number;neutral:number};sessions:SessionSnapshot;frames:QuantFrame[]};
 
 export default function Workspace(){
  const [config,setConfig]=useState<Config|null>(null),[health,setHealth]=useState<Health|null>(null),[signedIn,setSignedIn]=useState(false);
  const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [tab,setTab]=useState('scanner'),[scans,setScans]=useState<SavedScan[]>([]),[quotes,setQuotes]=useState<Quote[]>([]),[events,setEvents]=useState<Event[]>([]);
- const [research,setResearch]=useState<Research|null>(null),[quant,setQuant]=useState<QuantResult|null>(null),[quantSymbol,setQuantSymbol]=useState('BTCUSD'),[note,setNote]=useState(''),[loaded,setLoaded]=useState(false);
+ const [research,setResearch]=useState<Research|null>(null),[quant,setQuant]=useState<QuantResult|null>(null),[quantSymbol,setQuantSymbol]=useState('BTCUSD'),[diagnostics,setDiagnostics]=useState<Diagnostics|null>(null),[note,setNote]=useState(''),[loaded,setLoaded]=useState(false);
  useEffect(()=>{Promise.all([api.get('/api/config'),api.get('/api/health')]).then(([c,h])=>{setConfig(c.data);setHealth(h.data);}).catch(()=>setError('Unable to reach the production health service.'));},[]);
  async function login(e:FormEvent){
   e.preventDefault();if(!config?.supabaseUrl||!config.publishableKey)return;setBusy(true);setError('');
@@ -31,7 +34,7 @@ export default function Workspace(){
    if(tab==='journal'){const [s,e]=await Promise.all([api.get('/api/journal'),api.get('/api/events')]);setScans(s.data);setEvents(e.data);}
    else if(tab==='research')setResearch((await api.get('/api/research')).data);
    else if(tab==='quant')setQuant((await api.get('/api/quant?symbol='+encodeURIComponent(quantSymbol))).data);
-   else {const [m,d]=await Promise.all([api.get('/api/market'),api.get('/api/diagnostics')]);setQuotes(m.data);setHealth(d.data.health);}
+   else {const [m,d]=await Promise.all([api.get('/api/market'),api.get('/api/diagnostics')]);setQuotes(m.data);setHealth(d.data.health);setDiagnostics(d.data);}
    setLoaded(true);
   }catch(e){setError(e instanceof Error?e.message:'Request failed.');}finally{setBusy(false);}
  }
@@ -40,7 +43,7 @@ export default function Workspace(){
   if(!note.trim()){setError('Add an observation before recording a lifecycle event.');return;}setBusy(true);setError('');
   try{await api.post('/api/events',{scanId,opportunityIndex,state,note});setNote('');await refresh();}catch(e){setError(e instanceof Error?e.message:'Could not record event.');}finally{setBusy(false);}
  }
- const signOut=()=>{clearSession();setSignedIn(false);setScans([]);setEvents([]);setQuotes([]);setResearch(null);setQuant(null);setTab('scanner');};
+ const signOut=()=>{clearSession();setSignedIn(false);setScans([]);setEvents([]);setQuotes([]);setResearch(null);setQuant(null);setDiagnostics(null);setTab('scanner');};
  return <>
   <nav className='workspace-nav' aria-label='Workspace'><strong>AUREON Ω</strong>{signedIn&&<>
    <button onClick={()=>{setTab('scanner');setError('');}}>Scanner</button><button onClick={()=>{setTab('journal');setLoaded(false);}}>Journal</button>
@@ -59,12 +62,14 @@ export default function Workspace(){
     <button onClick={()=>void refresh()} disabled={busy}>{busy?'Loading…':'Refresh'}</button>{error&&<p role='alert'>{error}</p>}
     {!loaded&&!busy&&<p>Refresh to load current evidence.</p>}
     {tab==='market'&&loaded&&<><p>Engine: <strong>{health?.ready?'READY':'BLOCKED'}</strong> · DB {health?.database?.ready?'READY':'BLOCKED'} {health?.database?.latencyMs!==null&&health?.database?.latencyMs!==undefined?'· '+health.database.latencyMs+' ms':''}</p>
+     {diagnostics?.sessions&&<article className='journal-item'><h2>London / New York session engine</h2><p><strong>{diagnostics.sessions.focusWindow.replaceAll('_',' ')}</strong>{diagnostics.sessions.overlap?' · OVERLAP ACTIVE':''}</p><div className='session-grid'><div><span>LONDON</span><strong>{diagnostics.sessions.london.localTime}</strong><small>{diagnostics.sessions.london.active?'ACTIVE':'OFF'}{diagnostics.sessions.london.openWindow?' · OPEN WINDOW':''}</small></div><div><span>NEW YORK</span><strong>{diagnostics.sessions.newYork.localTime}</strong><small>{diagnostics.sessions.newYork.active?'ACTIVE':'OFF'}{diagnostics.sessions.newYork.openWindow?' · OPEN WINDOW':''}</small></div><div><span>OWNER LOCAL</span><strong>{diagnostics.sessions.ownerLocal.localTime}</strong><small>{diagnostics.sessions.ownerLocal.localDate}</small></div></div><small>{diagnostics.sessions.explanation}</small></article>}
+     {diagnostics&&<article className='journal-item'><h2>Capability matrix</h2><div className='capability-grid'>{Object.entries(diagnostics.capabilities).map(([name,item])=><div key={name}><span>{name.replace(/([A-Z])/g,' $1').toUpperCase()}</span><strong>{item.state.replaceAll('_',' ')}</strong><small>{item.detail}</small></div>)}</div>{diagnostics.obsoleteLongLivedSecrets.length>0?<p role='status'>Cleanup available: obsolete production secret names detected — {diagnostics.obsoleteLongLivedSecrets.join(', ')}. Their values are never exposed.</p>:<p className='muted'>No obsolete long-lived production secret variables detected.</p>}</article>}
      {quotes.map(q=><article key={q.symbol} className='journal-item'><h2>{q.symbol} · {q.authority}</h2><p>{q.price===null?'Unavailable':q.price.toLocaleString(undefined,{maximumFractionDigits:2})}</p>
       {q.bid&&q.ask?<p>Bid {q.bid.toLocaleString()} · Ask {q.ask.toLocaleString()} · Spread {q.spreadBps?.toFixed(2)} bps</p>:null}
       {q.crossProviderDeviationBps!==null&&q.crossProviderDeviationBps!==undefined?<p>Cross-provider deviation: {q.crossProviderDeviationBps.toFixed(2)} bps</p>:null}
       <p>{q.provider} {q.providerInstrument||''}</p><p>{q.reason}</p><small>{q.sourceTimestamp?'Source time: '+q.sourceTimestamp:'Source timestamp unavailable'}</small></article>)}</>}
     {tab==='quant'&&<><label>Instrument<select value={quantSymbol} onChange={e=>{setQuantSymbol(e.target.value);setLoaded(false);setQuant(null);}}><option>BTCUSD</option><option>XAUUSD</option></select></label>
-     {loaded&&quant?<><p><strong>{quant.symbol}</strong> · {quant.mtf.alignment.replaceAll('_',' ')} · UP {quant.mtf.up} / DOWN {quant.mtf.down} / NEUTRAL {quant.mtf.neutral}</p><p>{quant.explanation}</p>
+     {loaded&&quant?<><p><strong>{quant.symbol}</strong> · {quant.mtf.alignment.replaceAll('_',' ')} · UP {quant.mtf.up} / DOWN {quant.mtf.down} / NEUTRAL {quant.mtf.neutral}</p><p>Session focus: <strong>{quant.sessions.focusWindow.replaceAll('_',' ')}</strong>{quant.sessions.overlap?' · London/NY overlap':''}</p><p>{quant.explanation}</p>
       {quant.frames.map(frame=><article className='journal-item' key={frame.timeframe}><h2>{frame.timeframe} · {frame.status}</h2>{frame.status==='READY'?<><p>{frame.regime?.replaceAll('_',' ')} · Bias {frame.bias} · Structure {frame.structure}</p>
        <p>Close {frame.close} · EMA20 {frame.ema20} · EMA50 {frame.ema50}<br/>RSI14 {frame.rsi14} · ADX14 {frame.adx14} · ATR {frame.atr14} ({frame.atrPercent}%)</p>
        <p>20-bar range: {frame.recentLow} – {frame.recentHigh}</p><small>{frame.provider} {frame.providerInstrument} · Closed {frame.lastClosedAt} · {frame.authority.replaceAll('_',' ')}</small></>:<p>{frame.reason?.replaceAll('_',' ')||'Unavailable'}</p>}</article>)}</>:null}</>}

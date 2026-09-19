@@ -7,6 +7,7 @@ import { registerMonitor,checkMonitors,monitorSummary } from '../server/monitor.
 import { referenceQuote } from '../server/market.ts';
 import { researchSummary } from '../server/research.ts';
 import { multiTimeframeQuant } from '../server/quant.ts';
+import { marketSessions } from '../server/session.ts';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 type Request = IncomingMessage & { body?: any };
@@ -57,8 +58,26 @@ export default async function api(req: Request, res: ServerResponse) {
       const issues=await runtimeConfigurationIssues();const dbStarted=Date.now();let databaseReady=true;let databaseLatencyMs:number|null=null;
       try{await database('scans?select=id&limit=1');databaseLatencyMs=Date.now()-dbStarted;}catch{databaseReady=false;}
       const providerResults=await Promise.allSettled(['XAUUSD','BTCUSD'].map(referenceQuote));
+      const cronReady=Boolean(process.env.CRON_SECRET&&process.env.CRON_SECRET.length>=32);
+      const goldReady=Boolean(process.env.TWELVE_DATA_API_KEY);
+      const obsoleteLongLivedSecrets=['AI_API_KEY','SUPABASE_SECRET_KEY','SUPABASE_SERVICE_ROLE_KEY','PIPELINE_SIGNING_KEY'].filter(k=>Boolean(process.env[k]));
+      const capabilities={
+        astra:{state:issues.some(v=>v.includes('AI_'))?'BLOCKED':'ACTIVE',detail:configuredModel()},
+        database:{state:databaseReady?'ACTIVE':'BLOCKED',detail:databaseReady?'OIDC privileged bridge ready':'Privileged database bridge unavailable'},
+        btcData:{state:'ACTIVE',detail:'Coinbase + Kraken reference adapters with fail-closed disagreement checks'},
+        goldData:{state:goldReady?'ACTIVE':'NEEDS_PROVIDER_KEY',detail:goldReady?'Twelve Data XAU/USD enabled':'TWELVE_DATA_API_KEY is not configured'},
+        quant:{state:'ACTIVE',detail:'M5 / M15 / H1 / H4 closed-candle context'},
+        forwardMonitor:{state:'ACTIVE',detail:'Owner-triggered closed-candle reference monitoring'},
+        scheduledMonitor:{state:cronReady?'ACTIVE':'BLOCKED',detail:cronReady?'Authenticated daily cron configured':'CRON_SECRET missing or too short'},
+        highFrequencyMonitor:{state:'NOT_PROVISIONED',detail:'Current production schedule is daily/coarse; no continuous scanner is claimed'},
+        brokerQuoteAuthority:{state:'NOT_IMPLEMENTED',detail:'Reference data is not a broker execution feed'},
+        brokerExecution:{state:'DISABLED',detail:'Manual execution only; zero order endpoints'},
+        chartArchive:{state:'NOT_IMPLEMENTED',detail:'Raw uploaded chart images are not retained'},
+        strategyQualification:{state:'RESEARCH_ONLY',detail:'No profitability claim until execution-quality forward evidence exists'},
+      };
       return send(200,{health:{ready:issues.length===0&&databaseReady,model:configuredModel(),database:{ready:databaseReady,latencyMs:databaseLatencyMs},issues},
-        providers:providerResults.map((r,i)=>r.status==='fulfilled'?r.value:{symbol:['XAUUSD','BTCUSD'][i],authority:'UNAVAILABLE',reason:'Provider request failed.'}),generatedAt:new Date().toISOString()});
+        providers:providerResults.map((r,i)=>r.status==='fulfilled'?r.value:{symbol:['XAUUSD','BTCUSD'][i],authority:'UNAVAILABLE',reason:'Provider request failed.'}),
+        capabilities,sessions:marketSessions(),obsoleteLongLivedSecrets,generatedAt:new Date().toISOString()});
     }
     if (method === 'GET' && path === '/api/market') {
       const settled = await Promise.allSettled(['XAUUSD','BTCUSD'].map(referenceQuote));

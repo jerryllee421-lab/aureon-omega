@@ -1,4 +1,5 @@
 import {acquireCandles,intervalLabel,type Candle,type CandlePack,type SupportedInterval} from './candles.ts';
+import {marketSessions} from './session.ts';
 
 const round=(v:number|null,d=6)=>v===null?null:Number(v.toFixed(d));
 const sma=(values:number[])=>values.reduce((a,b)=>a+b,0)/values.length;
@@ -91,6 +92,6 @@ export async function multiTimeframeQuant(symbol:string){
   return {
     symbol,generatedAt:new Date().toISOString(),authority:'CLOSED_CANDLE_REFERENCE',executionEligible:false,
     explanation:'Deterministic multi-timeframe reference context from closed provider candles. This is not a broker quote, fill model, trade signal or execution authority.',
-    mtf:mtfAlignment(ready),frames
+    mtf:mtfAlignment(ready),sessions:marketSessions(),frames
   };
 }
