@@ -1,10 +1,11 @@
 import { handler } from '../backend/index.ts';
-import { runtimeConfigurationIssues } from '../backend/runtime.ts';
+import { runtimeConfigurationIssues, configuredModel } from '../backend/runtime.ts';
 import { authenticate, database } from '../server/database.ts';
 import { sign, verify } from '../server/proof.ts';
 import { harden } from '../server/authority.ts';
 import { registerMonitor,checkMonitors,monitorSummary } from '../server/monitor.ts';
 import { referenceQuote } from '../server/market.ts';
+import { researchSummary } from '../server/research.ts';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 type Request = IncomingMessage & { body?: any };
@@ -12,13 +13,26 @@ const roles = ['STRUCTURE ANALYST','OPPORTUNITY ANALYST','RISK CRITIC'];
 export default async function api(req: Request, res: ServerResponse) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type','application/json');
-  const send = (status: number, data: unknown) => { res.statusCode = status; res.end(JSON.stringify(data)); };
+  const startedAt=Date.now();
+  const requestId=typeof req.headers['x-request-id']==='string'&&/^[A-Za-z0-9._-]{1,80}$/.test(req.headers['x-request-id'])?req.headers['x-request-id']:randomUUID();
+  res.setHeader('X-Request-Id',requestId);
+  const path = new URL(req.url || '/', 'https://aureon.invalid').pathname;
+  const method = req.method || 'GET';
+  const send = (status:number,data:unknown) => {
+    res.statusCode=status;res.end(JSON.stringify(data));
+    console.info(JSON.stringify({service:'aureon-api',requestId,method,path,status,durationMs:Date.now()-startedAt}));
+  };
   try {
-    const path = new URL(req.url || '/', 'https://aureon.invalid').pathname;
-    const method = req.method || 'GET';
     if (method === 'GET' && path === '/api/config') return send(200, { supabaseUrl: process.env.SUPABASE_URL || null, publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY || null });
     if (method === 'GET' && path === '/api/status') {
       const response = await handler(method,path,{}); return send(response.status, await response.json());
+    }
+    if (method === 'GET' && path === '/api/health') {
+      const issues=await runtimeConfigurationIssues();
+      const dbStarted=Date.now();let databaseReady=true;let databaseLatencyMs:number|null=null;
+      try{await database('scans?select=id&limit=1');databaseLatencyMs=Date.now()-dbStarted;}catch{databaseReady=false;}
+      const ready=issues.length===0&&databaseReady;
+      return send(ready?200:503,{ready,model:configuredModel(),database:{ready:databaseReady,latencyMs:databaseLatencyMs},issues,generatedAt:new Date().toISOString()});
     }
     if (method === 'GET' && path === '/api/cron/monitor') {
       const configured=process.env.CRON_SECRET;const supplied=req.headers.authorization;
@@ -31,6 +45,14 @@ export default async function api(req: Request, res: ServerResponse) {
     if (method === 'GET' && path === '/api/monitor') return send(200,await monitorSummary(userId));
     if (method === 'GET' && path === '/api/journal') return send(200, await database(`scans?user_id=eq.${userId}&select=id,created_at,result&order=created_at.desc&limit=50`));
     if (method === 'GET' && path === '/api/events') return send(200, await database(`setup_events?user_id=eq.${userId}&order=created_at.desc&limit=100`));
+    if (method === 'GET' && path === '/api/research') return send(200,await researchSummary(userId));
+    if (method === 'GET' && path === '/api/diagnostics') {
+      const issues=await runtimeConfigurationIssues();const dbStarted=Date.now();let databaseReady=true;let databaseLatencyMs:number|null=null;
+      try{await database('scans?select=id&limit=1');databaseLatencyMs=Date.now()-dbStarted;}catch{databaseReady=false;}
+      const providerResults=await Promise.allSettled(['XAUUSD','BTCUSD'].map(referenceQuote));
+      return send(200,{health:{ready:issues.length===0&&databaseReady,model:configuredModel(),database:{ready:databaseReady,latencyMs:databaseLatencyMs},issues},
+        providers:providerResults.map((r,i)=>r.status==='fulfilled'?r.value:{symbol:['XAUUSD','BTCUSD'][i],authority:'UNAVAILABLE',reason:'Provider request failed.'}),generatedAt:new Date().toISOString()});
+    }
     if (method === 'GET' && path === '/api/market') {
       const settled = await Promise.allSettled(['XAUUSD','BTCUSD'].map(referenceQuote));
       return send(200, settled.map((r,i) => r.status === 'fulfilled' ? r.value : { symbol: ['XAUUSD','BTCUSD'][i], price:null, authority:'UNAVAILABLE', executionEligible:false, reason:'Provider request failed.' }));

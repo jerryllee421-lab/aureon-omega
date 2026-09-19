@@ -1,63 +1,75 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import App from './App';
-import MonitorPanel from './MonitorPanel';
-import { api, setAccessToken } from './api';
-type Config = {supabaseUrl:string|null;publishableKey:string|null};
-type SavedScan = {id:string;created_at:string;result:{decision:string;readinessScore:number;opportunities:{setupType:string;direction:string;thesis:string}[]}};
-type Quote = {symbol:string;price:number|null;authority:string;reason:string;providerInstrument?:string;sourceTimestamp?:string|null};
-type Event = {id:string;scan_id:string;opportunity_index:number;state:string;note:string;created_at:string};
-export default function Workspace() {
-  const [config,setConfig] = useState<Config|null>(null);
-  const [signedIn,setSignedIn] = useState(false);
-  const [email,setEmail] = useState(''); const [password,setPassword] = useState('');
-  const [busy,setBusy] = useState(false); const [error,setError] = useState('');
-  const [tab,setTab] = useState('scanner'); const [scans,setScans] = useState<SavedScan[]>([]);
-  const [quotes,setQuotes] = useState<Quote[]>([]); const [events,setEvents] = useState<Event[]>([]);
-  const [note,setNote] = useState(''); const [loaded,setLoaded] = useState(false);
-  useEffect(()=>{api.get('/api/config').then(r=>setConfig(r.data)).catch(()=>setError('Unable to reach the application server.'));},[]);
-  async function login(e:FormEvent) {
-    e.preventDefault(); if (!config?.supabaseUrl || !config.publishableKey) return;
-    setBusy(true);setError('');
-    try {
-      const r = await fetch(config.supabaseUrl + '/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:config.publishableKey,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-      const data = await r.json(); if (!r.ok || !data.access_token) throw new Error('Sign-in failed. Check your owner account credentials.');
-      setAccessToken(data.access_token);
-      await api.get('/api/journal'); // Enforce server owner authorization before opening the desk.
-      setPassword('');setSignedIn(true);
-    } catch(e) {setAccessToken(null);setError(e instanceof Error?e.message:'Sign-in failed.');}
-    finally {setBusy(false);}
-  }
-  async function refresh() {
-    setBusy(true);setError('');setLoaded(false);
-    try {
-      if(tab==='journal') {const [s,e]=await Promise.all([api.get('/api/journal'),api.get('/api/events')]);setScans(s.data);setEvents(e.data);}
-      else setQuotes((await api.get('/api/market')).data);
-      setLoaded(true);
-    } catch(e) {setError(e instanceof Error?e.message:'Request failed.');}
-    finally {setBusy(false);}
-  }
-  async function register(scanId:string,opportunityIndex:number){setBusy(true);setError('');try{await api.post('/api/monitor/register',{scanId,opportunityIndex});setTab('monitor');}catch(e){setError(e instanceof Error?e.message:'Could not register setup.');}finally{setBusy(false);}}
-  async function record(scanId:string,opportunityIndex:number,state:string) {
-    if(!note.trim()) {setError('Add an observation before recording a lifecycle event.');return;}
-    setBusy(true);setError('');
-    try {await api.post('/api/events',{scanId,opportunityIndex,state,note});setNote('');await refresh();}
-    catch(e) {setError(e instanceof Error?e.message:'Could not record event.');}
-    finally {setBusy(false);}
-  }
-  return <>
-    <nav className='workspace-nav' aria-label='Workspace'>
-      <strong>AUREON Ω</strong>
-      {signedIn && <><button onClick={()=>{setTab('scanner');setError('');}}>Scanner</button><button onClick={()=>{setTab('journal');setLoaded(false);setError('');}}>Journal</button><button onClick={()=>{setTab('monitor');setError('');}}>Monitor</button><button onClick={()=>{setTab('market');setLoaded(false);setError('');}}>Data truth</button><button onClick={()=>{setAccessToken(null);setSignedIn(false);setScans([]);setEvents([]);setQuotes([]);setTab('scanner');}}>Sign out</button></>}
-    </nav>
-    {!signedIn ? <main className='shell'><section className='scanner-card auth-panel'><div className='eyebrow'>ASTRA INTELLIGENCE ENGINE</div><h1>Your market workspace</h1><p>Sign in to scan charts and keep an evidence-backed journal.</p>
-      {config && !config.supabaseUrl && <p role='status'>Workspace setup is incomplete. Authentication and analysis remain unavailable.</p>}
-      <form onSubmit={login}><label>Email<input type='email' autoComplete='username' required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<input type='password' autoComplete='current-password' required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className='primary-button' disabled={busy||!config?.supabaseUrl}>{busy?'Signing in…':'Sign in'}</button></form>
-      {error&&<p role='alert'>{error}</p>}<p className='muted'>Manual execution only. No broker orders.</p></section></main> : <>
-      {tab==='scanner' ? <App/> : tab==='monitor' ? <MonitorPanel/> : <main className='shell'><section className='scanner-card auth-panel'><div className='eyebrow'>{tab==='journal'?'PERSISTENT EVIDENCE':'PROVIDER VERIFICATION'}</div><h1>{tab==='journal'?'Journal & setup monitor':'Data truth'}</h1><button onClick={()=>void refresh()} disabled={busy}>{busy?'Loading…':'Refresh'}</button>{error&&<p role='alert'>{error}</p>}
-      {!loaded&&!busy&&<p>Refresh to load your latest {tab==='journal'?'saved scans and lifecycle events':'provider references'}.</p>}
-      {tab==='market'&&loaded&&quotes.map(q=><article key={q.symbol} className='journal-item'><h2>{q.symbol} · {q.authority}</h2><p>{q.price===null?'Unavailable':q.price.toLocaleString(undefined,{maximumFractionDigits:2})}</p><p>{q.providerInstrument}</p><p>{q.reason}</p><small>{q.sourceTimestamp?'Source time: '+q.sourceTimestamp:'Source timestamp unavailable'}</small></article>)}
-      {tab==='journal'&&loaded&&<><p>Events are your observations. They do not certify fills, profit or execution readiness.</p><label>Observation<textarea maxLength={3000} value={note} onChange={e=>setNote(e.target.value)} placeholder='What changed in the setup?'/></label>{scans.length===0&&<p>No saved scans yet. Completed analyses will appear here.</p>}{scans.map(scan=><article className='journal-item' key={scan.id}><h2>{scan.result.decision.replaceAll('_',' ')}</h2><small>{new Date(scan.created_at).toLocaleString()}</small><p>Readiness {scan.result.readinessScore}/100 — not a win probability.</p>{scan.result.opportunities.map((o,index)=>{const history=events.filter(e=>e.scan_id===scan.id&&e.opportunity_index===index);const terminal=history.some(e=>['CLOSED','INVALIDATED','EXPIRED'].includes(e.state));return <section key={index}><h3>{o.direction} · {o.setupType.replaceAll('_',' ')}</h3><p>{o.thesis}</p><div className='event-actions'><button disabled={busy||terminal} onClick={()=>void register(scan.id,index)}>Monitor price path</button>{['WATCH','INVALIDATED','EXPIRED','CLOSED'].map(state=><button key={state} disabled={busy||terminal} onClick={()=>void record(scan.id,index,state)}>{state}</button>)}</div>{history.map(e=><p key={e.id}><strong>{e.state}</strong> · {e.note}</p>)}</section>;})}</article>)}<p>Forward validation: no verified outcome dataset yet. Expectancy, win rate and profit factor are unavailable.</p></>}
-      </section></main>}
-    </>}
-  </>;
+import {useEffect,useState,type FormEvent} from 'react';
+import App from './App';import MonitorPanel from './MonitorPanel';import {api,setSession,clearSession} from './api';
+type Config={supabaseUrl:string|null;publishableKey:string|null};
+type Health={ready:boolean;model:string;database:{ready:boolean;latencyMs:number|null};issues:string[]};
+type SavedScan={id:string;created_at:string;result:{decision:string;readinessScore:number;opportunities:{setupType:string;direction:string;thesis:string}[]}};
+type Quote={symbol:string;price:number|null;bid?:number|null;ask?:number|null;spreadBps?:number|null;crossProviderDeviationBps?:number|null;authority:string;reason:string;provider?:string;providerInstrument?:string;sourceTimestamp?:string|null};
+type Event={id:string;scan_id:string;opportunity_index:number;state:string;note:string;created_at:string};
+type Strategy={family:string;registered:number;evidenceMaturity:string;states:Record<string,number>;providerErrors:number;favorableRObserved:{count:number;mean:number|null;max:number|null};adverseRObserved:{count:number;mean:number|null;max:number|null}};
+type Research={scope:{scans:number;monitoredSetups:number};qualification:string;explanation:string;strategies:Strategy[]};
+
+export default function Workspace(){
+ const [config,setConfig]=useState<Config|null>(null),[health,setHealth]=useState<Health|null>(null),[signedIn,setSignedIn]=useState(false);
+ const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [tab,setTab]=useState('scanner'),[scans,setScans]=useState<SavedScan[]>([]),[quotes,setQuotes]=useState<Quote[]>([]),[events,setEvents]=useState<Event[]>([]);
+ const [research,setResearch]=useState<Research|null>(null),[note,setNote]=useState(''),[loaded,setLoaded]=useState(false);
+ useEffect(()=>{Promise.all([api.get('/api/config'),api.get('/api/health')]).then(([c,h])=>{setConfig(c.data);setHealth(h.data);}).catch(()=>setError('Unable to reach the production health service.'));},[]);
+ async function login(e:FormEvent){
+  e.preventDefault();if(!config?.supabaseUrl||!config.publishableKey)return;setBusy(true);setError('');
+  try{
+   const r=await fetch(config.supabaseUrl+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:config.publishableKey,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+   const data=await r.json();if(!r.ok||!data.access_token)throw new Error('Sign-in failed. Check your owner account credentials.');
+   setSession({accessToken:data.access_token,refreshToken:data.refresh_token||null,supabaseUrl:config.supabaseUrl,publishableKey:config.publishableKey});
+   await api.get('/api/journal');setPassword('');setSignedIn(true);
+  }catch(e){clearSession();setError(e instanceof Error?e.message:'Sign-in failed.');}finally{setBusy(false);}
+ }
+ async function refresh(){
+  setBusy(true);setError('');setLoaded(false);
+  try{
+   if(tab==='journal'){const [s,e]=await Promise.all([api.get('/api/journal'),api.get('/api/events')]);setScans(s.data);setEvents(e.data);}
+   else if(tab==='research')setResearch((await api.get('/api/research')).data);
+   else {const [m,d]=await Promise.all([api.get('/api/market'),api.get('/api/diagnostics')]);setQuotes(m.data);setHealth(d.data.health);}
+   setLoaded(true);
+  }catch(e){setError(e instanceof Error?e.message:'Request failed.');}finally{setBusy(false);}
+ }
+ async function register(scanId:string,opportunityIndex:number){setBusy(true);setError('');try{await api.post('/api/monitor/register',{scanId,opportunityIndex});setTab('monitor');}catch(e){setError(e instanceof Error?e.message:'Could not register setup.');}finally{setBusy(false);}}
+ async function record(scanId:string,opportunityIndex:number,state:string){
+  if(!note.trim()){setError('Add an observation before recording a lifecycle event.');return;}setBusy(true);setError('');
+  try{await api.post('/api/events',{scanId,opportunityIndex,state,note});setNote('');await refresh();}catch(e){setError(e instanceof Error?e.message:'Could not record event.');}finally{setBusy(false);}
+ }
+ const signOut=()=>{clearSession();setSignedIn(false);setScans([]);setEvents([]);setQuotes([]);setResearch(null);setTab('scanner');};
+ return <>
+  <nav className='workspace-nav' aria-label='Workspace'><strong>AUREON Ω</strong>{signedIn&&<>
+   <button onClick={()=>{setTab('scanner');setError('');}}>Scanner</button><button onClick={()=>{setTab('journal');setLoaded(false);}}>Journal</button>
+   <button onClick={()=>setTab('monitor')}>Monitor</button><button onClick={()=>{setTab('research');setLoaded(false);}}>Research</button>
+   <button onClick={()=>{setTab('market');setLoaded(false);}}>Data truth</button><button onClick={signOut}>Sign out</button></>}</nav>
+  {!signedIn?<main className='shell'><section className='scanner-card auth-panel'><div className='eyebrow'>ASTRA INTELLIGENCE ENGINE</div><h1>Your market workspace</h1>
+   <p>Sign in to scan charts and keep an evidence-backed journal.</p>
+   <p role='status'>Production health: <strong>{health?.ready?'READY':'CHECKING / BLOCKED'}</strong>{health?.model?' · '+health.model:''}</p>
+   <form onSubmit={login}><label>Email<input type='email' autoComplete='username' required value={email} onChange={e=>setEmail(e.target.value)}/></label>
+   <label>Password<input type='password' autoComplete='current-password' required value={password} onChange={e=>setPassword(e.target.value)}/></label>
+   <button className='primary-button' disabled={busy||!config?.supabaseUrl}>{busy?'Signing in…':'Sign in'}</button></form>{error&&<p role='alert'>{error}</p>}
+   <p className='muted'>Manual execution only. No broker orders. Session refresh tokens remain in memory only.</p></section></main>:<>
+   {tab==='scanner'?<App/>:tab==='monitor'?<MonitorPanel/>:<main className='shell'><section className='scanner-card auth-panel'>
+    <div className='eyebrow'>{tab==='journal'?'PERSISTENT EVIDENCE':tab==='research'?'RESEARCH EVIDENCE':'PROVIDER VERIFICATION'}</div>
+    <h1>{tab==='journal'?'Journal & setup monitor':tab==='research'?'Strategy evidence maturity':'Data truth & diagnostics'}</h1>
+    <button onClick={()=>void refresh()} disabled={busy}>{busy?'Loading…':'Refresh'}</button>{error&&<p role='alert'>{error}</p>}
+    {!loaded&&!busy&&<p>Refresh to load current evidence.</p>}
+    {tab==='market'&&loaded&&<><p>Engine: <strong>{health?.ready?'READY':'BLOCKED'}</strong> · DB {health?.database?.ready?'READY':'BLOCKED'} {health?.database?.latencyMs!==null&&health?.database?.latencyMs!==undefined?'· '+health.database.latencyMs+' ms':''}</p>
+     {quotes.map(q=><article key={q.symbol} className='journal-item'><h2>{q.symbol} · {q.authority}</h2><p>{q.price===null?'Unavailable':q.price.toLocaleString(undefined,{maximumFractionDigits:2})}</p>
+      {q.bid&&q.ask?<p>Bid {q.bid.toLocaleString()} · Ask {q.ask.toLocaleString()} · Spread {q.spreadBps?.toFixed(2)} bps</p>:null}
+      {q.crossProviderDeviationBps!==null&&q.crossProviderDeviationBps!==undefined?<p>Cross-provider deviation: {q.crossProviderDeviationBps.toFixed(2)} bps</p>:null}
+      <p>{q.provider} {q.providerInstrument||''}</p><p>{q.reason}</p><small>{q.sourceTimestamp?'Source time: '+q.sourceTimestamp:'Source timestamp unavailable'}</small></article>)}</>}
+    {tab==='research'&&loaded&&<>{research?<><p>{research.explanation}</p><p>{research.scope.scans} scans · {research.scope.monitoredSetups} monitored setups · {research.qualification}</p>
+     {research.strategies.length===0?<p>No monitored strategy evidence yet.</p>:research.strategies.map(s=><article className='journal-item' key={s.family}><h2>{s.family.replaceAll('_',' ')}</h2>
+      <p>{s.registered} registered · {s.evidenceMaturity.replaceAll('_',' ')}</p><p>States: {Object.entries(s.states).map(([k,v])=>k.replaceAll('_',' ')+' '+v).join(' · ')||'none'}</p>
+      <p>Observed favorable R: mean {s.favorableRObserved.mean??'—'} · max {s.favorableRObserved.max??'—'}<br/>Observed adverse R: mean {s.adverseRObserved.mean??'—'} · max {s.adverseRObserved.max??'—'}</p>
+      <small>Provider errors: {s.providerErrors}. No win rate, expectancy or profit factor is inferred.</small></article>)}</>:null}</>}
+    {tab==='journal'&&loaded&&<><p>Events are your observations. They do not certify fills, profit or execution readiness.</p><label>Observation<textarea maxLength={3000} value={note} onChange={e=>setNote(e.target.value)} placeholder='What changed in the setup?'/></label>
+     {scans.length===0&&<p>No saved scans yet. Completed analyses will appear here.</p>}
+     {scans.map(scan=><article className='journal-item' key={scan.id}><h2>{scan.result.decision.replaceAll('_',' ')}</h2><small>{new Date(scan.created_at).toLocaleString()}</small><p>Readiness {scan.result.readinessScore}/100 — not a win probability.</p>
+      {scan.result.opportunities.map((o,index)=>{const history=events.filter(e=>e.scan_id===scan.id&&e.opportunity_index===index),terminal=history.some(e=>['CLOSED','INVALIDATED','EXPIRED'].includes(e.state));return <section key={index}><h3>{o.direction} · {o.setupType.replaceAll('_',' ')}</h3><p>{o.thesis}</p><div className='event-actions'><button disabled={busy||terminal} onClick={()=>void register(scan.id,index)}>Monitor price path</button>{['WATCH','INVALIDATED','EXPIRED','CLOSED'].map(state=><button key={state} disabled={busy||terminal} onClick={()=>void record(scan.id,index,state)}>{state}</button>)}</div>{history.map(e=><p key={e.id}><strong>{e.state}</strong> · {e.note}</p>)}</section>;})}</article>)}
+     <p>Forward validation: no verified execution dataset yet. Expectancy, win rate and profit factor remain unavailable.</p></>}
+   </section></main>}</>}
+ </>;
 }

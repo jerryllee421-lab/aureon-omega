@@ -35,5 +35,16 @@ export function observePlan(plan:Plan,pack:CandlePack,now=Date.now()):Observatio
 }
 export function summarizeObservations(rows:Observation[]) {
   const counts=Object.fromEntries(['WATCH','ENTRY_TOUCHED','TARGET_TOUCHED','STOP_TOUCHED','AMBIGUOUS','EXPIRED','DATA_GAP'].map(s=>[s,rows.filter(r=>r.state===s).length]));
-  return {sampleCount:rows.length,counts,winRate:null,expectancy:null,profitFactor:null,explanation:'Counts describe reference-market price paths, not executed trades. No profitability statistics are inferred.'};
+  const favorable=rows.map(r=>r.favorableR).filter((v):v is number=>Number.isFinite(v));
+  const adverse=rows.map(r=>r.adverseR).filter((v):v is number=>Number.isFinite(v));
+  const avg=(values:number[])=>values.length?Number((values.reduce((a,b)=>a+b,0)/values.length).toFixed(3)):null;
+  return {
+    sampleCount:rows.length,counts,
+    entryTouchCount:rows.filter(r=>r.entryTouchTime!==null).length,
+    terminalReferenceCount:rows.filter(r=>r.terminalTime!==null).length,
+    favorableRObserved:{count:favorable.length,mean:avg(favorable),max:favorable.length?Math.max(...favorable):null},
+    adverseRObserved:{count:adverse.length,mean:avg(adverse),max:adverse.length?Math.max(...adverse):null},
+    winRate:null,expectancy:null,profitFactor:null,
+    explanation:'Counts and excursions describe reference-market price paths, not executed trades. No profitability statistics are inferred.'
+  };
 }
