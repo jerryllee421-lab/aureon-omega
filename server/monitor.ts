@@ -17,7 +17,7 @@ export async function registerMonitor(userId:string,scanId:string,index:number) 
   const createdAt=Date.now(),expiresAt=createdAt+12*3600000;
   const plan:Plan={symbol:String(symbols[0]),direction:setup.direction,entryLow:Math.min(...entry),entryHigh:Math.max(...entry),stop:stop[0],target:target[0],createdAt,expiresAt};
   // Geometry validation runs even before any history is available.
-  observePlan(plan,{symbol:plan.symbol,provider:'UNAVAILABLE',providerInstrument:'',intervalMs:300000,observedAt:createdAt,candles:[]},createdAt);
+  observePlan(plan,{symbol:plan.symbol,provider:'UNAVAILABLE',providerInstrument:'',intervalMs:300000,intervalMinutes:5,observedAt:createdAt,candles:[]},createdAt);
   return database('monitored_setups','POST',{user_id:userId,scan_id:scanId,opportunity_index:index,created_at:new Date(createdAt).toISOString(),expires_at:new Date(expiresAt).toISOString(),plan});
 }
 export async function checkMonitors(userId:string) {
