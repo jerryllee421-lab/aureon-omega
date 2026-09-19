@@ -1,28 +1,27 @@
 # AUREON Ω Production Runbook
 
 ## Release gates
-A production change is accepted only when GitHub Actions passes tests and the TypeScript/Vite build, Vercel reports READY, and /api/health returns ready=true.
+1. GitHub tests pass.
+2. TypeScript/Vite build passes.
+3. Vercel is READY.
+4. `/api/health` returns `ready:true`.
+5. Supabase security advisor is reviewed.
 
-## Fail-closed rules
-- No provider result means UNAVAILABLE, never a fabricated value.
-- Screenshot analysis never grants execution authority.
-- Broker orders are not implemented.
-- Cross-provider disagreement is surfaced, not averaged away as certainty.
-- Monitoring observations are reference-market candle paths, not fills or P&L.
-
-## Incident checks
-1. Check /api/health and Vercel runtime errors.
-2. Check Supabase security advisor and database availability.
-3. Check provider-specific status under the owner-only Data truth page.
-4. If AI is blocked, verify Vercel OIDC / AI Gateway before adding long-lived API keys.
-5. If monitoring is blocked, use the manual owner check; Hobby cron remains daily and coarse.
+## Incident triage
+1. `/api/status` — ASTRA/OIDC.
+2. `/api/health` — ASTRA + privileged DB bridge.
+3. Vercel runtime errors + X-Request-Id.
+4. Owner Data Truth — provider conflicts/staleness.
+5. Supabase advisor + Edge logs.
 
 ## Security
-- Server secrets stay in Vercel only.
-- Owner access is enforced by Supabase user UUID and server verification.
-- Client tokens and refresh tokens remain in memory only.
-- Rotate any secret exposed outside the secret manager.
-- Apply explicit grants for every new database object; default public-schema grants are revoked.
+- Production AI and privileged DB access stay OIDC-based.
+- Do not restore a long-lived Vercel Supabase admin key without a reviewed migration.
+- Rotate `CRON_SECRET` if exposed.
+- Client access/refresh tokens remain in memory only.
 
-## Research interpretation
-Readiness scores are deterministic gate arithmetic, not win probabilities. Strategy research stays RESEARCH_ONLY until a verified execution-quality outcome dataset exists.
+## Fail-closed
+Unavailable provider → UNAVAILABLE. Provider disagreement → conflict. Screenshot/quant context → no execution authority. No fills/P&L inferred from candle touches. Gaps/staleness block conclusions.
+
+## Research
+Readiness is deterministic gate arithmetic, not probability. Strategy evidence remains RESEARCH_ONLY until verified execution-quality outcomes exist.

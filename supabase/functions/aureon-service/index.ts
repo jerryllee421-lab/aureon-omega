@@ -1,0 +1,28 @@
+// Source mirror of deployed Supabase Edge Function aureon-service.
+import { createRemoteJWKSet, decodeJwt, jwtVerify } from 'npm:jose@6.1.2';
+const TEAM_ID='team_FPtl41FOOM8ICOLcwunfkyf8';
+const PROJECT_ID='prj_xFMNqhQ4AyeIqld2AHhiAgZX8sx3';
+const AUDIENCE='https://hfjglluombfnrwslfbuw.supabase.co/functions/v1/aureon-service';
+const JWKS=createRemoteJWKSet(new URL('https://oidc.vercel.com/.well-known/jwks'));
+const STAGES=new Set(['VISION','STRUCTURE ANALYST','OPPORTUNITY ANALYST','RISK CRITIC','FINAL']);
+const enc=new TextEncoder(),dec=new TextDecoder();
+const resp=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+function b64(bytes:Uint8Array){let s='';for(const b of bytes)s+=String.fromCharCode(b);return btoa(s).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');}
+function unb64(v:string){const x=v.replaceAll('-','+').replaceAll('_','/')+'='.repeat((4-v.length%4)%4);return Uint8Array.from(atob(x),c=>c.charCodeAt(0));}
+async function authorize(req:Request){
+ const a=req.headers.get('authorization')||'';if(!a.startsWith('Bearer '))throw new Error('UNAUTHORIZED');
+ const token=a.slice(7),decoded=decodeJwt(token),issuer=String(decoded.iss||'');let u:URL;try{u=new URL(issuer)}catch{throw new Error('UNAUTHORIZED')}
+ if(u.protocol!=='https:'||u.hostname!=='oidc.vercel.com')throw new Error('UNAUTHORIZED');
+ const {payload}=await jwtVerify(token,JWKS,{issuer,audience:AUDIENCE});
+ if(payload.owner_id!==TEAM_ID||payload.project_id!==PROJECT_ID||payload.environment!=='production')throw new Error('UNAUTHORIZED');
+}
+function key(){
+ const modern=Deno.env.get('SUPABASE_SECRET_KEYS');if(modern){try{const keys=JSON.parse(modern);if(typeof keys.default==='string'&&keys.default.startsWith('sb_secret_'))return keys.default}catch{}}
+ const legacy=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');if(legacy)return legacy;throw new Error('SERVICE_KEY_UNAVAILABLE');
+}
+async function hmacKey(){return crypto.subtle.importKey('raw',enc.encode(key()),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);}
+async function signProof(payload:unknown,userId:string,stage:string){if(!STAGES.has(stage)||!userId)throw new Error('INVALID_PROOF_INPUT');const body=b64(enc.encode(JSON.stringify({payload,userId,stage,expires:Date.now()+900000}))),k=await hmacKey(),mac=new Uint8Array(await crypto.subtle.sign('HMAC',k,enc.encode('AUREON_PIPELINE_SIGNING_V2:'+body)));return body+'.'+b64(mac);}
+async function verifyProof(token:unknown,userId:string,stage:string){if(typeof token!=='string'||token.length>250000||!STAGES.has(stage)||!userId)throw new Error('INVALID_STAGE_PROOF');const p=token.split('.');if(p.length!==2||!p[0]||!p[1])throw new Error('INVALID_STAGE_PROOF');const k=await hmacKey();if(!await crypto.subtle.verify('HMAC',k,unb64(p[1]),enc.encode('AUREON_PIPELINE_SIGNING_V2:'+p[0])))throw new Error('INVALID_STAGE_PROOF');let d:any;try{d=JSON.parse(dec.decode(unb64(p[0])))}catch{throw new Error('INVALID_STAGE_PROOF')}if(d.userId!==userId||d.stage!==stage||!Number.isFinite(d.expires)||d.expires<=Date.now())throw new Error('INVALID_STAGE_PROOF');return d.payload;}
+function allowed(path:string,method:string){if(path.includes('..')||path.includes('#')||path.length>1200)return false;const table=/^(scans|setup_events|monitored_setups|monitor_evidence)(\?.*)?$/.exec(path)?.[1];if(table==='scans')return method==='GET'||method==='POST';if(table==='setup_events')return method==='GET';if(table==='monitored_setups')return ['GET','POST','PATCH'].includes(method);if(table==='monitor_evidence')return method==='GET';return ['rpc/claim_analysis_stage','rpc/record_setup_event','rpc/record_monitor_check'].includes(path)&&method==='POST';}
+async function db(input:any){const path=String(input.path||''),method=String(input.method||'GET').toUpperCase();if(!allowed(path,method))return resp({error:'OPERATION_NOT_ALLOWED'},403);const url=Deno.env.get('SUPABASE_URL');if(!url)throw new Error('SUPABASE_URL_UNAVAILABLE');const k=key(),headers:Record<string,string>={apikey:k,'Content-Type':'application/json',Prefer:'return=representation'};if(!k.startsWith('sb_secret_'))headers.Authorization='Bearer '+k;const r=await fetch(url+'/rest/v1/'+path,{method,headers,body:input.body===undefined?undefined:JSON.stringify(input.body),signal:AbortSignal.timeout(15000)});if(r.status===204)return new Response(null,{status:204,headers:{'Cache-Control':'no-store'}});const text=await r.text();return new Response(text||'null',{status:r.status,headers:{'Content-Type':r.headers.get('content-type')||'application/json','Cache-Control':'no-store'}});}
+Deno.serve(async(req:Request)=>{if(req.method!=='POST')return resp({error:'METHOD_NOT_ALLOWED'},405);try{await authorize(req);const raw=await req.text();if(raw.length>1500000)return resp({error:'PAYLOAD_TOO_LARGE'},413);const input=JSON.parse(raw||'{}');if(input.operation==='database')return db(input);if(input.operation==='proof_sign')return resp({token:await signProof(input.payload,String(input.userId||''),String(input.stage||''))});if(input.operation==='proof_verify')return resp({payload:await verifyProof(input.token,String(input.userId||''),String(input.stage||''))});return resp({error:'OPERATION_NOT_ALLOWED'},403)}catch(e){const code=e instanceof Error?e.message:'SERVICE_FAILURE',client=['UNAUTHORIZED','INVALID_STAGE_PROOF','INVALID_PROOF_INPUT'].includes(code);console.error(JSON.stringify({service:'aureon-service',code:client?code:'SERVICE_FAILURE'}));return resp({error:client?code:'SERVICE_FAILURE'},code==='UNAUTHORIZED'?401:client?400:503)}});
