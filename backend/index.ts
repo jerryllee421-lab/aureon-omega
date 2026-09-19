@@ -1,4 +1,4 @@
-import { ai, error, json, router, configurationIssues } from './runtime.ts';
+import { ai, error, json, router, configurationIssues, configuredModel } from './runtime.ts';
 
 type SpecialistRole =
   | 'STRUCTURE ANALYST'
@@ -733,7 +733,7 @@ export const handler = router({
 
         return json({
           role: 'VISION ANALYST',
-          model: process.env.AI_MODEL || 'UNCONFIGURED',
+          model: configuredModel(),
           canonical,
           report: {
             stance: 'NEUTRAL',
@@ -804,7 +804,7 @@ export const handler = router({
 
         return json({
           role: input.role,
-          model: process.env.AI_MODEL || 'UNCONFIGURED',
+          model: configuredModel(),
           report: result.data,
           attempts: result.attempts,
           latencyMs: Date.now() - started,
@@ -892,7 +892,7 @@ export const handler = router({
         const council = [
           {
             role: 'LEAD ADJUDICATOR',
-            model: process.env.AI_MODEL || 'UNCONFIGURED',
+            model: configuredModel(),
             stance: normalized.decision,
             summary:
               'Deep opportunity adjudication across all supported strategy families and supplied chart timeframes.',
@@ -900,7 +900,7 @@ export const handler = router({
           },
           {
             role: 'VISION ANALYST',
-            model: process.env.AI_MODEL || 'UNCONFIGURED',
+            model: configuredModel(),
             stance: String(visionReport.stance ?? 'NEUTRAL'),
             summary: String(
               visionReport.summary ??
@@ -930,7 +930,7 @@ export const handler = router({
           generatedAt: new Date().toISOString(),
           architecture: 'OPPORTUNITY_ENGINE_V2',
           reasoningEffort: 'DEEP',
-          leadModel: process.env.AI_MODEL || 'UNCONFIGURED',
+          leadModel: configuredModel(),
           chartCount: charts.length,
           strategyCoverage: STRATEGY_COVERAGE,
           ...normalized,

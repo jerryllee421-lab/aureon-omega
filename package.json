@@ -15,7 +15,8 @@
     "ajv": "8.17.1",
     "lucide-react": "0.469.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "@vercel/oidc": "3.8.8"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "4.63.4"
