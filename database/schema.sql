@@ -37,7 +37,6 @@ create table private.analysis_claims (
 create index analysis_claims_owner_created on private.analysis_claims(user_id,created_at desc);
 alter table public.scans enable row level security;
 alter table public.setup_events enable row level security;
-alter table private.analysis_claims enable row level security;
 revoke all on public.scans, public.setup_events from anon,authenticated;
 revoke all on private.analysis_claims from public,anon,authenticated;
 grant select on public.scans, public.setup_events to authenticated;

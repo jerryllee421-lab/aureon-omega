@@ -6,6 +6,7 @@ import { harden } from '../server/authority.ts';
 import { registerMonitor,checkMonitors,monitorSummary } from '../server/monitor.ts';
 import { referenceQuote } from '../server/market.ts';
 import { researchSummary } from '../server/research.ts';
+import { multiTimeframeQuant } from '../server/quant.ts';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 type Request = IncomingMessage & { body?: any };
@@ -16,7 +17,8 @@ export default async function api(req: Request, res: ServerResponse) {
   const startedAt=Date.now();
   const requestId=typeof req.headers['x-request-id']==='string'&&/^[A-Za-z0-9._-]{1,80}$/.test(req.headers['x-request-id'])?req.headers['x-request-id']:randomUUID();
   res.setHeader('X-Request-Id',requestId);
-  const path = new URL(req.url || '/', 'https://aureon.invalid').pathname;
+  const requestUrl = new URL(req.url || '/', 'https://aureon.invalid');
+  const path = requestUrl.pathname;
   const method = req.method || 'GET';
   const send = (status:number,data:unknown) => {
     res.statusCode=status;res.end(JSON.stringify(data));
@@ -43,6 +45,11 @@ export default async function api(req: Request, res: ServerResponse) {
     }
     const userId = await authenticate(Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : req.headers.authorization);
     if (method === 'GET' && path === '/api/monitor') return send(200,await monitorSummary(userId));
+    if (method === 'GET' && path === '/api/quant') {
+      const symbol=String(requestUrl.searchParams.get('symbol')||'BTCUSD').toUpperCase();
+      if(!['BTCUSD','XAUUSD'].includes(symbol))return send(400,{error:'EXACT_INSTRUMENT_UNSUPPORTED'});
+      return send(200,await multiTimeframeQuant(symbol));
+    }
     if (method === 'GET' && path === '/api/journal') return send(200, await database(`scans?user_id=eq.${userId}&select=id,created_at,result&order=created_at.desc&limit=50`));
     if (method === 'GET' && path === '/api/events') return send(200, await database(`setup_events?user_id=eq.${userId}&order=created_at.desc&limit=100`));
     if (method === 'GET' && path === '/api/research') return send(200,await researchSummary(userId));
