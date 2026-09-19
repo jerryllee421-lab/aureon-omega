@@ -4,7 +4,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/**/*.ts": {
-      "maxDuration": 120
+      "maxDuration": 120,
+      "includeFiles": "{backend,server}/**/*.ts"
     }
   },
   "headers": [
@@ -35,5 +36,6 @@
       "path": "/api/cron/monitor",
       "schedule": "0 0 * * *"
     }
-  ]
+  ],
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
