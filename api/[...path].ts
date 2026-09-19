@@ -1,5 +1,5 @@
 import { handler } from '../backend/index.ts';
-import { configurationIssues } from '../backend/runtime.ts';
+import { runtimeConfigurationIssues } from '../backend/runtime.ts';
 import { authenticate, database } from '../server/database.ts';
 import { sign, verify } from '../server/proof.ts';
 import { harden } from '../server/authority.ts';
@@ -50,7 +50,7 @@ export default async function api(req: Request, res: ServerResponse) {
       return send(200, await database('rpc/record_setup_event','POST',{ p_user:userId, p_scan:body.scanId, p_index:body.opportunityIndex, p_state:body.state, p_note:body.note }));
     }
     if (method !== 'POST' || !['/api/analyze/vision','/api/analyze/specialist','/api/analyze/final'].includes(path)) return send(404,{error:'NOT_FOUND'});
-    if (configurationIssues().length) return send(503,{error:'ENGINE_UNCONFIGURED'});
+    if ((await runtimeConfigurationIssues()).length) return send(503,{error:'ENGINE_UNCONFIGURED'});
     let context: any; let stage = 'VISION'; let input: any;
     if (path.endsWith('/vision')) {
       if (!Array.isArray(body.imageDataUrls) || body.imageDataUrls.length < 1 || body.imageDataUrls.length > 4 || body.imageDataUrls.some((v: unknown) => typeof v !== 'string' || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v))) return send(400,{error:'VALID_IMAGE_DATA_REQUIRED'});

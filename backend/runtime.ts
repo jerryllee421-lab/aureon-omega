@@ -62,6 +62,26 @@ export function configurationIssues() {
   return issues;
 }
 
+export async function runtimeConfigurationIssues() {
+  const issues = configurationIssues();
+  const usesPlatformOidc = Boolean(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN) &&
+    !process.env.AI_GATEWAY_API_KEY &&
+    !process.env.AI_API_KEY;
+  if (usesPlatformOidc) {
+    try {
+      const token = await getVercelOidcToken({
+        project: process.env.VERCEL_PROJECT_ID || 'aureon-omega',
+        team: process.env.VERCEL_TEAM_ID || 'team_FPtl41FOOM8ICOLcwunfkyf8',
+        expirationBufferMs: 60_000,
+      });
+      if (!token) issues.push('AI_OIDC_UNAVAILABLE');
+    } catch {
+      issues.push('AI_OIDC_UNAVAILABLE');
+    }
+  }
+  return [...new Set(issues)];
+}
+
 export function validateSchema(value: unknown, schema: Schema): boolean {
   if (schema.type === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

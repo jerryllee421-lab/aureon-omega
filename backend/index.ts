@@ -1,4 +1,4 @@
-import { ai, error, json, router, configurationIssues, configuredModel } from './runtime.ts';
+import { ai, error, json, router, runtimeConfigurationIssues, configuredModel } from './runtime.ts';
 
 type SpecialistRole =
   | 'STRUCTURE ANALYST'
@@ -654,7 +654,7 @@ function normalizeFinal(
 export const handler = router({
   'GET /api/status': [
     async () => {
-      const missing = configurationIssues();
+      const missing = await runtimeConfigurationIssues();
       return json({
         ready: missing.length === 0,
         engine: 'ASTRA Intelligence Engine',
