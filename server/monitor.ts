@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { database } from './database.ts';
-import { acquireCandles } from './candles.ts';
-import { observePlan, summarizeObservations, type Plan } from './forward.ts';
-import { numbers } from './authority.ts';
+import { database } from './database';
+import { acquireCandles } from './candles';
+import { observePlan, summarizeObservations, type Plan } from './forward';
+import { numbers } from './authority';
 const terminal=new Set(['TARGET_TOUCHED','STOP_TOUCHED','AMBIGUOUS','EXPIRED']);
 export async function registerMonitor(userId:string,scanId:string,index:number) {
   if(!/^[0-9a-f-]{36}$/.test(scanId)||!Number.isInteger(index)||index<0||index>3)throw new Error('INVALID_SETUP_REFERENCE');

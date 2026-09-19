@@ -1,4 +1,4 @@
-import { ai, error, json, router, configurationIssues } from './runtime.ts';
+import { ai, error, json, router, configurationIssues } from './runtime';
 
 type SpecialistRole =
   | 'STRUCTURE ANALYST'

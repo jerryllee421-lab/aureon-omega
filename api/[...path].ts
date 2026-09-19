@@ -1,10 +1,10 @@
-import { handler } from '../backend/index.ts';
-import { configurationIssues } from '../backend/runtime.ts';
-import { authenticate, database } from '../server/database.ts';
-import { sign, verify } from '../server/proof.ts';
-import { harden } from '../server/authority.ts';
-import { registerMonitor,checkMonitors,monitorSummary } from '../server/monitor.ts';
-import { referenceQuote } from '../server/market.ts';
+import { handler } from '../backend/index';
+import { configurationIssues } from '../backend/runtime';
+import { authenticate, database } from '../server/database';
+import { sign, verify } from '../server/proof';
+import { harden } from '../server/authority';
+import { registerMonitor,checkMonitors,monitorSummary } from '../server/monitor';
+import { referenceQuote } from '../server/market';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 type Request = IncomingMessage & { body?: any };
