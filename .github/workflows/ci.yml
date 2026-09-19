@@ -1,0 +1,8 @@
+name: AUREON validation
+on:
+  workflow_dispatch:
+jobs:
+  staged:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Validation activates after verified source expansion."
