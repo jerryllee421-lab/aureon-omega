@@ -1,6 +1,6 @@
 import { handler } from '../backend/index.ts';
 import { runtimeConfigurationIssues, configuredModel } from '../backend/runtime.ts';
-import { authenticate, database } from '../server/database.ts';
+import { database, ownerUserId } from '../server/database.ts';
 import { sign, verify } from '../server/proof.ts';
 import { harden } from '../server/authority.ts';
 import { registerMonitor,checkMonitors,monitorSummary } from '../server/monitor.ts';
@@ -26,7 +26,7 @@ export default async function api(req: Request, res: ServerResponse) {
     console.info(JSON.stringify({service:'aureon-api',requestId,method,path,status,durationMs:Date.now()-startedAt}));
   };
   try {
-    if (method === 'GET' && path === '/api/config') return send(200, { supabaseUrl: process.env.SUPABASE_URL || null, publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY || null });
+    if (method === 'GET' && path === '/api/config') return send(200, { accessMode:'SINGLE_OWNER_SERVER_BOUND' });
     if (method === 'GET' && path === '/api/status') {
       const response = await handler(method,path,{}); return send(response.status, await response.json());
     }
@@ -44,7 +44,7 @@ export default async function api(req: Request, res: ServerResponse) {
       if(expected.length!==actual.length||!timingSafeEqual(expected,actual)||!process.env.OWNER_USER_ID) return send(401,{error:'CRON_AUTH_REQUIRED'});
       return send(200,await checkMonitors(process.env.OWNER_USER_ID));
     }
-    const userId = await authenticate(Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : req.headers.authorization);
+    const userId = ownerUserId();
     if (method === 'GET' && path === '/api/monitor') return send(200,await monitorSummary(userId));
     if (method === 'GET' && path === '/api/quant') {
       const symbol=String(requestUrl.searchParams.get('symbol')||'BTCUSD').toUpperCase();
@@ -138,8 +138,8 @@ export default async function api(req: Request, res: ServerResponse) {
     return send(200,data);
   } catch (caught) {
     const code = caught instanceof Error ? caught.message : 'REQUEST_FAILED';
-    const status = code === 'SIGN_IN_REQUIRED' ? 401 : code === 'OWNER_ACCESS_REQUIRED' ? 403 : code === 'INVALID_STAGE_PROOF' ? 400 : 503;
-    const allowed = ['SIGN_IN_REQUIRED','OWNER_ACCESS_REQUIRED','INVALID_STAGE_PROOF','DATABASE_UNCONFIGURED','DATABASE_REQUEST_FAILED','AUTH_UNCONFIGURED','SIGNING_KEY_UNCONFIGURED','SIGNING_SERVICE_UNAVAILABLE'];
+    const status = code === 'INVALID_STAGE_PROOF' ? 400 : 503;
+    const allowed = ['OWNER_UNCONFIGURED','INVALID_STAGE_PROOF','DATABASE_UNCONFIGURED','DATABASE_REQUEST_FAILED','AUTH_UNCONFIGURED','SIGNING_KEY_UNCONFIGURED','SIGNING_SERVICE_UNAVAILABLE'];
     return send(status,{error:allowed.includes(code) ? code : 'REQUEST_FAILED'});
   }
 }
