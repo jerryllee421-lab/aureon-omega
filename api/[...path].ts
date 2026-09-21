@@ -103,7 +103,7 @@ export default async function api(req: Request, res: ServerResponse) {
       const hints = Object.fromEntries(['symbolHint','timeframeHint'].map(k => [k, typeof body[k] === 'string' ? body[k].slice(0,40) : null]));
       const runId=randomUUID();
       const chartHashes=body.imageDataUrls.map((image:string)=>createHash('sha256').update(image).digest('hex'));
-      const permitted=await database('rpc/claim_analysis_stage','POST',{p_user:userId,p_run:runId,p_stage:'FINAL'});
+      const permitted=await database('rpc/claim_analysis_stage','POST',{p_user:userId,p_run:runId,p_stage:'VISION'});
       if(!permitted)return send(429,{error:'RATE_LIMIT_OR_STAGE_ALREADY_USED'});
       const response=await handler(method,path,{...hints,imageDataUrls:body.imageDataUrls});
       const data=await response.json();
