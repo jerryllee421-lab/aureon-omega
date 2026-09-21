@@ -1,6 +1,5 @@
-import {useEffect,useState,type FormEvent} from 'react';
-import App from './App';import MonitorPanel from './MonitorPanel';import {api,setSession,clearSession} from './api';
-type Config={supabaseUrl:string|null;publishableKey:string|null};
+import {useEffect,useState} from 'react';
+import App from './App';import MonitorPanel from './MonitorPanel';import {api} from './api';
 type Health={ready:boolean;model:string;database:{ready:boolean;latencyMs:number|null};issues:string[]};
 type SavedScan={id:string;created_at:string;result:{decision:string;readinessScore:number;opportunities:{setupType:string;direction:string;thesis:string}[]}};
 type Quote={symbol:string;price:number|null;bid?:number|null;ask?:number|null;spreadBps?:number|null;crossProviderDeviationBps?:number|null;authority:string;reason:string;provider?:string;providerInstrument?:string;sourceTimestamp?:string|null};
@@ -14,69 +13,12 @@ type Diagnostics={health:Health;providers:Quote[];capabilities:Record<string,Cap
 type QuantResult={symbol:string;generatedAt:string;authority:string;executionEligible:false;explanation:string;mtf:{alignment:string;up:number;down:number;neutral:number};sessions:SessionSnapshot;frames:QuantFrame[]};
 
 export default function Workspace(){
- const [config,setConfig]=useState<Config|null>(null),[health,setHealth]=useState<Health|null>(null),[signedIn,setSignedIn]=useState(false);
- const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[otp,setOtp]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[otpSent,setOtpSent]=useState(false);
+ const [health,setHealth]=useState<Health|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [tab,setTab]=useState('scanner'),[scans,setScans]=useState<SavedScan[]>([]),[quotes,setQuotes]=useState<Quote[]>([]),[events,setEvents]=useState<Event[]>([]);
  const [research,setResearch]=useState<Research|null>(null),[quant,setQuant]=useState<QuantResult|null>(null),[quantSymbol,setQuantSymbol]=useState('BTCUSD'),[diagnostics,setDiagnostics]=useState<Diagnostics|null>(null),[note,setNote]=useState(''),[loaded,setLoaded]=useState(false);
  useEffect(()=>{
-  Promise.all([api.get('/api/config'),api.get('/api/health')]).then(async([c,h])=>{
-   setConfig(c.data);setHealth(h.data);
-   const hash=new URLSearchParams(window.location.hash.replace(/^#/,''));
-   const accessToken=hash.get('access_token'),refreshToken=hash.get('refresh_token');
-   if(accessToken&&c.data?.supabaseUrl&&c.data?.publishableKey){
-    setBusy(true);setError('');
-    try{
-     setSession({accessToken,refreshToken:refreshToken||null,supabaseUrl:c.data.supabaseUrl,publishableKey:c.data.publishableKey});
-     await api.get('/api/journal');
-     history.replaceState(null,'',window.location.pathname+window.location.search);
-     setSignedIn(true);
-    }catch{
-     clearSession();setError('Secure sign-in link was invalid, expired, or not for the AUREON owner account.');
-    }finally{setBusy(false);}
-   }
-  }).catch(()=>setError('Unable to reach the production health service.'));
+  api.get('/api/health').then(h=>setHealth(h.data)).catch(()=>setError('Unable to reach the production health service.'));
  },[]);
- async function login(e:FormEvent){
-  e.preventDefault();if(!config?.supabaseUrl||!config.publishableKey)return;setBusy(true);setError('');
-  try{
-   const r=await fetch(config.supabaseUrl+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:config.publishableKey,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-   const data=await r.json();if(!r.ok||!data.access_token)throw new Error('Sign-in failed. Check your owner account credentials.');
-   setSession({accessToken:data.access_token,refreshToken:data.refresh_token||null,supabaseUrl:config.supabaseUrl,publishableKey:config.publishableKey});
-   await api.get('/api/journal');setPassword('');setSignedIn(true);
-  }catch(e){clearSession();setError(e instanceof Error?e.message:'Sign-in failed.');}finally{setBusy(false);}
- }
- async function requestLoginCode(){
-  if(!config?.supabaseUrl||!config.publishableKey||!email.trim())return;
-  setBusy(true);setError('');setOtpSent(false);setOtp('');
-  try{
-   const r=await fetch(config.supabaseUrl+'/auth/v1/otp',{
-    method:'POST',
-    headers:{apikey:config.publishableKey,'Content-Type':'application/json'},
-    body:JSON.stringify({email:email.trim(),create_user:false})
-   });
-   const data=await r.json().catch(()=>({}));
-   if(!r.ok)throw new Error(data.msg||data.message||data.error_description||'Unable to send login code.');
-   setOtpSent(true);
-  }catch(e){setError(e instanceof Error?e.message:'Unable to send login code.');}
-  finally{setBusy(false);}
- }
- async function verifyLoginCode(){
-  if(!config?.supabaseUrl||!config.publishableKey||!email.trim()||!/^[0-9]{6}$/.test(otp))return;
-  setBusy(true);setError('');
-  try{
-   const r=await fetch(config.supabaseUrl+'/auth/v1/verify',{
-    method:'POST',
-    headers:{apikey:config.publishableKey,'Content-Type':'application/json'},
-    body:JSON.stringify({type:'email',email:email.trim(),token:otp})
-   });
-   const data=await r.json().catch(()=>({}));
-   if(!r.ok||!data.access_token)throw new Error(data.msg||data.message||data.error_description||'Invalid or expired login code.');
-   setSession({accessToken:data.access_token,refreshToken:data.refresh_token||null,supabaseUrl:config.supabaseUrl,publishableKey:config.publishableKey});
-   await api.get('/api/journal');
-   setOtp('');setPassword('');setSignedIn(true);
-  }catch(e){clearSession();setError(e instanceof Error?e.message:'Invalid or expired login code.');}
-  finally{setBusy(false);}
- }
  async function refresh(){
   setBusy(true);setError('');setLoaded(false);
   try{
@@ -92,28 +34,15 @@ export default function Workspace(){
   if(!note.trim()){setError('Add an observation before recording a lifecycle event.');return;}setBusy(true);setError('');
   try{await api.post('/api/events',{scanId,opportunityIndex,state,note});setNote('');await refresh();}catch(e){setError(e instanceof Error?e.message:'Could not record event.');}finally{setBusy(false);}
  }
- const signOut=()=>{clearSession();setSignedIn(false);setScans([]);setEvents([]);setQuotes([]);setResearch(null);setQuant(null);setDiagnostics(null);setTab('scanner');};
  return <>
-  <nav className='workspace-nav' aria-label='Workspace'><strong>AUREON Ω</strong>{signedIn&&<>
-   <button onClick={()=>{setTab('scanner');setError('');}}>Scanner</button><button onClick={()=>{setTab('journal');setLoaded(false);}}>Journal</button>
-   <button onClick={()=>setTab('monitor')}>Monitor</button><button onClick={()=>{setTab('quant');setLoaded(false);}}>Quant</button><button onClick={()=>{setTab('research');setLoaded(false);}}>Research</button>
-   <button onClick={()=>{setTab('market');setLoaded(false);}}>Data truth</button><button onClick={signOut}>Sign out</button></>}</nav>
-  {!signedIn?<main className='shell'><section className='scanner-card auth-panel'><div className='eyebrow'>ASTRA INTELLIGENCE ENGINE</div><h1>Your market workspace</h1>
-   <p>Sign in to scan charts and keep an evidence-backed journal.</p>
-   <p role='status'>Production health: <strong>{health?.ready?'READY':'CHECKING / BLOCKED'}</strong>{health?.model?' · '+health.model:''}</p>
-   <div className='otp-login'>
-    <label>Email<input type='email' autoComplete='username' required value={email} onChange={e=>setEmail(e.target.value)}/></label>
-    <button type='button' className='primary-button' disabled={busy||!config?.supabaseUrl||!email.trim()} onClick={()=>void requestLoginCode()}>{busy?'Working…':otpSent?'Resend 6-digit code':'Send 6-digit login code'}</button>
-    {otpSent&&<><label>6-digit code<input inputMode='numeric' autoComplete='one-time-code' maxLength={6} pattern='[0-9]{6}' value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder='123456'/></label>
-    <button type='button' className='primary-button' disabled={busy||otp.length!==6} onClick={()=>void verifyLoginCode()}>{busy?'Verifying…':'Verify & sign in'}</button>
-    <p role='status' className='magic-success'>Check your email for the 6-digit AUREON login code.</p></>}
-   </div>
-   <div className='auth-divider'><span>PASSWORD BACKUP</span></div>
-   <form onSubmit={login}><label>Password<input type='password' autoComplete='current-password' required value={password} onChange={e=>setPassword(e.target.value)}/></label>
-   <button className='primary-button' disabled={busy||!config?.supabaseUrl||!email.trim()}>{busy?'Signing in…':'Sign in with password'}</button></form>
-   <p className='muted'>Login codes are for the existing owner account only. AUREON will not create new users.</p>
-   {error&&<p role='alert'>{error}</p>}
-   <p className='muted'>Manual execution only. No broker orders. Session refresh tokens remain in memory only.</p></section></main>:<>
+  <nav className='workspace-nav' aria-label='Workspace'><strong>AUREON Ω</strong>
+   <button onClick={()=>{setTab('scanner');setError('');}}>Scanner</button>
+   <button onClick={()=>{setTab('journal');setLoaded(false);}}>Journal</button>
+   <button onClick={()=>setTab('monitor')}>Monitor</button>
+   <button onClick={()=>{setTab('quant');setLoaded(false);}}>Quant</button>
+   <button onClick={()=>{setTab('research');setLoaded(false);}}>Research</button>
+   <button onClick={()=>{setTab('market');setLoaded(false);}}>Data truth</button>
+  </nav>
    {tab==='scanner'?<App/>:tab==='monitor'?<MonitorPanel/>:<main className='shell'><section className='scanner-card auth-panel'>
     <div className='eyebrow'>{tab==='journal'?'PERSISTENT EVIDENCE':tab==='research'?'RESEARCH EVIDENCE':tab==='quant'?'CLOSED-CANDLE QUANT':'PROVIDER VERIFICATION'}</div>
     <h1>{tab==='journal'?'Journal & setup monitor':tab==='research'?'Strategy evidence maturity':tab==='quant'?'Native multi-timeframe context':'Data truth & diagnostics'}</h1>
@@ -125,7 +54,7 @@ export default function Workspace(){
      {quotes.map(q=><article key={q.symbol} className='journal-item'><h2>{q.symbol} · {q.authority}</h2><p>{q.price===null?'Unavailable':q.price.toLocaleString(undefined,{maximumFractionDigits:2})}</p>
       {q.bid&&q.ask?<p>Bid {q.bid.toLocaleString()} · Ask {q.ask.toLocaleString()} · Spread {q.spreadBps?.toFixed(2)} bps</p>:null}
       {q.crossProviderDeviationBps!==null&&q.crossProviderDeviationBps!==undefined?<p>Cross-provider deviation: {q.crossProviderDeviationBps.toFixed(2)} bps</p>:null}
-      <p>{q.provider} {q.providerInstrument||''}</p><p>{q.reason}</p><small>{q.sourceTimestamp?'Source time: '+q.sourceTimestamp:'Source timestamp unavailable'}</small></article>)}</>}
+      <p>{q.provider} {q.providerInstrument||''}</p><p>{q.reason}</p><small>{q.sourceTimestamp?'Source time: '+q.sourceTimestamp:'Source timestamp unavailable'}</small></article>)
     {tab==='quant'&&<><label>Instrument<select value={quantSymbol} onChange={e=>{setQuantSymbol(e.target.value);setLoaded(false);setQuant(null);}}><option>BTCUSD</option><option>XAUUSD</option></select></label>
      {loaded&&quant?<><p><strong>{quant.symbol}</strong> · {quant.mtf.alignment.replaceAll('_',' ')} · UP {quant.mtf.up} / DOWN {quant.mtf.down} / NEUTRAL {quant.mtf.neutral}</p><p>Session focus: <strong>{quant.sessions.focusWindow.replaceAll('_',' ')}</strong>{quant.sessions.overlap?' · London/NY overlap':''}</p><p>{quant.explanation}</p>
       {quant.frames.map(frame=><article className='journal-item' key={frame.timeframe}><h2>{frame.timeframe} · {frame.status}</h2>{frame.status==='READY'?<><p>{frame.regime?.replaceAll('_',' ')} · Bias {frame.bias} · Structure {frame.structure}</p>
@@ -142,5 +71,6 @@ export default function Workspace(){
       {scan.result.opportunities.map((o,index)=>{const history=events.filter(e=>e.scan_id===scan.id&&e.opportunity_index===index),terminal=history.some(e=>['CLOSED','INVALIDATED','EXPIRED'].includes(e.state));return <section key={index}><h3>{o.direction} · {o.setupType.replaceAll('_',' ')}</h3><p>{o.thesis}</p><div className='event-actions'><button disabled={busy||terminal} onClick={()=>void register(scan.id,index)}>Monitor price path</button>{['WATCH','INVALIDATED','EXPIRED','CLOSED'].map(state=><button key={state} disabled={busy||terminal} onClick={()=>void record(scan.id,index,state)}>{state}</button>)}</div>{history.map(e=><p key={e.id}><strong>{e.state}</strong> · {e.note}</p>)}</section>;})}</article>)}
      <p>Forward validation: no verified execution dataset yet. Expectancy, win rate and profit factor remain unavailable.</p></>}
    </section></main>}</>}
+
  </>;
 }
