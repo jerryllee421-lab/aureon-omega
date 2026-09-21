@@ -66,6 +66,12 @@ export async function database(path:string,method='GET',body?:unknown){
   return onVercel()?bridgedDatabase(path,method,body):directDatabase(path,method,body);
 }
 
+export function ownerUserId(){
+  const id=process.env.OWNER_USER_ID;
+  if(!id||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))throw new Error('OWNER_UNCONFIGURED');
+  return id;
+}
+
 export async function authenticate(header?:string){
   const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_PUBLISHABLE_KEY;
   if(!url||!key||!process.env.OWNER_USER_ID)throw new Error('AUTH_UNCONFIGURED');
