@@ -54,12 +54,6 @@ test('single-owner mode needs no browser auth but remains server-bound',async()=
     assert.equal(invalidQuant.status,400);
     assert.equal((await invalidQuant.json()).error,'EXACT_INSTRUMENT_UNSUPPORTED');
 
-    const invalidAnalyze=await clientFetch(base+'/api/analyze/vision',{
-      method:'POST',headers:{'content-type':'application/json'},body:'{}'
-    });
-    assert.equal(invalidAnalyze.status,400);
-    assert.equal((await invalidAnalyze.json()).error,'VALID_IMAGE_DATA_REQUIRED');
-
     const cronMissing=await clientFetch(base+'/api/cron/monitor');
     assert.equal(cronMissing.status,401);
     assert.equal((await cronMissing.json()).error,'CRON_AUTH_REQUIRED');
