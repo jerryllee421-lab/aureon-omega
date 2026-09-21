@@ -206,7 +206,7 @@ export default function App(){
           <span>ASTRA automatically reads symbol, timeframe, price action and levels.</span>
         </button>:
         <div className='chart-stack'>
-          {charts.map((chart,index)=><article className='chart-preview' key={chart.id}>
+          {charts.map(chart=><article className='chart-preview' key={chart.id}>
             <img src={chart.previewUrl} alt={chart.name}/>
             <div className='preview-bar'>
               <div><strong>PRIMARY</strong><span>{chart.kb} KB</span></div>
