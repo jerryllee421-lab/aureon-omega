@@ -54,7 +54,7 @@ export default function Workspace(){
      {quotes.map(q=><article key={q.symbol} className='journal-item'><h2>{q.symbol} · {q.authority}</h2><p>{q.price===null?'Unavailable':q.price.toLocaleString(undefined,{maximumFractionDigits:2})}</p>
       {q.bid&&q.ask?<p>Bid {q.bid.toLocaleString()} · Ask {q.ask.toLocaleString()} · Spread {q.spreadBps?.toFixed(2)} bps</p>:null}
       {q.crossProviderDeviationBps!==null&&q.crossProviderDeviationBps!==undefined?<p>Cross-provider deviation: {q.crossProviderDeviationBps.toFixed(2)} bps</p>:null}
-      <p>{q.provider} {q.providerInstrument||''}</p><p>{q.reason}</p><small>{q.sourceTimestamp?'Source time: '+q.sourceTimestamp:'Source timestamp unavailable'}</small></article>)
+      <p>{q.provider} {q.providerInstrument||''}</p><p>{q.reason}</p><small>{q.sourceTimestamp?'Source time: '+q.sourceTimestamp:'Source timestamp unavailable'}</small></article>)}</>}
     {tab==='quant'&&<><label>Instrument<select value={quantSymbol} onChange={e=>{setQuantSymbol(e.target.value);setLoaded(false);setQuant(null);}}><option>BTCUSD</option><option>XAUUSD</option></select></label>
      {loaded&&quant?<><p><strong>{quant.symbol}</strong> · {quant.mtf.alignment.replaceAll('_',' ')} · UP {quant.mtf.up} / DOWN {quant.mtf.down} / NEUTRAL {quant.mtf.neutral}</p><p>Session focus: <strong>{quant.sessions.focusWindow.replaceAll('_',' ')}</strong>{quant.sessions.overlap?' · London/NY overlap':''}</p><p>{quant.explanation}</p>
       {quant.frames.map(frame=><article className='journal-item' key={frame.timeframe}><h2>{frame.timeframe} · {frame.status}</h2>{frame.status==='READY'?<><p>{frame.regime?.replaceAll('_',' ')} · Bias {frame.bias} · Structure {frame.structure}</p>
@@ -70,7 +70,7 @@ export default function Workspace(){
      {scans.map(scan=><article className='journal-item' key={scan.id}><h2>{scan.result.decision.replaceAll('_',' ')}</h2><small>{new Date(scan.created_at).toLocaleString()}</small><p>Readiness {scan.result.readinessScore}/100 — not a win probability.</p>
       {scan.result.opportunities.map((o,index)=>{const history=events.filter(e=>e.scan_id===scan.id&&e.opportunity_index===index),terminal=history.some(e=>['CLOSED','INVALIDATED','EXPIRED'].includes(e.state));return <section key={index}><h3>{o.direction} · {o.setupType.replaceAll('_',' ')}</h3><p>{o.thesis}</p><div className='event-actions'><button disabled={busy||terminal} onClick={()=>void register(scan.id,index)}>Monitor price path</button>{['WATCH','INVALIDATED','EXPIRED','CLOSED'].map(state=><button key={state} disabled={busy||terminal} onClick={()=>void record(scan.id,index,state)}>{state}</button>)}</div>{history.map(e=><p key={e.id}><strong>{e.state}</strong> · {e.note}</p>)}</section>;})}</article>)}
      <p>Forward validation: no verified execution dataset yet. Expectancy, win rate and profit factor remain unavailable.</p></>}
-   </section></main>}</>}
+   </section></main>}
 
  </>;
 }
