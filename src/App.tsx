@@ -95,7 +95,21 @@ function compressImage(file:File):Promise<string>{
         if(!ctx)return reject(new Error('IMAGE_PROCESSING_FAILED'));
         ctx.drawImage(img,0,0,canvas.width,canvas.height);
         let output=canvas.toDataURL('image/jpeg',0.9);
-        if(approxKb(output)>1800)output=canvas.toDataURL('image/jpeg',0.78);
+        for(const quality of [0.84,0.78,0.72,0.66]){
+          if(approxKb(output)<=1250)break;
+          output=canvas.toDataURL('image/jpeg',quality);
+        }
+        if(approxKb(output)>1250&&Math.max(canvas.width,canvas.height)>1700){
+          const reduced=document.createElement('canvas');
+          const reduction=1700/Math.max(canvas.width,canvas.height);
+          reduced.width=Math.max(1,Math.round(canvas.width*reduction));
+          reduced.height=Math.max(1,Math.round(canvas.height*reduction));
+          const reducedCtx=reduced.getContext('2d');
+          if(reducedCtx){
+            reducedCtx.drawImage(canvas,0,0,reduced.width,reduced.height);
+            output=reduced.toDataURL('image/jpeg',0.8);
+          }
+        }
         resolve(output);
       };
       img.src=String(reader.result);
