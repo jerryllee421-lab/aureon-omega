@@ -47,7 +47,7 @@ export default async function scan(req: Request, res: ServerResponse) {
 
     const runId=randomUUID();
     const chartHashes=body.imageDataUrls.map((image:string)=>createHash('sha256').update(image).digest('hex'));
-    const permitted=await database('rpc/claim_analysis_stage','POST',{p_user:userId,p_run:runId,p_stage:'FINAL'});
+    const permitted=await database('rpc/claim_analysis_stage','POST',{p_user:userId,p_run:runId,p_stage:'VISION'});
     if(!permitted) return send(429,{error:'RATE_LIMIT_OR_STAGE_ALREADY_USED'});
 
     const response=await handler('POST','/api/analyze/scan',{
