@@ -99,7 +99,7 @@ export default async function api(req: Request, res: ServerResponse) {
     }
     if (method === 'POST' && path === '/api/analyze/scan') {
       if ((await runtimeConfigurationIssues()).length) return send(503,{error:'ENGINE_UNCONFIGURED'});
-      if (!Array.isArray(body.imageDataUrls) || body.imageDataUrls.length < 1 || body.imageDataUrls.length > 2 || body.imageDataUrls.some((v: unknown) => typeof v !== 'string' || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v))) return send(400,{error:'VALID_IMAGE_DATA_REQUIRED'});
+      if (!Array.isArray(body.imageDataUrls) || body.imageDataUrls.length !== 1 || body.imageDataUrls.some((v: unknown) => typeof v !== 'string' || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v))) return send(400,{error:'VALID_IMAGE_DATA_REQUIRED'});
       const hints = Object.fromEntries(['symbolHint','timeframeHint'].map(k => [k, typeof body[k] === 'string' ? body[k].slice(0,40) : null]));
       const runId=randomUUID();
       const chartHashes=body.imageDataUrls.map((image:string)=>createHash('sha256').update(image).digest('hex'));
