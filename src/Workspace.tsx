@@ -15,7 +15,7 @@ type QuantResult={symbol:string;generatedAt:string;authority:string;executionEli
 
 export default function Workspace(){
  const [config,setConfig]=useState<Config|null>(null),[health,setHealth]=useState<Health|null>(null),[signedIn,setSignedIn]=useState(false);
- const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[magicSent,setMagicSent]=useState(false);
+ const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[otp,setOtp]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[otpSent,setOtpSent]=useState(false);
  const [tab,setTab]=useState('scanner'),[scans,setScans]=useState<SavedScan[]>([]),[quotes,setQuotes]=useState<Quote[]>([]),[events,setEvents]=useState<Event[]>([]);
  const [research,setResearch]=useState<Research|null>(null),[quant,setQuant]=useState<QuantResult|null>(null),[quantSymbol,setQuantSymbol]=useState('BTCUSD'),[diagnostics,setDiagnostics]=useState<Diagnostics|null>(null),[note,setNote]=useState(''),[loaded,setLoaded]=useState(false);
  useEffect(()=>{
@@ -45,20 +45,36 @@ export default function Workspace(){
    await api.get('/api/journal');setPassword('');setSignedIn(true);
   }catch(e){clearSession();setError(e instanceof Error?e.message:'Sign-in failed.');}finally{setBusy(false);}
  }
- async function requestMagicLink(){
+ async function requestLoginCode(){
   if(!config?.supabaseUrl||!config.publishableKey||!email.trim())return;
-  setBusy(true);setError('');setMagicSent(false);
+  setBusy(true);setError('');setOtpSent(false);setOtp('');
   try{
-   const redirectTo=window.location.origin+window.location.pathname;
-   const r=await fetch(config.supabaseUrl+'/auth/v1/otp?redirect_to='+encodeURIComponent(redirectTo),{
+   const r=await fetch(config.supabaseUrl+'/auth/v1/otp',{
     method:'POST',
     headers:{apikey:config.publishableKey,'Content-Type':'application/json'},
     body:JSON.stringify({email:email.trim(),create_user:false})
    });
    const data=await r.json().catch(()=>({}));
-   if(!r.ok)throw new Error(data.msg||data.message||data.error_description||'Unable to send secure sign-in link.');
-   setMagicSent(true);
-  }catch(e){setError(e instanceof Error?e.message:'Unable to send secure sign-in link.');}
+   if(!r.ok)throw new Error(data.msg||data.message||data.error_description||'Unable to send login code.');
+   setOtpSent(true);
+  }catch(e){setError(e instanceof Error?e.message:'Unable to send login code.');}
+  finally{setBusy(false);}
+ }
+ async function verifyLoginCode(){
+  if(!config?.supabaseUrl||!config.publishableKey||!email.trim()||!/^[0-9]{6}$/.test(otp))return;
+  setBusy(true);setError('');
+  try{
+   const r=await fetch(config.supabaseUrl+'/auth/v1/verify',{
+    method:'POST',
+    headers:{apikey:config.publishableKey,'Content-Type':'application/json'},
+    body:JSON.stringify({type:'email',email:email.trim(),token:otp})
+   });
+   const data=await r.json().catch(()=>({}));
+   if(!r.ok||!data.access_token)throw new Error(data.msg||data.message||data.error_description||'Invalid or expired login code.');
+   setSession({accessToken:data.access_token,refreshToken:data.refresh_token||null,supabaseUrl:config.supabaseUrl,publishableKey:config.publishableKey});
+   await api.get('/api/journal');
+   setOtp('');setPassword('');setSignedIn(true);
+  }catch(e){clearSession();setError(e instanceof Error?e.message:'Invalid or expired login code.');}
   finally{setBusy(false);}
  }
  async function refresh(){
@@ -85,13 +101,17 @@ export default function Workspace(){
   {!signedIn?<main className='shell'><section className='scanner-card auth-panel'><div className='eyebrow'>ASTRA INTELLIGENCE ENGINE</div><h1>Your market workspace</h1>
    <p>Sign in to scan charts and keep an evidence-backed journal.</p>
    <p role='status'>Production health: <strong>{health?.ready?'READY':'CHECKING / BLOCKED'}</strong>{health?.model?' · '+health.model:''}</p>
-   <form onSubmit={login}><label>Email<input type='email' autoComplete='username' required value={email} onChange={e=>setEmail(e.target.value)}/></label>
-   <label>Password<input type='password' autoComplete='current-password' required value={password} onChange={e=>setPassword(e.target.value)}/></label>
-   <button className='primary-button' disabled={busy||!config?.supabaseUrl}>{busy?'Signing in…':'Sign in'}</button></form>
-   <div className='auth-divider'><span>OR</span></div>
-   <button type='button' className='magic-link-button' disabled={busy||!config?.supabaseUrl||!email.trim()} onClick={()=>void requestMagicLink()}>{busy?'Working…':'Email me a secure sign-in link'}</button>
-   <p className='muted'>Passwordless sign-in sends a one-time link to the email entered above. Existing users only — AUREON will not create a new account.</p>
-   {magicSent&&<p role='status' className='magic-success'>Secure sign-in link sent. Open the email on this phone and tap the link to enter AUREON automatically.</p>}
+   <div className='otp-login'>
+    <label>Email<input type='email' autoComplete='username' required value={email} onChange={e=>setEmail(e.target.value)}/></label>
+    <button type='button' className='primary-button' disabled={busy||!config?.supabaseUrl||!email.trim()} onClick={()=>void requestLoginCode()}>{busy?'Working…':otpSent?'Resend 6-digit code':'Send 6-digit login code'}</button>
+    {otpSent&&<><label>6-digit code<input inputMode='numeric' autoComplete='one-time-code' maxLength={6} pattern='[0-9]{6}' value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder='123456'/></label>
+    <button type='button' className='primary-button' disabled={busy||otp.length!==6} onClick={()=>void verifyLoginCode()}>{busy?'Verifying…':'Verify & sign in'}</button>
+    <p role='status' className='magic-success'>Check your email for the 6-digit AUREON login code.</p></>}
+   </div>
+   <div className='auth-divider'><span>PASSWORD BACKUP</span></div>
+   <form onSubmit={login}><label>Password<input type='password' autoComplete='current-password' required value={password} onChange={e=>setPassword(e.target.value)}/></label>
+   <button className='primary-button' disabled={busy||!config?.supabaseUrl||!email.trim()}>{busy?'Signing in…':'Sign in with password'}</button></form>
+   <p className='muted'>Login codes are for the existing owner account only. AUREON will not create new users.</p>
    {error&&<p role='alert'>{error}</p>}
    <p className='muted'>Manual execution only. No broker orders. Session refresh tokens remain in memory only.</p></section></main>:<>
    {tab==='scanner'?<App/>:tab==='monitor'?<MonitorPanel/>:<main className='shell'><section className='scanner-card auth-panel'>
