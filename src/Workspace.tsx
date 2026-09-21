@@ -15,10 +15,27 @@ type QuantResult={symbol:string;generatedAt:string;authority:string;executionEli
 
 export default function Workspace(){
  const [config,setConfig]=useState<Config|null>(null),[health,setHealth]=useState<Health|null>(null),[signedIn,setSignedIn]=useState(false);
- const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[magicSent,setMagicSent]=useState(false);
  const [tab,setTab]=useState('scanner'),[scans,setScans]=useState<SavedScan[]>([]),[quotes,setQuotes]=useState<Quote[]>([]),[events,setEvents]=useState<Event[]>([]);
  const [research,setResearch]=useState<Research|null>(null),[quant,setQuant]=useState<QuantResult|null>(null),[quantSymbol,setQuantSymbol]=useState('BTCUSD'),[diagnostics,setDiagnostics]=useState<Diagnostics|null>(null),[note,setNote]=useState(''),[loaded,setLoaded]=useState(false);
- useEffect(()=>{Promise.all([api.get('/api/config'),api.get('/api/health')]).then(([c,h])=>{setConfig(c.data);setHealth(h.data);}).catch(()=>setError('Unable to reach the production health service.'));},[]);
+ useEffect(()=>{
+  Promise.all([api.get('/api/config'),api.get('/api/health')]).then(async([c,h])=>{
+   setConfig(c.data);setHealth(h.data);
+   const hash=new URLSearchParams(window.location.hash.replace(/^#/,''));
+   const accessToken=hash.get('access_token'),refreshToken=hash.get('refresh_token');
+   if(accessToken&&c.data?.supabaseUrl&&c.data?.publishableKey){
+    setBusy(true);setError('');
+    try{
+     setSession({accessToken,refreshToken:refreshToken||null,supabaseUrl:c.data.supabaseUrl,publishableKey:c.data.publishableKey});
+     await api.get('/api/journal');
+     history.replaceState(null,'',window.location.pathname+window.location.search);
+     setSignedIn(true);
+    }catch{
+     clearSession();setError('Secure sign-in link was invalid, expired, or not for the AUREON owner account.');
+    }finally{setBusy(false);}
+   }
+  }).catch(()=>setError('Unable to reach the production health service.'));
+ },[]);
  async function login(e:FormEvent){
   e.preventDefault();if(!config?.supabaseUrl||!config.publishableKey)return;setBusy(true);setError('');
   try{
@@ -27,6 +44,22 @@ export default function Workspace(){
    setSession({accessToken:data.access_token,refreshToken:data.refresh_token||null,supabaseUrl:config.supabaseUrl,publishableKey:config.publishableKey});
    await api.get('/api/journal');setPassword('');setSignedIn(true);
   }catch(e){clearSession();setError(e instanceof Error?e.message:'Sign-in failed.');}finally{setBusy(false);}
+ }
+ async function requestMagicLink(){
+  if(!config?.supabaseUrl||!config.publishableKey||!email.trim())return;
+  setBusy(true);setError('');setMagicSent(false);
+  try{
+   const redirectTo=window.location.origin+window.location.pathname;
+   const r=await fetch(config.supabaseUrl+'/auth/v1/otp?redirect_to='+encodeURIComponent(redirectTo),{
+    method:'POST',
+    headers:{apikey:config.publishableKey,'Content-Type':'application/json'},
+    body:JSON.stringify({email:email.trim(),create_user:false})
+   });
+   const data=await r.json().catch(()=>({}));
+   if(!r.ok)throw new Error(data.msg||data.message||data.error_description||'Unable to send secure sign-in link.');
+   setMagicSent(true);
+  }catch(e){setError(e instanceof Error?e.message:'Unable to send secure sign-in link.');}
+  finally{setBusy(false);}
  }
  async function refresh(){
   setBusy(true);setError('');setLoaded(false);
@@ -54,7 +87,12 @@ export default function Workspace(){
    <p role='status'>Production health: <strong>{health?.ready?'READY':'CHECKING / BLOCKED'}</strong>{health?.model?' · '+health.model:''}</p>
    <form onSubmit={login}><label>Email<input type='email' autoComplete='username' required value={email} onChange={e=>setEmail(e.target.value)}/></label>
    <label>Password<input type='password' autoComplete='current-password' required value={password} onChange={e=>setPassword(e.target.value)}/></label>
-   <button className='primary-button' disabled={busy||!config?.supabaseUrl}>{busy?'Signing in…':'Sign in'}</button></form>{error&&<p role='alert'>{error}</p>}
+   <button className='primary-button' disabled={busy||!config?.supabaseUrl}>{busy?'Signing in…':'Sign in'}</button></form>
+   <div className='auth-divider'><span>OR</span></div>
+   <button type='button' className='magic-link-button' disabled={busy||!config?.supabaseUrl||!email.trim()} onClick={()=>void requestMagicLink()}>{busy?'Working…':'Email me a secure sign-in link'}</button>
+   <p className='muted'>Passwordless sign-in sends a one-time link to the email entered above. Existing users only — AUREON will not create a new account.</p>
+   {magicSent&&<p role='status' className='magic-success'>Secure sign-in link sent. Open the email on this phone and tap the link to enter AUREON automatically.</p>}
+   {error&&<p role='alert'>{error}</p>}
    <p className='muted'>Manual execution only. No broker orders. Session refresh tokens remain in memory only.</p></section></main>:<>
    {tab==='scanner'?<App/>:tab==='monitor'?<MonitorPanel/>:<main className='shell'><section className='scanner-card auth-panel'>
     <div className='eyebrow'>{tab==='journal'?'PERSISTENT EVIDENCE':tab==='research'?'RESEARCH EVIDENCE':tab==='quant'?'CLOSED-CANDLE QUANT':'PROVIDER VERIFICATION'}</div>
