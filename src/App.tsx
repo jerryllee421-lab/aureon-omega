@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Crosshair,
   LoaderCircle,
-  Plus,
   RotateCcw,
   ShieldCheck,
   Sparkles,
@@ -65,7 +64,7 @@ type ScanResult={
   limitations:string[];
   pipelineMs?:number;
 };
-type PreparedChart={id:string;name:string;previewUrl:string;dataUrl:string;kb:number;kind:'PRIMARY'|'CONTEXT'};
+type PreparedChart={id:string;name:string;previewUrl:string;dataUrl:string;kb:number;kind:'PRIMARY'};
 type EngineStatus={ready:boolean;engine:string;architecture:string;issue:string|null};
 
 function label(value?:string|null){return value?value.replaceAll('_',' '):'—';}
@@ -73,6 +72,9 @@ function approxKb(dataUrl:string){const base64=dataUrl.split(',')[1]??'';return 
 function errorText(error:unknown){
   const code=error instanceof Error?error.message:'SCAN_FAILED';
   if(code.includes('RATE_LIMIT'))return 'ASTRA is busy. Retry the scan.';
+  if(code.includes('REQUEST_TIMEOUT'))return 'ASTRA scan timed out. Retry once with the same chart.';
+  if(code.includes('NETWORK_REQUEST_FAILED'))return 'Mobile network blocked the scan request. Reconnect and retry.';
+  if(code.includes('HTTP_'))return code.replaceAll('_',' ');
   if(code.includes('IMAGE_TOO_LARGE'))return 'The screenshot is too large. Crop unused phone UI and retry.';
   if(code.includes('VALID_IMAGE'))return 'Upload a valid chart screenshot.';
   if(code.includes('ENGINE_UNCONFIGURED'))return 'ASTRA is temporarily unavailable.';
@@ -142,11 +144,11 @@ export default function App(){
         previewUrl:URL.createObjectURL(file),
         dataUrl,
         kb:approxKb(dataUrl),
-        kind:charts.length===0?'PRIMARY':'CONTEXT'
+        kind:'PRIMARY'
       };
       setCharts(current=>{
-        if(current.length>=2)return current;
-        return [...current,item];
+        current.forEach(c=>URL.revokeObjectURL(c.previewUrl));
+        return [item];
       });
       setResult(null);
     }catch(e){setError(errorText(e));}
@@ -156,7 +158,7 @@ export default function App(){
     setCharts(current=>{
       const target=current.find(c=>c.id===id);
       if(target)URL.revokeObjectURL(target.previewUrl);
-      return current.filter(c=>c.id!==id).map((c,i)=>({...c,kind:i===0?'PRIMARY':'CONTEXT'}));
+      return current.filter(c=>c.id!==id);
     });
     setResult(null);setError('');
   },[]);
@@ -170,7 +172,7 @@ export default function App(){
     if(!charts.length||busy)return;
     setBusy(true);setResult(null);setError('');
     try{
-      const response=await api.post('/api/analyze/scan',{imageDataUrls:charts.map(c=>c.dataUrl)});
+      const response=await api.post('/api/analyze/scan',{imageDataUrls:[charts[0].dataUrl]});
       setResult(response.data as ScanResult);
     }catch(e){setError(errorText(e));}
     finally{setBusy(false);}
@@ -195,7 +197,7 @@ export default function App(){
     {!result&&<section className='scan-card'>
       <div className='upload-title'>
         <div><span>PRIMARY CHART</span><h2>{charts.length?'Chart ready':'Upload your trading chart'}</h2></div>
-        <span className='chart-limit'>{charts.length}/2</span>
+        <span className='chart-limit'>{charts.length}/1</span>
       </div>
 
       {charts.length===0?
@@ -207,20 +209,17 @@ export default function App(){
           {charts.map((chart,index)=><article className='chart-preview' key={chart.id}>
             <img src={chart.previewUrl} alt={chart.name}/>
             <div className='preview-bar'>
-              <div><strong>{index===0?'PRIMARY':'OPTIONAL CONTEXT'}</strong><span>{chart.kb} KB</span></div>
+              <div><strong>PRIMARY</strong><span>{chart.kb} KB</span></div>
               <button onClick={()=>removeChart(chart.id)} aria-label='Remove chart'><X size={17}/></button>
             </div>
           </article>)}
-          {charts.length===1&&<button className='context-button' onClick={()=>fileRef.current?.click()}>
-            <Plus size={18}/><div><strong>Add one context chart</strong><span>Optional — only if it genuinely helps.</span></div>
-          </button>}
         </div>
       }
       <input ref={fileRef} className='hidden-input' type='file' accept='image/png,image/jpeg,image/webp' onChange={addFile}/>
 
       <div className='scan-guidance'>
         <ShieldCheck size={16}/>
-        <span>Best results: clean candles, visible price scale, symbol and timeframe. No extra charts required.</span>
+        <span>Use one clean chart with visible candles, price scale, symbol and timeframe. ASTRA handles the rest.</span>
       </div>
 
       {error&&<div className='scan-error'><AlertTriangle size={17}/><span>{error}</span></div>}
