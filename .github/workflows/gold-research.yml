@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       years:
-        description: Years of XAUUSD history
+        description: Years of pinned XAUUSD history
         required: true
         default: '5'
         type: choice
@@ -26,6 +26,8 @@ permissions:
 
 env:
   PYTHONUNBUFFERED: '1'
+  XAU_MIRROR_END: '2026-08-20'
+  XAU_MIRROR_COMMIT: '922f83a60cc574e7395fb27397077288055a1ef6'
 
 jobs:
   research:
@@ -39,27 +41,30 @@ jobs:
           cache: pip
           cache-dependency-path: research/requirements.txt
       - run: pip install -r research/requirements.txt
-      - name: Resolve UTC date range
+      - name: Resolve pinned UTC research range
         id: dates
         shell: bash
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           from datetime import date
-          y=int('${{ inputs.years }}'); end=date.today()
+          y=int('${{ inputs.years }}')
+          end=date.fromisoformat('${{ env.XAU_MIRROR_END }}')
           try: start=end.replace(year=end.year-y)
           except ValueError: start=end.replace(month=2,day=28,year=end.year-y)
           print(f"start={start.isoformat()}")
           print(f"end={end.isoformat()}")
           PY
-      - name: Restore Dukascopy raw cache
+      - name: Restore pinned XAUUSD cache
         uses: actions/cache@v4
         with:
-          path: .cache/dukascopy
-          key: duka-xauusd-${{ steps.dates.outputs.start }}-${{ steps.dates.outputs.end }}-v1
-          restore-keys: |
-            duka-xauusd-
-      - name: Download authentic external XAUUSD M1 bid and ask bars
-        run: python research/duka_m1.py --symbol XAUUSD --start '${{ steps.dates.outputs.start }}' --end '${{ steps.dates.outputs.end }}' --workers 12
+          path: research_data/XAUUSD/M1
+          key: xau-mirror-${{ env.XAU_MIRROR_COMMIT }}-${{ steps.dates.outputs.start }}-${{ steps.dates.outputs.end }}-v2
+      - name: Import pinned XAUUSD M1 bid and ask history
+        run: >-
+          python research/mirror_m1.py
+          --start '${{ steps.dates.outputs.start }}'
+          --end '${{ steps.dates.outputs.end }}'
+          --commit '${{ env.XAU_MIRROR_COMMIT }}'
       - name: Build and validate 21 standard timeframes
         run: python research/resample_validate.py --root research_data --symbol XAUUSD
       - name: Run FVG V2.11 research

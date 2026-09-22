@@ -26,11 +26,16 @@ def read_m1(root: Path, symbol: str) -> pd.DataFrame:
     return df.sort_values("time").drop_duplicates("time").set_index("time")
 
 
-def agg_dict():
+def agg_dict(columns):
     d = {}
     for side in SIDES:
         d.update({f"{side}_open":"first",f"{side}_high":"max",f"{side}_low":"min",f"{side}_close":"last"})
-    d.update({"bid_volume":"sum","ask_volume":"sum","spread_open":"mean","spread_close":"mean"})
+    for optional in ("bid_volume", "ask_volume"):
+        if optional in columns:
+            d[optional] = "sum"
+    for spread in ("spread_open", "spread_close"):
+        if spread in columns:
+            d[spread] = "mean"
     return d
 
 
@@ -69,7 +74,7 @@ def main():
     for tf,rule in RULES.items():
         if tf=="M1": df=m1.copy()
         else:
-            df=m1.resample(rule,label="left",closed="left").agg(agg_dict()).dropna(subset=["bid_open","ask_open"])
+            df=m1.resample(rule,label="left",closed="left").agg(agg_dict(m1.columns)).dropna(subset=["bid_open","ask_open"])
         out=outroot/f"{symbol}_{tf}.parquet"
         df.reset_index().to_parquet(out,index=False,compression="zstd")
         rep=validate(df)
