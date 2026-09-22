@@ -1,0 +1,57 @@
+project: AUREON_GOLD_RESEARCH
+strategy: FVG_Scalper_V2_11
+symbol: XAUUSD
+data_source: DUKASCOPY_EXTERNAL
+execution_model: BAR_CLOSE_PROXY
+notes: >-
+  Research approximation of the uploaded MQL5 EA. It intentionally does not claim
+  tick-for-tick equivalence with MetaTrader 5. Final candidates must be verified in
+  MT5 Strategy Tester using broker data / real ticks.
+baseline:
+  entry_tf: M1
+  bias_tf: M1
+  bias_fast_ema: 20
+  bias_slow_ema: 50
+  use_bias_filter: false
+  require_midpoint: false
+  require_rejection: true
+  min_fvg_atr: 0.15
+  min_body_atr: 0.50
+  min_body_ratio: 0.60
+  max_fvg_bars: 1000
+  replace_with_new_fvg: true
+  one_trade_per_fvg: true
+  risk_percent: 10.0
+  reward_risk: 30.0
+  max_sl_atr: 3.0
+  atr_period: 14
+  sl_atr_buffer: 0.15
+  use_profit_lock: true
+  lock1_trigger_rr: 0.50
+  lock1_rr: 0.10
+  lock2_trigger_rr: 1.00
+  lock2_rr: 0.35
+  trail_start_rr: 1.50
+  trail_atr: 0.10
+  max_spread_price: 1.00
+  max_trades_day: 1000
+  daily_loss_pct: 0.0
+research_guardrails:
+  initial_equity: 10000.0
+  research_risk_percent: 1.0
+  max_candidate_drawdown_pct: 20.0
+  min_trades_dev: 80
+  random_seed: 26081102
+  monte_carlo_paths: 2000
+  monte_carlo_max_ruin_drawdown_pct: 30.0
+splits:
+  development: 0.60
+  validation: 0.20
+  holdout: 0.20
+grid:
+  min_fvg_atr: [0.10, 0.15, 0.20, 0.30]
+  min_body_atr: [0.40, 0.50, 0.70, 0.90]
+  min_body_ratio: [0.55, 0.60, 0.70]
+  sl_atr_buffer: [0.10, 0.15, 0.25]
+  reward_risk: [1.5, 2.0, 2.5, 3.0, 5.0]
+  use_bias_filter: [false, true]
