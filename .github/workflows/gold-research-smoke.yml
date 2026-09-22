@@ -13,6 +13,8 @@ permissions:
 
 env:
   PYTHONUNBUFFERED: '1'
+  XAU_MIRROR_END: '2026-08-20'
+  XAU_MIRROR_COMMIT: '922f83a60cc574e7395fb27397077288055a1ef6'
 
 jobs:
   smoke:
@@ -26,19 +28,23 @@ jobs:
           cache: pip
           cache-dependency-path: research/requirements.txt
       - run: pip install -r research/requirements.txt
-      - name: Resolve 14-day UTC smoke range
+      - name: Resolve 14-day pinned UTC smoke range
         id: dates
         shell: bash
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           from datetime import date, timedelta
-          end=date.today()
+          end=date.fromisoformat('${{ env.XAU_MIRROR_END }}')
           start=end-timedelta(days=14)
           print(f"start={start.isoformat()}")
           print(f"end={end.isoformat()}")
           PY
-      - name: Download XAUUSD smoke data
-        run: python research/duka_m1.py --symbol XAUUSD --start '${{ steps.dates.outputs.start }}' --end '${{ steps.dates.outputs.end }}' --workers 8
+      - name: Import pinned XAUUSD smoke data
+        run: >-
+          python research/mirror_m1.py
+          --start '${{ steps.dates.outputs.start }}'
+          --end '${{ steps.dates.outputs.end }}'
+          --commit '${{ env.XAU_MIRROR_COMMIT }}'
       - name: Validate all standard timeframes
         run: python research/resample_validate.py --root research_data --symbol XAUUSD
       - name: Run compact M5 FVG research
