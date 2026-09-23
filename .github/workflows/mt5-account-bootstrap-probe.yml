@@ -71,18 +71,18 @@ jobs:
 
           if(-not $ok){
             $cfg=Join-Path $root 'bootstrap-metaquotes.ini'
-            @'
-            [Common]
-            Server=MetaQuotes-Demo
-            AutoConfiguration=1
-            KeepPrivate=1
-            NewsEnable=0
-
-            [Experts]
-            Enabled=0
-            AllowLiveTrading=0
-            AllowDllImport=0
-            '@ | Set-Content -Path $cfg -Encoding Unicode
+            @(
+              '[Common]',
+              'Server=MetaQuotes-Demo',
+              'AutoConfiguration=1',
+              'KeepPrivate=1',
+              'NewsEnable=0',
+              '',
+              '[Experts]',
+              'Enabled=0',
+              'AllowLiveTrading=0',
+              'AllowDllImport=0'
+            ) | Set-Content -Path $cfg -Encoding Unicode
 
             $p=Start-Process -FilePath $terminal -ArgumentList @('/portable',"/config:$cfg") -PassThru
             $ok=Wait-ForAccount 75
