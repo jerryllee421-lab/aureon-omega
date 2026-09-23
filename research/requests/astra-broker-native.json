@@ -1,0 +1,8 @@
+{
+  "id": "astra-broker-native-v1",
+  "enabled": true,
+  "symbol": "XAUUSD.ecn",
+  "from": "2026-01-01",
+  "to": "2026-09-22",
+  "purpose": "Run broker-native MT5 E1 baseline, diagnostic discovery, E1-E3 and E1-E5 tests before optimization."
+}
