@@ -149,7 +149,7 @@ void OnStart()
       rates[count].high=hi;
       rates[count].low=lo;
       rates[count].close=cl;
-      rates[count].tick_volume=(ulong)MathMax((long)1,tv);
+      rates[count].tick_volume=(ulong)(tv>0 ? tv : 1);
       rates[count].spread=MathMax(1,spread);
       rates[count].real_volume=0;
 
