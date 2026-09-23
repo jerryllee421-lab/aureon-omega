@@ -10,6 +10,7 @@ on:
       - 'scripts/mt5_linux_compile.sh'
       - 'scripts/mt5_linux_tester_smoke.sh'
       - 'ea/baseline/**'
+      - 'ea/tools/**'
 
 permissions:
   contents: read
