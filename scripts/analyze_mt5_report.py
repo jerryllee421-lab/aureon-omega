@@ -40,8 +40,25 @@ def cells_from_xml(path: Path):
     root=ET.parse(path).getroot()
     return [clean(" ".join(e.itertext())) for e in root.iter() if clean(" ".join(e.itertext()))]
 
+def read_report_text(path: Path) -> str:
+    data=path.read_bytes()
+    # MT5 commonly emits UTF-16 reports on Windows. Detect BOM first, then
+    # fall back through common terminal encodings without failing the run.
+    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        return data.decode("utf-16", errors="ignore")
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig", errors="ignore")
+    for enc in ("utf-8", "utf-16-le", "cp1252"):
+        try:
+            text=data.decode(enc)
+            if "Total" in text or "Strategy Tester" in text or "<html" in text.lower():
+                return text
+        except UnicodeDecodeError:
+            pass
+    return data.decode("utf-8", errors="ignore")
+
 def cells_from_html(path: Path):
-    txt=path.read_text(errors="ignore")
+    txt=read_report_text(path)
     txt=re.sub(r"<script.*?</script>|<style.*?</style>"," ",txt,flags=re.I|re.S)
     txt=re.sub(r"<[^>]+>","\n",txt)
     return [clean(x) for x in txt.splitlines() if clean(x)]
