@@ -4,7 +4,7 @@
 //+------------------------------------------------------------------+
 #property strict
 #property script_show_inputs
-#property version "1.00"
+#property version "1.01"
 
 input string InpCsvFile="ASTRA_XAUUSD_M1.csv";
 input string InpSymbolName="ASTRA_XAUUSD";
@@ -16,30 +16,6 @@ input double InpMinVolume=0.01;
 input double InpMaxVolume=100.0;
 input double InpVolumeStep=0.01;
 input bool InpCloseTerminal=true;
-
-bool SetIntProp(ENUM_SYMBOL_INFO_INTEGER prop,long value,string label)
-{
-   ResetLastError();
-   if(CustomSymbolSetInteger(InpSymbolName,prop,value)) return true;
-   PrintFormat("ASTRA_IMPORT_FAIL property=%s value=%I64d error=%d",label,value,GetLastError());
-   return false;
-}
-
-bool SetDoubleProp(ENUM_SYMBOL_INFO_DOUBLE prop,double value,string label)
-{
-   ResetLastError();
-   if(CustomSymbolSetDouble(InpSymbolName,prop,value)) return true;
-   PrintFormat("ASTRA_IMPORT_FAIL property=%s value=%.10f error=%d",label,value,GetLastError());
-   return false;
-}
-
-bool SetStringProp(ENUM_SYMBOL_INFO_STRING prop,string value,string label)
-{
-   ResetLastError();
-   if(CustomSymbolSetString(InpSymbolName,prop,value)) return true;
-   PrintFormat("ASTRA_IMPORT_FAIL property=%s value=%s error=%d",label,value,GetLastError());
-   return false;
-}
 
 bool SetIntProp(ENUM_SYMBOL_INFO_INTEGER prop,long value,string label)
 {
@@ -71,8 +47,11 @@ bool SetStringProp(ENUM_SYMBOL_INFO_STRING prop,string value,string label)
 bool ConfigureSymbol()
 {
    SymbolSelect(InpSymbolName,false);
-   string origin=Symbol();
 
+   // Clone the startup chart symbol so quote/trade sessions and other mandatory
+   // specification fields start in a valid state. The test economics below
+   // are then overridden explicitly for deterministic XAUUSD research.
+   string origin=Symbol();
    ResetLastError();
    if(!CustomSymbolCreate(InpSymbolName,InpSymbolPath,origin))
    {
@@ -84,30 +63,30 @@ bool ConfigureSymbol()
       }
    }
 
-   // Start from the terminal's current chart symbol so quote/trade sessions and
-   // other required specification fields are valid. Override only properties
-   // needed for deterministic XAUUSD research economics.
    if(!SetIntProp(SYMBOL_CHART_MODE,SYMBOL_CHART_MODE_BID,"SYMBOL_CHART_MODE")) return false;
    if(!SetIntProp(SYMBOL_DIGITS,InpDigits,"SYMBOL_DIGITS")) return false;
+   if(!SetDoubleProp(SYMBOL_POINT,InpPoint,"SYMBOL_POINT")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_SIZE,InpPoint,"SYMBOL_TRADE_TICK_SIZE")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_CONTRACT_SIZE,InpContractSize,"SYMBOL_TRADE_CONTRACT_SIZE")) return false;
+
+   // MT5 validates minimum/step against the maximum. Set MAX before MIN.
+   if(!SetDoubleProp(SYMBOL_VOLUME_MAX,InpMaxVolume,"SYMBOL_VOLUME_MAX")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_STEP,InpVolumeStep,"SYMBOL_VOLUME_STEP")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_MIN,InpMinVolume,"SYMBOL_VOLUME_MIN")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_LIMIT,InpMaxVolume,"SYMBOL_VOLUME_LIMIT")) return false;
+
+   if(!SetIntProp(SYMBOL_TRADE_CALC_MODE,SYMBOL_CALC_MODE_CFD,"SYMBOL_TRADE_CALC_MODE")) return false;
    if(!SetIntProp(SYMBOL_TRADE_MODE,SYMBOL_TRADE_MODE_FULL,"SYMBOL_TRADE_MODE")) return false;
    if(!SetIntProp(SYMBOL_TRADE_EXEMODE,SYMBOL_TRADE_EXECUTION_MARKET,"SYMBOL_TRADE_EXEMODE")) return false;
-   if(!SetIntProp(SYMBOL_TRADE_CALC_MODE,SYMBOL_CALC_MODE_CFD,"SYMBOL_TRADE_CALC_MODE")) return false;
    if(!SetIntProp(SYMBOL_TRADE_STOPS_LEVEL,0,"SYMBOL_TRADE_STOPS_LEVEL")) return false;
    if(!SetIntProp(SYMBOL_TRADE_FREEZE_LEVEL,0,"SYMBOL_TRADE_FREEZE_LEVEL")) return false;
    if(!SetIntProp(SYMBOL_SPREAD_FLOAT,true,"SYMBOL_SPREAD_FLOAT")) return false;
    if(!SetIntProp(SYMBOL_ORDER_MODE,SYMBOL_ORDER_MARKET|SYMBOL_ORDER_SL|SYMBOL_ORDER_TP,"SYMBOL_ORDER_MODE")) return false;
    if(!SetIntProp(SYMBOL_FILLING_MODE,SYMBOL_FILLING_IOC,"SYMBOL_FILLING_MODE")) return false;
 
-   if(!SetDoubleProp(SYMBOL_POINT,InpPoint,"SYMBOL_POINT")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_SIZE,InpPoint,"SYMBOL_TRADE_TICK_SIZE")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE,InpPoint*InpContractSize,"SYMBOL_TRADE_TICK_VALUE")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_PROFIT,InpPoint*InpContractSize,"SYMBOL_TRADE_TICK_VALUE_PROFIT")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_LOSS,InpPoint*InpContractSize,"SYMBOL_TRADE_TICK_VALUE_LOSS")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_CONTRACT_SIZE,InpContractSize,"SYMBOL_TRADE_CONTRACT_SIZE")) return false;
-   if(!SetDoubleProp(SYMBOL_VOLUME_MIN,InpMinVolume,"SYMBOL_VOLUME_MIN")) return false;
-   if(!SetDoubleProp(SYMBOL_VOLUME_MAX,InpMaxVolume,"SYMBOL_VOLUME_MAX")) return false;
-   if(!SetDoubleProp(SYMBOL_VOLUME_STEP,InpVolumeStep,"SYMBOL_VOLUME_STEP")) return false;
-   if(!SetDoubleProp(SYMBOL_VOLUME_LIMIT,InpMaxVolume,"SYMBOL_VOLUME_LIMIT")) return false;
+   // PROFIT/LOSS tick values are derived/read-only on current MT5 builds.
+   double tickValue=InpPoint*InpContractSize;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE,tickValue,"SYMBOL_TRADE_TICK_VALUE")) return false;
 
    if(!SetStringProp(SYMBOL_DESCRIPTION,"AUREON ASTRA XAUUSD research symbol","SYMBOL_DESCRIPTION")) return false;
    if(!SetStringProp(SYMBOL_CURRENCY_BASE,"XAU","SYMBOL_CURRENCY_BASE")) return false;
@@ -153,7 +132,8 @@ void OnStart()
    }
 
    ResetLastError();
-   CustomRatesDelete(InpSymbolName,0,LONG_MAX);
+   if(CustomRatesDelete(InpSymbolName,0,LONG_MAX)<0)
+      PrintFormat("ASTRA_IMPORT_WARN CustomRatesDelete error=%d",GetLastError());
 
    int handle=FileOpen(InpCsvFile,FILE_READ|FILE_CSV|FILE_ANSI,',');
    if(handle==INVALID_HANDLE)
@@ -163,7 +143,7 @@ void OnStart()
       return;
    }
 
-   // Skip header.
+   // CSV header: time,open,high,low,close,tick_volume,spread
    for(int k=0;k<7;k++) FileReadString(handle);
 
    const int BATCH=50000;
@@ -215,6 +195,7 @@ void OnStart()
    }
 
    FileClose(handle);
+
    if(count>0 && !FlushRates(rates,count,total))
    {
       Finish(5);
@@ -231,7 +212,8 @@ void OnStart()
    SymbolSelect(InpSymbolName,true);
    int bars=Bars(InpSymbolName,PERIOD_M1);
    PrintFormat("ASTRA_IMPORT_OK symbol=%s imported=%d bars=%d first=%s last=%s",
-               InpSymbolName,total,bars,TimeToString(first,TIME_DATE|TIME_MINUTES),
+               InpSymbolName,total,bars,
+               TimeToString(first,TIME_DATE|TIME_MINUTES),
                TimeToString(last,TIME_DATE|TIME_MINUTES));
    Finish(0);
 }
