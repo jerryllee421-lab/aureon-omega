@@ -29,15 +29,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Wine and headless display
+      - name: Install WineHQ stable and headless display
         shell: bash
         run: |
           set -euo pipefail
           sudo dpkg --add-architecture i386
+          sudo mkdir -pm755 /etc/apt/keyrings
+          curl -fsSL https://dl.winehq.org/wine-builds/winehq.key \
+            | sudo tee /etc/apt/keyrings/winehq-archive.key >/dev/null
+          sudo curl -fsSL \
+            https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources \
+            -o /etc/apt/sources.list.d/winehq-noble.sources
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --install-recommends \
+            winehq-stable xvfb xauth cabextract winbind curl ca-certificates p7zip-full
           wine --version
+          wine --version | tee "$RUNNER_TEMP/wine-version.txt"
+          wine_major="$(wine --version | sed -E 's/^wine-([0-9]+).*/\1/')"
+          if [ "$wine_major" -lt 10 ]; then
+            echo "MT5 build 6182 requires Wine 10 or later; installed: $(wine --version)"
+            exit 1
+          fi
 
       - name: Install MT5 and compile FVG baseline
         shell: bash
