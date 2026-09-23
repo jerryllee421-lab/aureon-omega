@@ -1,5 +1,5 @@
 {
   "id": "astra-mt5-baseline-v1",
-  "enabled": false,
-  "note": "Change enabled to true only after MT5_DEMO_LOGIN and MT5_DEMO_PASSWORD are configured as GitHub Actions secrets."
+  "enabled": true,
+  "note": "Native smoke test passed; execute the frozen five-year baseline matrix."
 }
