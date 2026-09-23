@@ -4,7 +4,7 @@
 //+------------------------------------------------------------------+
 #property strict
 #property script_show_inputs
-#property version "1.01"
+#property version "1.02"
 
 input string InpCsvFile="ASTRA_XAUUSD_M1.csv";
 input string InpSymbolName="ASTRA_XAUUSD";
@@ -146,7 +146,7 @@ void OnStart()
    // CSV header: time,open,high,low,close,tick_volume,spread
    for(int k=0;k<7;k++) FileReadString(handle);
 
-   const int BATCH=50000;
+   const int BATCH=250000;
    MqlRates rates[];
    ArrayResize(rates,BATCH);
    int count=0,total=0;
@@ -189,6 +189,8 @@ void OnStart()
             Finish(4);
             return;
          }
+         PrintFormat("ASTRA_IMPORT_PROGRESS imported=%d last=%s",
+                     total,TimeToString(last,TIME_DATE|TIME_MINUTES));
          ArrayResize(rates,BATCH);
          count=0;
       }
