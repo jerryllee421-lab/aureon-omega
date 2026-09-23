@@ -7,6 +7,9 @@ mkdir -p "$ARTIFACT_DIR"
 export WINEPREFIX="${WINEPREFIX:-${RUNNER_TEMP:-/tmp}/aureon-mt5-wine}"
 export WINEARCH="${WINEARCH:-win64}"
 export WINEDEBUG="${WINEDEBUG:--all}"
+# MT5 does not require Wine Mono/Gecko. Disabling them prevents first-run GUI
+# prompts from blocking an ephemeral/headless GitHub runner.
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=;winemenubuilder.exe=d}"
 INSTALLER_URL="${MT5_INSTALLER_URL:-https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe}"
 INSTALLER="${RUNNER_TEMP:-/tmp}/mt5setup.exe"
 EA_SOURCE="ea/baseline/FVG_Scalper_V2_11_ORIGINAL.mq5"
@@ -23,16 +26,21 @@ wine --version | tee "$ARTIFACT_DIR/wine-version.txt"
 echo "== Initialize Wine prefix =="
 mkdir -p "$WINEPREFIX"
 set +e
-xvfb-run -a timeout 180s wineboot -u >"$ARTIFACT_DIR/wineboot.log" 2>&1
+xvfb-run -a timeout 360s wineboot --init >"$ARTIFACT_DIR/wineboot.log" 2>&1
 wineboot_rc=$?
 set -e
-if [[ "$wineboot_rc" != "0" && "$wineboot_rc" != "124" ]]; then
+if [[ "$wineboot_rc" != "0" ]]; then
   cat "$ARTIFACT_DIR/wineboot.log"
-  echo "wineboot failed with exit code $wineboot_rc"
+  echo "wineboot failed or timed out with exit code $wineboot_rc"
   exit "$wineboot_rc"
 fi
 wineserver -w >/dev/null 2>&1 || true
 test -d "$WINEPREFIX/drive_c"
+if [[ ! -f "$WINEPREFIX/drive_c/windows/system32/kernel32.dll" ]]; then
+  echo "Wine prefix initialization incomplete: kernel32.dll missing."
+  cat "$ARTIFACT_DIR/wineboot.log" || true
+  exit 1
+fi
 
 echo "== Download official MT5 installer =="
 curl --fail --location --retry 5 --retry-delay 3 \
