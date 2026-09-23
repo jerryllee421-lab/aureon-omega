@@ -20,6 +20,7 @@ bash scripts/mt5_linux_compile.sh
 
 source "$COMPILE_ARTIFACT/mt5-paths.txt"
 source "$COMPILE_ARTIFACT/mql5-root.txt"
+MQL5_ROOT="$mql5_root"
 
 MT5_DIR="$(dirname "$terminal")"
 mkdir -p "$MQL5_ROOT/Scripts/AUREON" "$MQL5_ROOT/Files" "$MT5_DIR/reports"
