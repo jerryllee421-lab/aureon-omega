@@ -132,7 +132,11 @@ jobs:
 
           Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           $p=Start-Process -FilePath "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
-          if(-not $p.WaitForExit(600000)){ $p.Kill(); throw 'Custom-symbol loader timed out' }
+          if(-not $p.WaitForExit(1800000)){
+            $p.Kill()
+            Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            throw 'Custom-symbol loader timed out after 30 minutes'
+          }
           Start-Sleep -Seconds 3
 
           $events=''
