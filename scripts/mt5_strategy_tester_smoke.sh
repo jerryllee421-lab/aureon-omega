@@ -76,8 +76,6 @@ NewsEnable=0
 CertInstall=0
 
 [StartUp]
-Symbol=EURUSD
-Period=M1
 Script=AUREON\AUREON_LoadCustomGold
 ShutdownTerminal=1
 EOF
@@ -97,6 +95,11 @@ if [[ ! -s "$LOAD_RESULT" ]]; then
   echo "Custom Gold loader did not produce its result marker." | tee "$ARTIFACT_DIR/failure.txt"
   find "$MT5_DIR" "$MQL5_ROOT" -type f \( -iname '*.log' -o -iname '*journal*' \) -mmin -10 -print \
     | tee "$ARTIFACT_DIR/recent-mt5-logs.txt" || true
+  while IFS= read -r log; do
+    [[ -f "$log" ]] || continue
+    safe="$(echo "$log" | sed 's#[/ ]#_#g')"
+    cp "$log" "$ARTIFACT_DIR/${safe##*_AUREON_MT5_}" 2>/dev/null || true
+  done < "$ARTIFACT_DIR/recent-mt5-logs.txt"
   exit 1
 fi
 cp "$LOAD_RESULT" "$ARTIFACT_DIR/"
