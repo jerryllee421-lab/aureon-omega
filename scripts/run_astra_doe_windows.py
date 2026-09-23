@@ -83,7 +83,10 @@ def compile_mql(root: Path):
     shutil.copy2(REPO / "ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5", ea)
     shutil.copy2(REPO / "ea/astra/tools/AUREON_CustomSymbolLoader.mq5", loader)
     for src, label in ((ea, "EA"), (loader, "loader")):
-        run([root / "metaeditor64.exe", f"/compile:{src}", f"/include:{mql5}", "/log"], timeout=180)
+        # MetaEditor can return a non-zero process code even after a clean
+        # compile. The authoritative checks are EX5 existence plus the compile
+        # log confirming 0 errors / 0 warnings.
+        run([root / "metaeditor64.exe", f"/compile:{src}", f"/include:{mql5}", "/log"], timeout=180, check=False)
         time.sleep(2)
         log = src.with_suffix(".log")
         ex5 = src.with_suffix(".ex5")
@@ -280,6 +283,21 @@ def cross(args):
                      min_trades=5, min_pf=1.0, max_dd=10.0)
     run([sys.executable, "scripts/astra_doe.py", "rank", "--analysis", artifact / "oos_analysis",
          "--manifest", oos / "manifest.json", "--out", artifact / "oos_summary", "--top", "4"], timeout=60)
+
+    # Conservative promotion gate: positive edge must survive untouched OOS.
+    run([sys.executable, "scripts/astra_select.py",
+         "--screen-ranking", artifact / "ranking.json",
+         "--oos-manifest", oos / "manifest.json",
+         "--oos-analysis", artifact / "oos_analysis",
+         "--out", artifact / "final_selection"], timeout=60)
+
+    # Stress each OOS candidate with a deterministic bootstrap of daily P/L.
+    manifest = json.loads((oos / "manifest.json").read_text(encoding="utf-8"))
+    for case in manifest:
+        report = artifact / "oos_reports" / f"{case['name']}.htm"
+        mc_out = artifact / "oos_monte_carlo" / case["name"]
+        run([sys.executable, "scripts/mt5_monte_carlo.py", report,
+             "--out", mc_out, "--sims", "5000", "--seed", "260923"], timeout=120, check=False)
 
     methodology = [
         "DATA=DUKASCOPY_EXTERNAL_PINNED_MIRROR",
