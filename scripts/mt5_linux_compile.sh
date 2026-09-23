@@ -191,6 +191,14 @@ try:
 except Exception:
     wine_version = None
 
+compile_text = (root / "compile.log").read_text(encoding="utf-8", errors="replace") if (root / "compile.log").exists() else ""
+import re
+m = re.search(r"Result:\s*(\d+)\s*errors,\s*(\d+)\s*warnings", compile_text, re.I)
+compile_errors = int(m.group(1)) if m else None
+compile_warnings = int(m.group(2)) if m else None
+installer_hash_file = root / "mt5setup.sha256"
+installer_hash = installer_hash_file.read_text(encoding="utf-8").split()[0] if installer_hash_file.exists() else None
+
 manifest = {
     "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "github_run_id": os.getenv("GITHUB_RUN_ID"),
@@ -198,10 +206,12 @@ manifest = {
     "runner_os": os.getenv("RUNNER_OS"),
     "runner_arch": os.getenv("RUNNER_ARCH"),
     "wine_version": wine_version,
-    "mt5_installer_sha256": sha(root / "mt5setup.exe"),
+    "mt5_installer_sha256": installer_hash,
     "source_ea_sha256": sha(root / "FVG_Scalper_V2_11_ORIGINAL.mq5"),
     "compiled_ex5_sha256": sha(root / "FVG_Scalper_V2_11_ORIGINAL.ex5"),
-    "compile_zero_errors": True,
+    "compile_errors": compile_errors,
+    "compile_warnings": compile_warnings,
+    "compile_zero_errors": compile_errors == 0,
     "safety": {
         "credentials_used": False,
         "broker_login_used": False,
