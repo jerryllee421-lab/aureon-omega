@@ -2,11 +2,6 @@ name: ASTRA MT5 Baseline Matrix
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/astra-campaign-ea-v1
-    paths:
-      - 'research/requests/astra-mt5-matrix.json'
 
 permissions:
   contents: read
@@ -163,41 +158,41 @@ jobs:
             $cfg=Join-Path $root ("astra-"+$case.Name+".ini")
             $reportName="ASTRA_"+$case.Name
             $ini=@"
-[Common]
-Login=$($env:MT5_DEMO_LOGIN)
-Password=$($env:MT5_DEMO_PASSWORD)
-Server=$($env:MT5_DEMO_SERVER)
-KeepPrivate=0
-NewsEnable=0
-
-[Experts]
-Enabled=1
-AllowLiveTrading=0
-AllowDllImport=0
-
-[Tester]
-Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1
-ExpertParameters=$($case.Preset)
-Symbol=ASTRA_XAUUSD
-Period=M5
-Login=$($env:MT5_DEMO_LOGIN)
-Deposit=10000
-Currency=USD
-Leverage=1:100
-Model=1
-ExecutionMode=0
-Optimization=0
-FromDate=2021.08.20
-ToDate=2026.08.20
-ForwardMode=0
-Report=\reports\$reportName
-ReplaceReport=1
-ShutdownTerminal=1
-UseLocal=1
-UseRemote=0
-UseCloud=0
-Visual=0
-"@
+            [Common]
+            Login=$($env:MT5_DEMO_LOGIN)
+            Password=$($env:MT5_DEMO_PASSWORD)
+            Server=$($env:MT5_DEMO_SERVER)
+            KeepPrivate=0
+            NewsEnable=0
+            
+            [Experts]
+            Enabled=1
+            AllowLiveTrading=0
+            AllowDllImport=0
+            
+            [Tester]
+            Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1
+            ExpertParameters=$($case.Preset)
+            Symbol=ASTRA_XAUUSD
+            Period=M5
+            Login=$($env:MT5_DEMO_LOGIN)
+            Deposit=10000
+            Currency=USD
+            Leverage=1:100
+            Model=1
+            ExecutionMode=0
+            Optimization=0
+            FromDate=2021.08.20
+            ToDate=2026.08.20
+            ForwardMode=0
+            Report=\reports\$reportName
+            ReplaceReport=1
+            ShutdownTerminal=1
+            UseLocal=1
+            UseRemote=0
+            UseCloud=0
+            Visual=0
+            "@
             $ini | Set-Content -Path $cfg -Encoding Unicode
 
             Get-Process terminal64,metatester64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
