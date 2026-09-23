@@ -147,43 +147,42 @@ jobs:
             Copy-Item ("ea/astra/presets/"+$case.Preset) (Join-Path $profile $case.Preset) -Force
             $cfg=Join-Path $root ("fast-"+$case.Name+".ini")
             $reportName="FAST_"+$case.Name
-            $ini=@"
-            [Common]
-            Login=$($env:MT5_DEMO_LOGIN)
-            Password=$($env:MT5_DEMO_PASSWORD)
-            Server=$($env:MT5_DEMO_SERVER)
-            KeepPrivate=0
-            NewsEnable=0
-
-            [Experts]
-            Enabled=1
-            AllowLiveTrading=0
-            AllowDllImport=0
-
-            [Tester]
-            Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1
-            ExpertParameters=$($case.Preset)
-            Symbol=ASTRA_XAUUSD
-            Period=M5
-            Login=$($env:MT5_DEMO_LOGIN)
-            Deposit=10000
-            Currency=USD
-            Leverage=1:100
-            Model=1
-            ExecutionMode=0
-            Optimization=0
-            FromDate=2025.08.20
-            ToDate=2026.08.20
-            ForwardMode=0
-            Report=\reports\$reportName
-            ReplaceReport=1
-            ShutdownTerminal=1
-            UseLocal=1
-            UseRemote=0
-            UseCloud=0
-            Visual=0
-            "@
-            $ini | Set-Content -Path $cfg -Encoding Unicode
+            @(
+              '[Common]',
+              ("Login="+$env:MT5_DEMO_LOGIN),
+              ("Password="+$env:MT5_DEMO_PASSWORD),
+              ("Server="+$env:MT5_DEMO_SERVER),
+              'KeepPrivate=0',
+              'NewsEnable=0',
+              '',
+              '[Experts]',
+              'Enabled=1',
+              'AllowLiveTrading=0',
+              'AllowDllImport=0',
+              '',
+              '[Tester]',
+              'Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1',
+              ("ExpertParameters="+$case.Preset),
+              'Symbol=ASTRA_XAUUSD',
+              'Period=M5',
+              ("Login="+$env:MT5_DEMO_LOGIN),
+              'Deposit=10000',
+              'Currency=USD',
+              'Leverage=1:100',
+              'Model=1',
+              'ExecutionMode=0',
+              'Optimization=0',
+              'FromDate=2025.08.20',
+              'ToDate=2026.08.20',
+              'ForwardMode=0',
+              ("Report=\reports\"+$reportName),
+              'ReplaceReport=1',
+              'ShutdownTerminal=1',
+              'UseLocal=1',
+              'UseRemote=0',
+              'UseCloud=0',
+              'Visual=0'
+            ) | Set-Content -Path $cfg -Encoding Unicode
 
             Get-Process terminal64,metatester64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             $p=Start-Process -FilePath "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
