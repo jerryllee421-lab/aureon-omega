@@ -1,0 +1,17 @@
+{
+  "id": "astra-comprehensive-doe-v1",
+  "enabled": true,
+  "objective": "Screen all material ASTRA Gold strategy parameters by family, cross-test top parameter deltas, then validate top candidates on an untouched OOS window.",
+  "data": {
+    "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
+    "from": "2025-08-20",
+    "split": "2026-04-20",
+    "to": "2026-08-20",
+    "mt5_model": "1_MINUTE_OHLC"
+  },
+  "families": ["structure", "trigger", "exit", "session"],
+  "cross_top_per_family": 2,
+  "oos_candidates": 4,
+  "live_trading": false,
+  "notes": "External OHLC has no authoritative tick volume. Volume filter stays disabled in this phase. Broker-native real-tick confirmation remains mandatory before forward promotion."
+}
