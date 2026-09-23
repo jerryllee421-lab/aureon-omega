@@ -1,0 +1,37 @@
+name: ASTRA MT5 Report Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - 'research/mt5/**'
+      - 'scripts/analyze_mt5_report.py'
+      - '.github/workflows/astra-report-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  analyzer-self-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax check
+        run: python3 -m py_compile scripts/analyze_mt5_report.py
+      - name: Create deterministic sample report
+        run: |
+          mkdir -p /tmp/astra
+          cat > /tmp/astra/sample.html <<'EOF'
+          <html><body>
+          <div>Total Net Profit: 1250.00</div>
+          <div>Profit Factor: 1.42</div>
+          <div>Expected Payoff: 12.50</div>
+          <div>Equity Drawdown Relative: 5.40%</div>
+          <div>Total Trades: 100</div>
+          <div>Sharpe Ratio: 1.15</div>
+          </body></html>
+          EOF
+          python3 scripts/analyze_mt5_report.py /tmp/astra/sample.html --out /tmp/astra/results
+          cat /tmp/astra/results/mt5_report.md
