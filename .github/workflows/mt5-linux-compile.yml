@@ -1,0 +1,228 @@
+name: MT5 Linux Compile Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/mt5-linux-github-runner
+    paths:
+      - '.github/workflows/mt5-linux-compile.yml'
+      - 'ea/baseline/**'
+
+permissions:
+  contents: read
+
+env:
+  WINEPREFIX: ${{ runner.temp }}/aureon-mt5-wine
+  WINEARCH: win64
+  WINEDEBUG: -all
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+
+jobs:
+  compile:
+    name: Wine + MT5 + MetaEditor compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Wine and headless display
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            wine64 wine32 xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+          wine --version
+          Xvfb -version 2>&1 | head -n 2 || true
+
+      - name: Initialize clean Wine prefix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WINEPREFIX"
+          set +e
+          xvfb-run -a timeout 180s wineboot -u
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+            echo "wineboot failed with exit code $rc"
+            exit "$rc"
+          fi
+          wineserver -w || true
+          test -d "$WINEPREFIX/drive_c"
+
+      - name: Download official MetaTrader 5 installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-delay 3 \
+            "$MT5_INSTALLER_URL" -o "$RUNNER_TEMP/mt5setup.exe"
+          test -s "$RUNNER_TEMP/mt5setup.exe"
+          sha256sum "$RUNNER_TEMP/mt5setup.exe" | tee "$RUNNER_TEMP/mt5setup.sha256"
+          file "$RUNNER_TEMP/mt5setup.exe"
+
+      - name: Install MetaTrader 5 automatically under Wine
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          xvfb-run -a timeout 900s wine "$RUNNER_TEMP/mt5setup.exe" \
+            /auto /path:"C:\\AUREON_MT5"
+          installer_rc=$?
+          set -e
+          echo "installer_exit_code=$installer_rc"
+
+          wineserver -k || true
+          sleep 2
+
+          terminal="$(find "$WINEPREFIX/drive_c" -type f -iname 'terminal64.exe' -print -quit)"
+          metaeditor="$(find "$WINEPREFIX/drive_c" -type f -iname 'metaeditor64.exe' -print -quit)"
+
+          if [ -z "$terminal" ] || [ -z "$metaeditor" ]; then
+            echo "MetaTrader installation files were not found."
+            find "$WINEPREFIX/drive_c" -maxdepth 5 -type f \( -iname 'terminal*.exe' -o -iname 'metaeditor*.exe' \) -print || true
+            exit 1
+          fi
+
+          echo "terminal=$terminal" | tee "$RUNNER_TEMP/mt5-paths.env"
+          echo "metaeditor=$metaeditor" | tee -a "$RUNNER_TEMP/mt5-paths.env"
+          printf 'MT5 terminal: %s\nMetaEditor: %s\n' "$terminal" "$metaeditor"
+
+      - name: Stage immutable FVG V2.11 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/mt5-paths.env"
+          mt5_dir="$(dirname "$terminal")"
+          expert_dir="$mt5_dir/MQL5/Experts/AUREON"
+          mkdir -p "$expert_dir"
+
+          source_ea="ea/baseline/FVG_Scalper_V2_11_ORIGINAL.mq5"
+          dest_ea="$expert_dir/FVG_Scalper_V2_11_ORIGINAL.mq5"
+
+          test -s "$source_ea"
+          cp "$source_ea" "$dest_ea"
+
+          sha256sum "$source_ea" | tee "$RUNNER_TEMP/ea-source.sha256"
+          sha256sum "$dest_ea" | tee "$RUNNER_TEMP/ea-staged.sha256"
+          cmp --silent "$source_ea" "$dest_ea"
+
+          echo "ea_linux=$dest_ea" >> "$RUNNER_TEMP/mt5-paths.env"
+
+      - name: Compile EA with official MetaEditor
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/mt5-paths.env"
+
+          ea_win="$(winepath -w "$ea_linux")"
+          echo "Compiling: $ea_win"
+
+          set +e
+          xvfb-run -a timeout 480s wine "$metaeditor" /compile:"$ea_win" /log
+          compile_rc=$?
+          set -e
+          echo "metaeditor_exit_code=$compile_rc"
+
+          wineserver -k || true
+          sleep 2
+
+          ex5="${ea_linux%.mq5}.ex5"
+          raw_log="${ea_linux%.mq5}.log"
+          artifact_dir="$GITHUB_WORKSPACE/mt5_ci_artifact"
+          mkdir -p "$artifact_dir"
+
+          if [ -f "$raw_log" ]; then
+            python3 - "$raw_log" "$artifact_dir/compile.log" <<'PY'
+import pathlib, sys
+src = pathlib.Path(sys.argv[1]).read_bytes()
+for enc in ("utf-16", "utf-16le", "utf-8-sig", "cp1252"):
+    try:
+        text = src.decode(enc)
+        break
+    except UnicodeDecodeError:
+        continue
+else:
+    text = src.decode("utf-8", errors="replace")
+pathlib.Path(sys.argv[2]).write_text(text, encoding="utf-8")
+print(text)
+PY
+          else
+            echo "MetaEditor did not create a compilation log." | tee "$artifact_dir/compile.log"
+          fi
+
+          cp "$ea_linux" "$artifact_dir/"
+          if [ -f "$ex5" ]; then
+            cp "$ex5" "$artifact_dir/"
+          fi
+          cp "$RUNNER_TEMP/mt5setup.sha256" "$artifact_dir/"
+          cp "$RUNNER_TEMP/ea-source.sha256" "$artifact_dir/"
+
+          if [ ! -s "$ex5" ]; then
+            echo "Compilation did not produce EX5."
+            exit 1
+          fi
+
+          if ! grep -Eiq '(^|[^0-9])0 errors([^0-9]|$)' "$artifact_dir/compile.log"; then
+            echo "Compiler log does not confirm zero errors."
+            exit 1
+          fi
+
+          echo "EX5 produced successfully."
+          sha256sum "$ex5" | tee "$artifact_dir/ex5.sha256"
+
+      - name: Create reproducibility manifest
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$GITHUB_WORKSPACE/mt5_ci_artifact"
+          mkdir -p "$artifact_dir"
+          python3 - "$artifact_dir/manifest.json" <<'PY'
+import datetime, hashlib, json, os, pathlib, subprocess, sys
+root = pathlib.Path("mt5_ci_artifact")
+def sha(path):
+    p = pathlib.Path(path)
+    if not p.exists():
+        return None
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+try:
+    wine_version = subprocess.check_output(["wine", "--version"], text=True).strip()
+except Exception:
+    wine_version = None
+manifest = {
+    "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "github_run_id": os.getenv("GITHUB_RUN_ID"),
+    "github_sha": os.getenv("GITHUB_SHA"),
+    "runner_os": os.getenv("RUNNER_OS"),
+    "runner_arch": os.getenv("RUNNER_ARCH"),
+    "wine_version": wine_version,
+    "source_ea_sha256": sha(root / "FVG_Scalper_V2_11_ORIGINAL.mq5"),
+    "compiled_ex5_sha256": sha(root / "FVG_Scalper_V2_11_ORIGINAL.ex5"),
+    "safety": {
+        "credentials_used": False,
+        "broker_login_used": False,
+        "orders_sent": False,
+        "purpose": "compile_smoke_only"
+    }
+}
+pathlib.Path(sys.argv[1]).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+print(json.dumps(manifest, indent=2))
+PY
+
+      - name: Upload compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-linux-compile-${{ github.run_id }}
+          path: mt5_ci_artifact
+          retention-days: 30
+          if-no-files-found: warn
