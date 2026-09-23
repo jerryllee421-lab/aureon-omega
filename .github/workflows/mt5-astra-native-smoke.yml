@@ -1,0 +1,237 @@
+name: ASTRA Native MT5 Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - '.github/workflows/mt5-astra-native-smoke.yml'
+      - 'scripts/mt5_linux_compile.sh'
+      - 'ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+      - 'ea/astra/tools/AUREON_CustomSymbolLoader.mq5'
+      - 'ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set'
+      - 'research/export_mt5_m1.py'
+
+permissions:
+  contents: read
+
+env:
+  WINEARCH: win64
+  WINEDEBUG: -all
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+  EA_SOURCE: ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5
+  XAU_MIRROR_COMMIT: 922f83a60cc574e7395fb27397077288055a1ef6
+  TEST_FROM: '2026-07-01'
+  TEST_TO: '2026-08-20'
+
+jobs:
+  native-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python research environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install -r research/requirements.txt
+
+      - name: Build pinned XAUUSD M1 dataset
+        run: >-
+          python research/mirror_m1.py
+          --start '${{ env.TEST_FROM }}'
+          --end '${{ env.TEST_TO }}'
+          --commit '${{ env.XAU_MIRROR_COMMIT }}'
+
+      - name: Export MT5 custom-symbol CSV
+        run: >-
+          python research/export_mt5_m1.py
+          --root research_data
+          --symbol XAUUSD
+          --point 0.001
+          --output mt5_input/ASTRA_XAUUSD_M1.csv
+
+      - name: Install Wine and headless display
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+          wine --version
+
+      - name: Install MT5 and compile ASTRA EA
+        shell: bash
+        run: bash scripts/mt5_linux_compile.sh
+
+      - name: Compile custom-symbol loader
+        shell: bash
+        run: |
+          set -euo pipefail
+          ART=mt5_native_smoke_artifact
+          mkdir -p "$ART"
+
+          MQL5_ROOT="$(grep '^mql5_root=' mt5_ci_artifact/mql5-root.txt | cut -d= -f2-)"
+          METAEDITOR="$(grep '^metaeditor=' mt5_ci_artifact/mt5-paths.txt | cut -d= -f2-)"
+          TERMINAL="$(grep '^terminal=' mt5_ci_artifact/mt5-paths.txt | cut -d= -f2-)"
+          printf 'MQL5_ROOT=%s\nMETAEDITOR=%s\nTERMINAL=%s\n' "$MQL5_ROOT" "$METAEDITOR" "$TERMINAL" | tee "$ART/paths.txt"
+
+          SCRIPT_DIR="$MQL5_ROOT/Scripts/AUREON"
+          mkdir -p "$SCRIPT_DIR"
+          cp ea/astra/tools/AUREON_CustomSymbolLoader.mq5 "$SCRIPT_DIR/"
+          SCRIPT="$SCRIPT_DIR/AUREON_CustomSymbolLoader.mq5"
+          SCRIPT_WIN="$(winepath -w "$SCRIPT")"
+          MQL5_WIN="$(winepath -w "$MQL5_ROOT")"
+
+          set +e
+          xvfb-run -a timeout 300s wine "$METAEDITOR" /compile:"$SCRIPT_WIN" /include:"$MQL5_WIN" /log >"$ART/loader-metaeditor-process.log" 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > "$ART/loader-metaeditor-exit-code.txt"
+          sleep 2
+          wineserver -k >/dev/null 2>&1 || true
+
+          RAW_LOG="${SCRIPT%.mq5}.log"
+          if [ -f "$RAW_LOG" ]; then
+            python - "$RAW_LOG" "$ART/loader-compile.log" <<'PY'
+          import pathlib, sys
+          raw=pathlib.Path(sys.argv[1]).read_bytes()
+          for enc in ("utf-16","utf-16le","utf-8-sig","cp1252"):
+              try:
+                  text=raw.decode(enc); break
+              except UnicodeDecodeError:
+                  pass
+          else:
+              text=raw.decode("utf-8",errors="replace")
+          pathlib.Path(sys.argv[2]).write_text(text,encoding="utf-8")
+          print(text)
+          PY
+          fi
+
+          test -s "${SCRIPT%.mq5}.ex5"
+          grep -Eiq '(^|[^0-9])0 errors([^0-9]|$)' "$ART/loader-compile.log"
+
+      - name: Import real M1 bars into MT5 custom symbol
+        shell: bash
+        run: |
+          set -euo pipefail
+          ART=mt5_native_smoke_artifact
+          MQL5_ROOT="$(grep '^mql5_root=' mt5_ci_artifact/mql5-root.txt | cut -d= -f2-)"
+          TERMINAL="$(grep '^terminal=' mt5_ci_artifact/mt5-paths.txt | cut -d= -f2-)"
+          TERMINAL_DIR="$(dirname "$TERMINAL")"
+          mkdir -p "$MQL5_ROOT/Files"
+          cp mt5_input/ASTRA_XAUUSD_M1.csv "$MQL5_ROOT/Files/ASTRA_XAUUSD_M1.csv"
+
+          CONFIG="$TERMINAL_DIR/astra-loader.ini"
+          cat > "$CONFIG" <<'INI'
+          [Experts]
+          Enabled=1
+          AllowLiveTrading=0
+          AllowDllImport=0
+
+          [StartUp]
+          Script=AUREON\AUREON_CustomSymbolLoader
+          Symbol=EURUSD
+          Period=M1
+          ShutdownTerminal=1
+          INI
+
+          CONFIG_WIN="$(winepath -w "$CONFIG")"
+          set +e
+          xvfb-run -a timeout 600s wine "$TERMINAL" /portable /config:"$CONFIG_WIN" >"$ART/loader-terminal-process.log" 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > "$ART/loader-terminal-exit-code.txt"
+          wineserver -k >/dev/null 2>&1 || true
+          sleep 2
+
+          grep -R -a -h 'ASTRA_IMPORT_' "$TERMINAL_DIR" > "$ART/import-events.log" || true
+          cat "$ART/import-events.log" || true
+          grep -q 'ASTRA_IMPORT_OK' "$ART/import-events.log"
+
+      - name: Run native MT5 Strategy Tester smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ART=mt5_native_smoke_artifact
+          MQL5_ROOT="$(grep '^mql5_root=' mt5_ci_artifact/mql5-root.txt | cut -d= -f2-)"
+          TERMINAL="$(grep '^terminal=' mt5_ci_artifact/mt5-paths.txt | cut -d= -f2-)"
+          TERMINAL_DIR="$(dirname "$TERMINAL")"
+
+          mkdir -p "$MQL5_ROOT/Profiles/Tester" "$TERMINAL_DIR/reports"
+          cp ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set "$MQL5_ROOT/Profiles/Tester/ASTRA_GOLD_V1_SMOKE.set"
+
+          CONFIG="$TERMINAL_DIR/astra-smoke.ini"
+          cat > "$CONFIG" <<INI
+          [Tester]
+          Expert=AUREON\\AUREON_ASTRA_GOLD_CAMPAIGN_V1.ex5
+          ExpertParameters=ASTRA_GOLD_V1_SMOKE.set
+          Symbol=ASTRA_XAUUSD
+          Period=M5
+          Deposit=10000
+          Currency=USD
+          Leverage=1:100
+          Model=1
+          ExecutionMode=0
+          Optimization=0
+          OptimizationCriterion=6
+          FromDate=2026.07.01
+          ToDate=2026.08.20
+          ForwardMode=0
+          Report=reports\\ASTRA_SMOKE.htm
+          ReplaceReport=1
+          ShutdownTerminal=1
+          UseLocal=1
+          UseRemote=0
+          UseCloud=0
+          Visual=0
+          INI
+
+          cp "$CONFIG" "$ART/astra-smoke.ini"
+          CONFIG_WIN="$(winepath -w "$CONFIG")"
+
+          set +e
+          xvfb-run -a timeout 1200s wine "$TERMINAL" /portable /config:"$CONFIG_WIN" >"$ART/tester-terminal-process.log" 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > "$ART/tester-terminal-exit-code.txt"
+          wineserver -k >/dev/null 2>&1 || true
+          sleep 3
+
+          find "$TERMINAL_DIR" -type f \( -iname '*.log' -o -iname '*.htm' -o -iname '*.html' -o -iname '*.csv' \) -print > "$ART/generated-files.txt" || true
+          cat "$ART/generated-files.txt"
+
+          REPORT="$TERMINAL_DIR/reports/ASTRA_SMOKE.htm"
+          if [ ! -s "$REPORT" ]; then
+            echo 'ASTRA native tester did not produce the required report.' | tee "$ART/failure.txt"
+            exit 1
+          fi
+          cp "$REPORT" "$ART/ASTRA_SMOKE.htm"
+
+          find "$TERMINAL_DIR" -type f -path '*/Tester/logs/*.log' -exec cp '{}' "$ART/" ';' || true
+          find "$TERMINAL_DIR" -type f -name 'AUREON_ASTRA_GOLD_CAMPAIGN_SMOKE.csv' -exec cp '{}' "$ART/" ';' || true
+          sha256sum "$REPORT" > "$ART/report.sha256"
+          sha256sum ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5 > "$ART/ea-source.sha256"
+          sha256sum ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set > "$ART/preset.sha256"
+          echo 'ASTRA_NATIVE_MT5_SMOKE_PASSED' | tee "$ART/status.txt"
+
+      - name: Upload native MT5 smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-native-mt5-smoke-${{ github.run_id }}
+          path: |
+            mt5_native_smoke_artifact
+            mt5_ci_artifact/compile.log
+            mt5_ci_artifact/manifest.json
+          retention-days: 30
+          if-no-files-found: warn
