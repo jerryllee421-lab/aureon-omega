@@ -1,0 +1,73 @@
+name: ASTRA Comprehensive DOE and Cross Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - 'research/requests/astra-comprehensive-doe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [structure, trigger, exit, session]
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+      MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+      MT5_DEMO_SERVER: PXBTTrading-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+      - run: pip install -r research/requirements.txt
+      - name: Run ${{ matrix.family }} parameter screen
+        run: python scripts/run_astra_doe_windows.py screen --family ${{ matrix.family }} --artifact doe_artifact/${{ matrix.family }} --magic-base 26300000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-doe-${{ matrix.family }}
+          path: doe_artifact/${{ matrix.family }}
+          retention-days: 30
+          if-no-files-found: warn
+
+  cross:
+    needs: screen
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+      MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+      MT5_DEMO_SERVER: PXBTTrading-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+      - run: pip install -r research/requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: astra-doe-*
+          path: downloaded
+          merge-multiple: false
+      - name: Cross-test top family configurations and run untouched OOS
+        run: python scripts/run_astra_doe_windows.py cross --tops downloaded --artifact cross_artifact --magic-base 26400000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-comprehensive-cross-${{ github.run_id }}
+          path: cross_artifact
+          retention-days: 30
+          if-no-files-found: warn
