@@ -9,7 +9,9 @@ export WINEARCH="${WINEARCH:-win64}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 INSTALLER_URL="${MT5_INSTALLER_URL:-https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe}"
 INSTALLER="${RUNNER_TEMP:-/tmp}/mt5setup.exe"
-EA_SOURCE="ea/baseline/FVG_Scalper_V2_11_ORIGINAL.mq5"
+EA_SOURCE="${EA_SOURCE:-ea/baseline/FVG_Scalper_V2_11_ORIGINAL.mq5}"
+EA_FILENAME="$(basename "$EA_SOURCE")"
+export EA_FILENAME
 
 cleanup() {
   wineserver -k >/dev/null 2>&1 || true
@@ -96,11 +98,11 @@ MQL5_ROOT="$(dirname "$(dirname "$(dirname "$TRADE_MQH")")")"
 printf 'trade_mqh=%s\nmql5_root=%s\n' "$TRADE_MQH" "$MQL5_ROOT" \
   | tee "$ARTIFACT_DIR/mql5-root.txt"
 
-echo "== Stage immutable EA baseline =="
+echo "== Stage EA source =="
 test -s "$EA_SOURCE"
 EXPERT_DIR="$MQL5_ROOT/Experts/AUREON"
 mkdir -p "$EXPERT_DIR"
-EA_DEST="$EXPERT_DIR/FVG_Scalper_V2_11_ORIGINAL.mq5"
+EA_DEST="$EXPERT_DIR/$EA_FILENAME"
 cp "$EA_SOURCE" "$EA_DEST"
 cmp --silent "$EA_SOURCE" "$EA_DEST"
 sha256sum "$EA_SOURCE" | tee "$ARTIFACT_DIR/ea-source.sha256"
@@ -207,8 +209,8 @@ manifest = {
     "runner_arch": os.getenv("RUNNER_ARCH"),
     "wine_version": wine_version,
     "mt5_installer_sha256": installer_hash,
-    "source_ea_sha256": sha(root / "FVG_Scalper_V2_11_ORIGINAL.mq5"),
-    "compiled_ex5_sha256": sha(root / "FVG_Scalper_V2_11_ORIGINAL.ex5"),
+    "source_ea_sha256": sha(root / os.environ.get("EA_FILENAME", "FVG_Scalper_V2_11_ORIGINAL.mq5")),
+    "compiled_ex5_sha256": sha(root / pathlib.Path(os.environ.get("EA_FILENAME", "FVG_Scalper_V2_11_ORIGINAL.mq5")).with_suffix(".ex5")),
     "compile_errors": compile_errors,
     "compile_warnings": compile_warnings,
     "compile_zero_errors": compile_errors == 0,
