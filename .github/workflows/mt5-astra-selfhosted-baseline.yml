@@ -1,0 +1,54 @@
+name: ASTRA Native MT5 Self-Hosted Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: Broker exact Gold symbol
+        required: true
+        default: XAUUSD
+        type: string
+      from_date:
+        description: Start date YYYY.MM.DD
+        required: true
+        default: '2021.09.23'
+        type: string
+      to_date:
+        description: End date YYYY.MM.DD
+        required: true
+        default: '2026.09.22'
+        type: string
+      terminal_path:
+        description: Optional full path to terminal64.exe
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: [self-hosted, Windows, X64, mt5]
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run native broker-history baseline
+        shell: pwsh
+        run: >-
+          ./scripts/run_astra_mt5_local.ps1
+          -TerminalPath '${{ inputs.terminal_path }}'
+          -Symbol '${{ inputs.symbol }}'
+          -FromDate '${{ inputs.from_date }}'
+          -ToDate '${{ inputs.to_date }}'
+          -Deposit 10000
+          -Leverage '1:100'
+          -ForceCloseTerminal
+      - name: Upload native baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-native-baseline-${{ github.run_id }}
+          path: artifacts/mt5-local
+          retention-days: 30
+          if-no-files-found: warn
