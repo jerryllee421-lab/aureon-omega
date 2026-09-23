@@ -206,14 +206,31 @@ jobs:
           }
           Start-Sleep -Seconds 3
 
-          $report=Join-Path $root 'reports\ASTRA_SMOKE.htm'
-          if(-not (Test-Path $report)){ throw 'MT5 did not produce ASTRA_SMOKE.htm' }
+          # Always capture platform/tester/EA diagnostics before asserting report output.
+          $logRoots=@("$root\Logs","$root\Tester\logs","$mql5\Logs")
+          foreach($lr in $logRoots){
+            Get-ChildItem $lr -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              $safe=($_.FullName -replace '[:\\/]','_')
+              Copy-Item $_.FullName ("mt5_windows_artifact\"+$safe) -Force
+              try {
+                $body=Get-Content $_.FullName -Raw -Encoding Unicode -ErrorAction Stop
+                if($body -match 'Tester|ASTRA|error|failed|cannot|invalid|history|Expert'){
+                  Write-Host "===== $($_.FullName) ====="
+                  Write-Host $body
+                }
+              } catch {}
+            }
+          }
+
+          $reports=Get-ChildItem $root -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'ASTRA_SMOKE*.htm' -or $_.Name -like 'ASTRA_SMOKE*.html' } |
+            Sort-Object LastWriteTime -Descending
+          $reports | ForEach-Object { Write-Host ("REPORT_CANDIDATE "+$_.FullName+" bytes="+$_.Length) }
+          if(-not $reports){ throw 'MT5 did not produce an ASTRA_SMOKE report anywhere under the portable terminal' }
+          $report=$reports[0].FullName
           if((Get-Item $report).Length -lt 500){ throw 'MT5 report is unexpectedly small' }
           Copy-Item $report 'mt5_windows_artifact\ASTRA_SMOKE.htm'
 
-          Get-ChildItem "$root\Tester\logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            Copy-Item $_.FullName ("mt5_windows_artifact\"+$_.Name) -Force
-          }
           Get-ChildItem "$root\Tester" -Filter 'AUREON_ASTRA_GOLD_CAMPAIGN_SMOKE.csv' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
             Copy-Item $_.FullName 'mt5_windows_artifact\AUREON_ASTRA_GOLD_CAMPAIGN_SMOKE.csv' -Force
           }
