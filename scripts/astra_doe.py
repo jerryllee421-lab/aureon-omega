@@ -1,0 +1,352 @@
+from __future__ import annotations
+
+"""Generate and rank deterministic ASTRA MT5 design-of-experiments presets.
+
+This is deliberately staged. It screens one parameter family at a time from a
+known trade-producing diagnostic baseline, then combines promising deltas in a
+separate cross-test stage. That reduces brute-force overfit while still testing
+all material strategy geometry, execution, exit, session, and risk inputs.
+"""
+
+import argparse
+import json
+import math
+from copy import deepcopy
+from pathlib import Path
+
+
+def scalar(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return str(v)
+
+
+def read_set(path: Path):
+    order=[]
+    rows={}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line=raw.strip()
+        if not line or "=" not in line:
+            continue
+        key,rest=line.split("=",1)
+        parts=rest.split("||")
+        order.append(key)
+        rows[key]=parts
+    return order,rows
+
+
+def write_set(path: Path, order, rows, changes, csv_name, magic):
+    local=deepcopy(rows)
+    keys=list(order)
+    def setv(k,v):
+        sv=scalar(v)
+        if k in local:
+            p=local[k]
+            if not p:
+                p=[sv]
+            else:
+                p[0]=sv
+            local[k]=p
+        else:
+            local[k]=[sv,sv,"0",sv,"N"]
+            keys.append(k)
+    for k,v in changes.items():
+        setv(k,v)
+    setv("InpMagic",magic)
+    setv("InpCSVFile",csv_name)
+    path.parent.mkdir(parents=True,exist_ok=True)
+    lines=[k+"="+"||".join(local[k]) for k in keys]
+    path.write_text("\n".join(lines)+"\n",encoding="utf-8")
+
+
+DISCOVERY_BASE={
+    "InpLongEnabled":True,
+    "InpShortEnabled":True,
+    "InpClosedCandleAuthority":True,
+    "InpVisualDebug":False,
+    "InpCSVLogging":True,
+    "InpATRPeriod":14,
+    "InpRequireH4Bias":False,
+    "InpRequireH1Alignment":False,
+    "InpRequireDIDirection":True,
+    "InpLiquidityLookback":20,
+    "InpEqualLevelATR":0.10,
+    "InpUseRollingLiquidity":True,
+    "InpSweepMinATR":0.05,
+    "InpSweepMaxATR":1.00,
+    "InpMinReclaimBody":0.30,
+    "InpRequireDirectionalReclaim":False,
+    "InpMSSLookback":5,
+    "InpRequireClosedMSS":True,
+    "InpMSSMaxBarsAfterSweep":12,
+    "InpDisplacementATR":0.90,
+    "InpMinBodyEfficiency":0.50,
+    "InpUseVolumeFilter":False,
+    "InpMinFVGATR":0.05,
+    "InpMaxFVGATR":1.00,
+    "InpEntryStyle":1,
+    "InpExecutionMode":0,
+    "InpEntryExpiryM5Bars":12,
+    "InpSetupExpiryM15Bars":8,
+    "InpCampaignMaxHours":8,
+    "InpPendingExpiryBars":6,
+    "InpCancelPendingOutsideSession":True,
+    "InpCancelPendingOnInvalidation":True,
+    "InpPendingPriceOffsetATR":0.00,
+    "InpOptimalExtensionATR":0.15,
+    "InpMaxEntryExtensionATR":0.35,
+    "InpHardRejectExtensionATR":0.60,
+    "InpMinimumRR":1.25,
+    "InpMaxEntries":1,
+    "InpCampaignLots":0.02,
+    "InpEntryLot":0.02,
+    "InpRequireProtectedAdds":True,
+    "InpSizingMode":0,
+    "InpRiskPercent":1.0,
+    "InpMaxCampaignRiskPercent":1.0,
+    "InpSLBufferATR":0.15,
+    "InpStructureStopLookback":5,
+    "InpUseStructuralTP1":True,
+    "InpTP1R":1.50,
+    "InpTP2R":2.50,
+    "InpTP3R":4.00,
+    "InpTP1ClosePercent":30.0,
+    "InpTP2ClosePercent":30.0,
+    "InpTP3ClosePercent":20.0,
+    "InpUseSmartProtection":True,
+    "InpProtectionTriggerR":1.00,
+    "InpProtectionBufferATR":0.05,
+    "InpUseRunner":True,
+    "InpTrailStartR":2.50,
+    "InpTrailStructureLookback":3,
+    "InpTrailATRBuffer":0.10,
+    "InpEnableScaleIns":False,
+    "InpNoAddsAfterTP1":True,
+    "InpUseLondon":False,
+    "InpUseNewYork":False,
+    "InpSessionHoursAreUTC":True,
+    "InpUseDSTAdjustment":False,
+    "InpUseSpreadFilter":False,
+    "InpMaxSpreadPoints":800,
+    "InpDeviationPoints":30,
+    "InpMaxDailyLossPercent":3.0,
+    "InpMaxDailyCampaigns":5,
+    "InpMaxConsecutiveLosses":3,
+    "InpMaxEquityDDPercent":6.0,
+    "InpOneCampaignAtATime":True,
+    "InpAllowReplacementBeforeEntry":True,
+}
+
+
+def v(name, **changes):
+    return {"name":name,"changes":changes}
+
+
+def family_variants(family: str):
+    x=[v("BASE_DISCOVERY")]
+    if family=="structure":
+        x += [
+            v("SHORT_ONLY",InpLongEnabled=False),
+            v("LONG_ONLY",InpShortEnabled=False),
+            v("H4_ONLY",InpRequireH4Bias=True),
+            v("H1_ONLY",InpRequireH1Alignment=True,InpMinADX=12.0),
+            v("H1_ADX18",InpRequireH1Alignment=True,InpMinADX=18.0),
+            v("H1_ADX25",InpRequireH1Alignment=True,InpMinADX=25.0),
+            v("H1_NO_DI",InpRequireH1Alignment=True,InpMinADX=12.0,InpRequireDIDirection=False),
+            v("H4_H1",InpRequireH4Bias=True,InpRequireH1Alignment=True,InpMinADX=12.0),
+            v("EMA_FAST_9_21",InpRequireH4Bias=True,InpH4FastEMA=9,InpH4SlowEMA=21,InpRequireH1Alignment=True,InpH1FastEMA=9,InpH1SlowEMA=21,InpMinADX=12.0),
+            v("EMA_SLOW_50_200",InpRequireH4Bias=True,InpH4FastEMA=50,InpH4SlowEMA=200,InpRequireH1Alignment=True,InpH1FastEMA=50,InpH1SlowEMA=200,InpMinADX=12.0),
+            v("LIQ_LB10",InpLiquidityLookback=10),
+            v("LIQ_LB30",InpLiquidityLookback=30),
+            v("LIQ_LB40",InpLiquidityLookback=40),
+            v("EQ_ATR_005",InpEqualLevelATR=0.05),
+            v("EQ_ATR_020",InpEqualLevelATR=0.20),
+            v("ROLLING_OFF",InpUseRollingLiquidity=False),
+            v("SWEEP_TIGHT",InpSweepMinATR=0.03,InpSweepMaxATR=0.50),
+            v("SWEEP_CLASSIC",InpSweepMinATR=0.10,InpSweepMaxATR=0.75),
+            v("SWEEP_WIDE",InpSweepMinATR=0.10,InpSweepMaxATR=1.25),
+            v("RECLAIM_020",InpMinReclaimBody=0.20),
+            v("RECLAIM_040",InpMinReclaimBody=0.40),
+            v("RECLAIM_060",InpMinReclaimBody=0.60),
+            v("RECLAIM_DIRECTIONAL",InpRequireDirectionalReclaim=True),
+            v("ATR7",InpATRPeriod=7),
+            v("ATR21",InpATRPeriod=21),
+        ]
+    elif family=="trigger":
+        x += [
+            v("MSS_LB3",InpMSSLookback=3),
+            v("MSS_LB8",InpMSSLookback=8),
+            v("MSS_6BARS",InpMSSMaxBarsAfterSweep=6),
+            v("MSS_18BARS",InpMSSMaxBarsAfterSweep=18),
+            v("MSS_24BARS",InpMSSMaxBarsAfterSweep=24),
+            v("DISP_070",InpDisplacementATR=0.70),
+            v("DISP_080",InpDisplacementATR=0.80),
+            v("DISP_110",InpDisplacementATR=1.10),
+            v("DISP_130",InpDisplacementATR=1.30),
+            v("EFF_040",InpMinBodyEfficiency=0.40),
+            v("EFF_060",InpMinBodyEfficiency=0.60),
+            v("EFF_070",InpMinBodyEfficiency=0.70),
+            v("FVG_MIN_002",InpMinFVGATR=0.02),
+            v("FVG_MIN_010",InpMinFVGATR=0.10),
+            v("FVG_MIN_020",InpMinFVGATR=0.20),
+            v("FVG_MAX_050",InpMaxFVGATR=0.50),
+            v("FVG_MAX_150",InpMaxFVGATR=1.50),
+            v("ENTRY_NEAR",InpEntryStyle=0),
+            v("ENTRY_FAR",InpEntryStyle=2),
+            v("EXPIRY_6",InpEntryExpiryM5Bars=6),
+            v("EXPIRY_24",InpEntryExpiryM5Bars=24),
+            v("EXT_TIGHT",InpMaxEntryExtensionATR=0.25,InpHardRejectExtensionATR=0.45),
+            v("EXT_WIDE",InpMaxEntryExtensionATR=0.50,InpHardRejectExtensionATR=0.80),
+            v("PENDING_MID",InpExecutionMode=1,InpEntryStyle=1,InpPendingExpiryBars=6,InpPendingPriceOffsetATR=0.00),
+            v("PENDING_NEAR",InpExecutionMode=1,InpEntryStyle=0,InpPendingExpiryBars=6,InpPendingPriceOffsetATR=0.00),
+            v("PENDING_OFFSET_005",InpExecutionMode=1,InpEntryStyle=1,InpPendingExpiryBars=8,InpPendingPriceOffsetATR=0.05),
+            v("PENDING_OFFSET_010",InpExecutionMode=1,InpEntryStyle=1,InpPendingExpiryBars=12,InpPendingPriceOffsetATR=0.10),
+        ]
+    elif family=="exit":
+        x += [
+            v("RR_MIN_100",InpMinimumRR=1.00,InpTP1R=1.25),
+            v("RR_MIN_150",InpMinimumRR=1.50,InpTP1R=1.50),
+            v("RR_MIN_200",InpMinimumRR=2.00,InpTP1R=2.00,InpTP2R=3.00,InpTP3R=5.00),
+            v("SLBUF_005",InpSLBufferATR=0.05),
+            v("SLBUF_010",InpSLBufferATR=0.10),
+            v("SLBUF_025",InpSLBufferATR=0.25),
+            v("SLBUF_040",InpSLBufferATR=0.40),
+            v("STOP_LB3",InpStructureStopLookback=3),
+            v("STOP_LB8",InpStructureStopLookback=8),
+            v("STOP_LB12",InpStructureStopLookback=12),
+            v("FIXED_TP1",InpUseStructuralTP1=False),
+            v("TP_LADDER_FAST",InpUseStructuralTP1=False,InpTP1R=1.25,InpTP2R=2.00,InpTP3R=3.00),
+            v("TP_LADDER_BAL",InpUseStructuralTP1=False,InpTP1R=1.50,InpTP2R=2.50,InpTP3R=4.00),
+            v("TP_LADDER_WIDE",InpUseStructuralTP1=False,InpMinimumRR=1.50,InpTP1R=2.00,InpTP2R=3.50,InpTP3R=6.00),
+            v("NO_SMART_PROTECT",InpUseSmartProtection=False),
+            v("PROTECT_050",InpProtectionTriggerR=0.50,InpProtectionBufferATR=0.02),
+            v("PROTECT_075",InpProtectionTriggerR=0.75,InpProtectionBufferATR=0.03),
+            v("PROTECT_125",InpProtectionTriggerR=1.25,InpProtectionBufferATR=0.05),
+            v("TRAIL_150",InpTrailStartR=1.50,InpTrailATRBuffer=0.10),
+            v("TRAIL_200",InpTrailStartR=2.00,InpTrailATRBuffer=0.15),
+            v("TRAIL_300",InpTrailStartR=3.00,InpTrailATRBuffer=0.20),
+            v("NO_RUNNER",InpUseRunner=False,InpTP1ClosePercent=40.0,InpTP2ClosePercent=30.0,InpTP3ClosePercent=30.0),
+            v("SCALE_3",InpMaxEntries=3,InpCampaignLots=0.06,InpEntryLot=0.02,InpEnableScaleIns=True,InpRequireProtectedAdds=True),
+            v("SCALE_5",InpMaxEntries=5,InpCampaignLots=0.10,InpEntryLot=0.02,InpEnableScaleIns=True,InpRequireProtectedAdds=True),
+            v("SCALE_EARLY",InpMaxEntries=3,InpCampaignLots=0.06,InpEntryLot=0.02,InpEnableScaleIns=True,InpE2MinMFER=0.15,InpE3MinMFER=0.40,InpRequireProtectedAdds=True),
+        ]
+    elif family=="session":
+        x += [
+            v("LONDON_UTC",InpUseLondon=True,InpUseNewYork=False,InpSessionHoursAreUTC=True,InpLondonStartHour=7,InpLondonEndHour=12),
+            v("NY_UTC",InpUseLondon=False,InpUseNewYork=True,InpSessionHoursAreUTC=True,InpNewYorkStartHour=12,InpNewYorkEndHour=17),
+            v("LDN_NY_UTC",InpUseLondon=True,InpUseNewYork=True,InpSessionHoursAreUTC=True,InpLondonStartHour=7,InpLondonEndHour=12,InpNewYorkStartHour=12,InpNewYorkEndHour=17),
+            v("LDN_8_11",InpUseLondon=True,InpUseNewYork=False,InpSessionHoursAreUTC=True,InpLondonStartHour=8,InpLondonEndHour=11),
+            v("NY_13_16",InpUseLondon=False,InpUseNewYork=True,InpSessionHoursAreUTC=True,InpNewYorkStartHour=13,InpNewYorkEndHour=16),
+            v("OVERLAP_12_15",InpUseLondon=False,InpUseNewYork=True,InpSessionHoursAreUTC=True,InpNewYorkStartHour=12,InpNewYorkEndHour=15),
+            v("SPREAD_400",InpUseSpreadFilter=True,InpMaxSpreadPoints=400),
+            v("SPREAD_600",InpUseSpreadFilter=True,InpMaxSpreadPoints=600),
+            v("SPREAD_800",InpUseSpreadFilter=True,InpMaxSpreadPoints=800),
+            v("SPREAD_1000",InpUseSpreadFilter=True,InpMaxSpreadPoints=1000),
+            v("SPREAD_1200",InpUseSpreadFilter=True,InpMaxSpreadPoints=1200),
+            v("SPREAD_1600",InpUseSpreadFilter=True,InpMaxSpreadPoints=1600),
+            v("DEVIATION_10",InpDeviationPoints=10),
+            v("DEVIATION_60",InpDeviationPoints=60),
+            v("DAILY_1",InpMaxDailyCampaigns=1),
+            v("DAILY_3",InpMaxDailyCampaigns=3),
+            v("DAILY_10",InpMaxDailyCampaigns=10),
+            v("LOSS_STREAK_1",InpMaxConsecutiveLosses=1),
+            v("LOSS_STREAK_2",InpMaxConsecutiveLosses=2),
+            v("LOSS_STREAK_5",InpMaxConsecutiveLosses=5),
+            v("DAILY_LOSS_150",InpMaxDailyLossPercent=1.5),
+            v("DAILY_LOSS_500",InpMaxDailyLossPercent=5.0),
+            v("DD_300",InpMaxEquityDDPercent=3.0),
+            v("DD_1000",InpMaxEquityDDPercent=10.0),
+            v("RISK_050",InpSizingMode=1,InpRiskPercent=0.50,InpMaxCampaignRiskPercent=0.50),
+            v("RISK_100",InpSizingMode=1,InpRiskPercent=1.00,InpMaxCampaignRiskPercent=1.00),
+        ]
+    else:
+        raise SystemExit(f"Unknown family {family}")
+    return x
+
+
+def generate(args):
+    order,rows=read_set(Path(args.base))
+    out=Path(args.out)
+    out.mkdir(parents=True,exist_ok=True)
+    variants=family_variants(args.family)
+    manifest=[]
+    for i,item in enumerate(variants):
+        changes=dict(DISCOVERY_BASE)
+        changes.update(item["changes"])
+        name=item["name"]
+        fn=f"{args.family.upper()}_{i:02d}_{name}.set"
+        csv=f"ASTRA_DOE_{args.family.upper()}_{i:02d}.csv"
+        write_set(out/fn,order,rows,changes,csv,args.magic_base+i)
+        manifest.append({"index":i,"name":name,"preset":fn,"family":args.family,"changes":item["changes"]})
+    (out/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
+    print(json.dumps({"family":args.family,"count":len(manifest),"out":str(out)},indent=2))
+
+
+def metric(m,key,default=0.0):
+    try:
+        return float(m["metrics"][key]["value"])
+    except Exception:
+        return default
+
+
+def rank(args):
+    root=Path(args.analysis)
+    manifest=json.loads(Path(args.manifest).read_text())
+    rows=[]
+    for item in manifest:
+        p=root/item["name"]/"mt5_metrics.json"
+        if not p.exists():
+            rows.append({**item,"missing":True,"trades":0,"score":-1e9})
+            continue
+        d=json.loads(p.read_text())
+        trades=metric(d,"total_trades")
+        pf=metric(d,"profit_factor")
+        exp=metric(d,"expected_payoff")
+        net=metric(d,"net_profit")
+        dd=max(metric(d,"max_equity_dd_relative"),metric(d,"max_balance_dd_relative"))
+        sharpe=metric(d,"sharpe_ratio")
+        win=0.0
+        try: win=float(d["metrics"]["profit_trades"]["percent"] or 0.0)
+        except Exception: pass
+        # Screening score: sample size + PF + payoff + Sharpe, penalize DD.
+        # It is only a research ordering; promotion requires cross validation.
+        sample=min(1.0,trades/20.0)
+        pf_cap=min(max(pf,0.0),3.0)
+        exp_term=math.tanh(exp/20.0)
+        sharpe_term=math.tanh(sharpe/3.0)
+        score=(2.0*sample)+(1.5*(pf_cap-1.0))+exp_term+0.5*sharpe_term-(dd/10.0)
+        if trades<3: score-=3.0
+        rows.append({**item,"trades":int(trades),"pf":pf,"expected_payoff":exp,"net_profit":net,
+                     "dd_percent":dd,"sharpe":sharpe,"win_rate":win,"score":score,"missing":False})
+    rows.sort(key=lambda r:r["score"],reverse=True)
+    out=Path(args.out)
+    out.mkdir(parents=True,exist_ok=True)
+    (out/"ranking.json").write_text(json.dumps(rows,indent=2),encoding="utf-8")
+    top=rows[:max(1,args.top)]
+    (out/"top.json").write_text(json.dumps(top,indent=2),encoding="utf-8")
+    print("| Variant | Trades | PF | Exp | Net | DD% | Sharpe | Win% | Score |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in rows:
+        print(f"| {r['name']} | {r['trades']} | {r.get('pf',0):.3f} | {r.get('expected_payoff',0):.2f} | {r.get('net_profit',0):.2f} | {r.get('dd_percent',0):.2f} | {r.get('sharpe',0):.2f} | {r.get('win_rate',0):.1f} | {r['score']:.3f} |")
+
+
+def main():
+    ap=argparse.ArgumentParser()
+    sub=ap.add_subparsers(dest="cmd",required=True)
+    g=sub.add_parser("generate")
+    g.add_argument("--family",required=True,choices=["structure","trigger","exit","session"])
+    g.add_argument("--base",required=True)
+    g.add_argument("--out",required=True)
+    g.add_argument("--magic-base",type=int,default=26100000)
+    g.set_defaults(func=generate)
+    r=sub.add_parser("rank")
+    r.add_argument("--analysis",required=True)
+    r.add_argument("--manifest",required=True)
+    r.add_argument("--out",required=True)
+    r.add_argument("--top",type=int,default=3)
+    r.set_defaults(func=rank)
+    args=ap.parse_args()
+    args.func(args)
+
+if __name__=="__main__":
+    main()
