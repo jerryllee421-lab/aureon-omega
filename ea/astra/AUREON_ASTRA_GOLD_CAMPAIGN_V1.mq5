@@ -4,7 +4,7 @@
 //| M5 execution · M15 liquidity · H1/H4 context · E1-E5 scaling     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.11"
+#property version   "1.12"
 #property description "AUREON ASTRA Gold Campaign V1: deterministic liquidity sweep/reclaim, MSS, displacement, FVG retracement, E1-E5 campaign scaling and risk governance."
 
 #include <Trade/Trade.mqh>
@@ -1534,6 +1534,11 @@ void ResetDailyStats()
    g_dayKey=dt.year*1000+dt.day_of_year;
    g_dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);
    g_campaignsToday=0;
+
+   // Consecutive-loss protection is a daily/session safety governor. Keeping
+   // the counter forever creates a self-locking state: once the threshold is
+   // reached the EA can never take the winning trade required to reset it.
+   g_consecutiveLosses=0;
 }
 
 void ResetDailyStatsIfNeeded()
