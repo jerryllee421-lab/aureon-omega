@@ -4,7 +4,7 @@
 //| M5 execution · M15 liquidity · H1/H4 context · E1-E5 scaling     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.00"
+#property version   "1.10"
 #property description "AUREON ASTRA Gold Campaign V1: deterministic liquidity sweep/reclaim, MSS, displacement, FVG retracement, E1-E5 campaign scaling and risk governance."
 
 #include <Trade/Trade.mqh>
@@ -22,6 +22,7 @@ enum ENUM_ASTRA_CAMPAIGN_STATE
    ASTRA_SWEEP_RECLAIMED,
    ASTRA_WAITING_MSS,
    ASTRA_ENTRY_ZONE_ACTIVE,
+   ASTRA_PENDING_ENTRY,
    ASTRA_BUILDING,
    ASTRA_PROTECTED,
    ASTRA_PARTIAL_EXIT,
@@ -37,6 +38,12 @@ enum ENUM_ASTRA_ENTRY_STYLE
    ASTRA_FVG_NEAR_EDGE = 0,
    ASTRA_FVG_MIDPOINT = 1,
    ASTRA_FVG_FAR_EDGE = 2
+};
+
+enum ENUM_ASTRA_EXECUTION_MODE
+{
+   ASTRA_MARKET_CONFIRMATION = 0,
+   ASTRA_PENDING_LIMIT = 1
 };
 
 input group "GENERAL"
@@ -98,9 +105,14 @@ input double InpMaxFVGATR = 1.00;
 input ENUM_ASTRA_ENTRY_STYLE InpEntryStyle = ASTRA_FVG_MIDPOINT;
 
 input group "ENTRY ENGINE"
+input ENUM_ASTRA_EXECUTION_MODE InpExecutionMode = ASTRA_MARKET_CONFIRMATION;
 input int InpEntryExpiryM5Bars = 12;
 input int InpSetupExpiryM15Bars = 8;
 input int InpCampaignMaxHours = 8;
+input int InpPendingExpiryBars = 6;
+input bool InpCancelPendingOutsideSession = true;
+input bool InpCancelPendingOnInvalidation = true;
+input double InpPendingPriceOffsetATR = 0.00;
 input double InpOptimalExtensionATR = 0.15;
 input double InpMaxEntryExtensionATR = 0.35;
 input double InpHardRejectExtensionATR = 0.60;
@@ -203,6 +215,10 @@ struct AstraCampaign
    double bestPrice;
    double peakVolume;
    int entries;
+   int pendingStage;
+   ulong pendingTicket;
+   datetime pendingExpiry;
+   double pendingPrice;
    bool tp1Done;
    bool tp2Done;
    bool tp3Done;
@@ -287,6 +303,8 @@ void OnTick()
 {
    ResetDailyStatsIfNeeded();
    UpdateEquityProtection();
+   MaintainPendingEntry();
+   SyncPendingFill();
    ManageOpenCampaign();
 
    bool newM15=IsNewBar(InpLiquidityTF,g_lastM15Bar);
@@ -329,6 +347,7 @@ void ProcessM15Setup()
       }
       else if(!CandidateStillValid())
       {
+         CancelCampaignPendingOrders("Candidate invalidated before entry");
          SetState(ASTRA_INVALIDATED,"Candidate invalidated before entry");
          ResetCampaign();
       }
@@ -618,8 +637,46 @@ void EvaluateE1()
    if(!NewEntryAllowed()) return;
    if(EntryExpired())
    {
+      CancelCampaignPendingOrders("Entry window expired");
       SetState(ASTRA_EXPIRED,"FVG retracement window expired");
       ResetCampaign();
+      return;
+   }
+
+   if(InpExecutionMode==ASTRA_PENDING_LIMIT)
+   {
+      if(HasCampaignPendingOrder()) return;
+
+      double atr=GetBufferValue(hM5ATR,0,1);
+      if(atr<=0) return;
+
+      double entry=g_campaign.idealEntry;
+      if(g_campaign.bullish) entry-=atr*InpPendingPriceOffsetATR;
+      else entry+=atr*InpPendingPriceOffsetATR;
+      entry=NormalizePrice(entry);
+
+      if(!PendingLimitPriceValid(entry,g_campaign.bullish))
+      {
+         LogEvent("PENDING_WAIT",entry,"Ideal price is not currently a valid limit-order location");
+         return;
+      }
+
+      double risk=MathAbs(entry-g_campaign.stop);
+      if(risk<=0) return;
+      BuildTargets(entry);
+      double rr=MathAbs(g_campaign.tp1-entry)/risk;
+      if(rr<InpMinimumRR)
+      {
+         LogEvent("PENDING_REJECT",entry,"Projected RR below minimum");
+         return;
+      }
+
+      if(PlacePendingTranche(1,entry))
+      {
+         g_campaignsToday++;
+         SetState(ASTRA_PENDING_ENTRY,"E1 precision limit order active");
+         DrawCampaignObjects();
+      }
       return;
    }
 
@@ -711,6 +768,175 @@ void EvaluateScaleIn()
       SetState(protectedNow?ASTRA_PROTECTED:ASTRA_BUILDING,StringFormat("E%d active",next));
       DrawCampaignObjects();
    }
+}
+
+bool IsPendingType(ENUM_ORDER_TYPE type)
+{
+   return type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
+          type==ORDER_TYPE_BUY_STOP || type==ORDER_TYPE_SELL_STOP ||
+          type==ORDER_TYPE_BUY_STOP_LIMIT || type==ORDER_TYPE_SELL_STOP_LIMIT;
+}
+
+bool HasCampaignPendingOrder()
+{
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      ulong ticket=OrderGetTicket(i);
+      if(ticket==0 || !OrderSelect(ticket)) continue;
+      if(OrderGetString(ORDER_SYMBOL)!=_Symbol) continue;
+      if((ulong)OrderGetInteger(ORDER_MAGIC)!=InpMagic) continue;
+      ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if(IsPendingType(type)) return true;
+   }
+   return false;
+}
+
+bool PendingLimitPriceValid(double price,bool bullish)
+{
+   if(price<=0) return false;
+   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+   long stops=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   long freeze=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
+   double minDist=MathMax(stops,freeze)*point;
+   if(bullish) return price<ask && (ask-price)>=minDist;
+   return price>bid && (price-bid)>=minDist;
+}
+
+bool PlacePendingTranche(int stage,double entry)
+{
+   if(entry<=0 || g_campaign.stop<=0) return false;
+   double vol=DetermineEntryVolume(entry,g_campaign.stop);
+   if(vol<=0)
+   {
+      LogEvent("PENDING_RISK_REJECT",entry,"Volume calculation returned zero");
+      return false;
+   }
+   if(!CanAddRisk(vol,entry,g_campaign.stop))
+   {
+      LogEvent("PENDING_RISK_REJECT",entry,StringFormat("E%d rejected by campaign risk cap",stage));
+      return false;
+   }
+
+   int sec=PeriodSeconds(InpEntryTF);
+   if(sec<=0) sec=300;
+   datetime expiry=TimeCurrent()+MathMax(1,InpPendingExpiryBars)*sec;
+   string comment=StringFormat("ASTRA PEND E%d %s",stage,g_campaign.bullish?"BUY":"SELL");
+
+   bool ok=g_campaign.bullish
+      ? trade.BuyLimit(vol,entry,_Symbol,g_campaign.stop,0,ORDER_TIME_SPECIFIED,expiry,comment)
+      : trade.SellLimit(vol,entry,_Symbol,g_campaign.stop,0,ORDER_TIME_SPECIFIED,expiry,comment);
+
+   if(!ok)
+   {
+      LogEvent("PENDING_ORDER_FAIL",entry,trade.ResultRetcodeDescription());
+      return false;
+   }
+
+   uint rc=trade.ResultRetcode();
+   if(rc!=TRADE_RETCODE_DONE && rc!=TRADE_RETCODE_PLACED)
+   {
+      LogEvent("PENDING_ORDER_REJECT",entry,trade.ResultRetcodeDescription());
+      return false;
+   }
+
+   g_campaign.pendingStage=stage;
+   g_campaign.pendingTicket=trade.ResultOrder();
+   g_campaign.pendingExpiry=expiry;
+   g_campaign.pendingPrice=entry;
+   LogEvent(StringFormat("E%d_PENDING",stage),entry,StringFormat("ticket=%I64u volume=%.2f expiry=%s",
+            g_campaign.pendingTicket,vol,TimeToString(expiry,TIME_DATE|TIME_MINUTES)));
+   return true;
+}
+
+void CancelCampaignPendingOrders(string reason)
+{
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      ulong ticket=OrderGetTicket(i);
+      if(ticket==0 || !OrderSelect(ticket)) continue;
+      if(OrderGetString(ORDER_SYMBOL)!=_Symbol) continue;
+      if((ulong)OrderGetInteger(ORDER_MAGIC)!=InpMagic) continue;
+      ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if(!IsPendingType(type)) continue;
+      if(trade.OrderDelete(ticket))
+         LogEvent("PENDING_CANCEL",OrderGetDouble(ORDER_PRICE_OPEN),reason);
+   }
+   g_campaign.pendingStage=0;
+   g_campaign.pendingTicket=0;
+   g_campaign.pendingExpiry=0;
+   g_campaign.pendingPrice=0.0;
+}
+
+void MaintainPendingEntry()
+{
+   if(!g_campaign.active || g_campaign.pendingStage<=0) return;
+
+   if(CampaignHasPosition()) return;
+
+   if(!HasCampaignPendingOrder())
+   {
+      // Order disappeared without a position: expiration, rejection, or cancellation.
+      LogEvent("PENDING_GONE",g_campaign.pendingPrice,"Pending order no longer active");
+      g_campaign.pendingStage=0;
+      g_campaign.pendingTicket=0;
+      g_campaign.pendingExpiry=0;
+      g_campaign.pendingPrice=0.0;
+      return;
+   }
+
+   if(g_campaign.pendingExpiry>0 && TimeCurrent()>=g_campaign.pendingExpiry)
+   {
+      CancelCampaignPendingOrders("Pending entry expired");
+      SetState(ASTRA_EXPIRED,"Precision pending entry expired");
+      return;
+   }
+
+   if(InpCancelPendingOutsideSession && !SessionAllowed())
+   {
+      CancelCampaignPendingOrders("Session window ended");
+      SetState(ASTRA_EXPIRED,"Pending order cancelled outside approved session");
+      return;
+   }
+
+   if(InpCancelPendingOnInvalidation && !CandidateStillValid())
+   {
+      CancelCampaignPendingOrders("Structure invalidated before fill");
+      SetState(ASTRA_INVALIDATED,"Pending order cancelled on invalidation");
+      return;
+   }
+
+   if(InpUseSpreadFilter && CurrentSpreadPoints()>InpMaxSpreadPoints)
+   {
+      // Spread can temporarily widen; keep the order but do not create any new order.
+      LogEvent("PENDING_SPREAD_GUARD",g_campaign.pendingPrice,"Spread above entry threshold");
+   }
+}
+
+void SyncPendingFill()
+{
+   if(!g_campaign.active || g_campaign.pendingStage<=0) return;
+   if(!CampaignHasPosition()) return;
+
+   int stage=g_campaign.pendingStage;
+   double total=0.0,avg=0.0;
+   long dir=-1;
+   if(!GetCampaignPositionStats(total,avg,dir)) return;
+
+   g_campaign.entries=MathMax(g_campaign.entries,stage);
+   g_campaign.peakVolume=MathMax(g_campaign.peakVolume,total);
+   g_campaign.initialRiskPrice=MathAbs(avg-g_campaign.stop);
+   if(g_campaign.bestPrice<=0) g_campaign.bestPrice=avg;
+   BuildTargets(avg);
+
+   g_campaign.pendingStage=0;
+   g_campaign.pendingTicket=0;
+   g_campaign.pendingExpiry=0;
+   g_campaign.pendingPrice=0.0;
+
+   LogEvent(StringFormat("E%d_PENDING_FILLED",stage),avg,StringFormat("volume=%.2f",total));
+   SetState(ASTRA_BUILDING,StringFormat("E%d precision pending entry filled",stage));
 }
 
 bool OpenTranche(int stage)
@@ -1320,6 +1546,8 @@ void SetState(ENUM_ASTRA_CAMPAIGN_STATE state,string reason)
 
 void ResetCampaign()
 {
+   if(g_campaign.pendingStage>0 || HasCampaignPendingOrder())
+      CancelCampaignPendingOrders("Campaign reset");
    g_campaign.active=false;
    g_campaign.bullish=true;
    g_campaign.state=ASTRA_IDLE;
@@ -1341,6 +1569,10 @@ void ResetCampaign()
    g_campaign.bestPrice=0.0;
    g_campaign.peakVolume=0.0;
    g_campaign.entries=0;
+   g_campaign.pendingStage=0;
+   g_campaign.pendingTicket=0;
+   g_campaign.pendingExpiry=0;
+   g_campaign.pendingPrice=0.0;
    g_campaign.tp1Done=false;
    g_campaign.tp2Done=false;
    g_campaign.tp3Done=false;
