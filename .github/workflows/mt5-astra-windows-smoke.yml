@@ -176,6 +176,7 @@ jobs:
           ExpertParameters=ASTRA_GOLD_V1_SMOKE.set
           Symbol=ASTRA_XAUUSD
           Period=M5
+          Login=100000
           Deposit=10000
           Currency=USD
           Leverage=1:100
