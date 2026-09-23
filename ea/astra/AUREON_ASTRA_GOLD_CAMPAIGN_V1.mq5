@@ -91,6 +91,7 @@ input bool InpRequireDirectionalReclaim = false;
 input group "MSS"
 input int InpMSSLookback = 5;
 input bool InpRequireClosedMSS = true;
+input int InpMSSMaxBarsAfterSweep = 12;
 
 input group "DISPLACEMENT"
 input double InpDisplacementATR = 1.20;
@@ -549,27 +550,43 @@ bool ConfirmM5Signal()
       else breakLevel=MathMin(breakLevel,r[i].low);
    }
 
+   // MSS must occur after the M15 sweep/reclaim became known.  This prevents
+   // pairing a fresh sweep with an older displacement/FVG and preserves
+   // event-time causality in both tester and forward operation.
+   if(g_campaign.sweepTime>0)
+   {
+      datetime earliest=g_campaign.sweepTime+PeriodSeconds(InpLiquidityTF);
+      if(r[1].time<earliest) return false;
+      if(InpMSSMaxBarsAfterSweep>0 && r[1].time>earliest+InpMSSMaxBarsAfterSweep*PeriodSeconds(InpEntryTF))
+         return false;
+   }
+
    bool mss=g_campaign.bullish ? r[1].close>breakLevel : r[1].close<breakLevel;
    if(!mss) return false;
 
-   double body=MathAbs(r[2].close-r[2].open);
-   double range=r[2].high-r[2].low;
+   // The MSS candle itself is the authoritative displacement candle.
+   // The previous implementation tested r[2], which could reject a valid
+   // current break or accidentally couple the break to unrelated momentum.
+   double body=MathAbs(r[1].close-r[1].open);
+   double range=r[1].high-r[1].low;
    if(range<=0 || body<atr*InpDisplacementATR || body/range<InpMinBodyEfficiency) return false;
 
    if(InpUseVolumeFilter)
    {
       double avg=0.0;
       int n=0;
-      for(int i=3;i<3+InpVolumeMAPeriod && i<ArraySize(r);i++)
+      for(int i=2;i<2+InpVolumeMAPeriod && i<ArraySize(r);i++)
       {
          avg+=(double)r[i].tick_volume;
          n++;
       }
       if(n<=0 || avg<=0) return false;
       avg/=n;
-      if((double)r[2].tick_volume<avg*InpVolumeMultiplier) return false;
+      if((double)r[1].tick_volume<avg*InpVolumeMultiplier) return false;
    }
 
+   // Closed-candle 3-bar FVG anchored on the MSS/displacement candle:
+   // [3] = candle before displacement sequence, [2] = middle, [1] = MSS.
    double gap=0.0;
    if(g_campaign.bullish)
    {
