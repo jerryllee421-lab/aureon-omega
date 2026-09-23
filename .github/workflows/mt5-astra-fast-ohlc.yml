@@ -228,6 +228,10 @@ jobs:
             'LIVE_TRADING=DISABLED'
           ) | Set-Content 'fast_artifact\research_context.txt'
           Copy-Item 'research_data\XAUUSD\download_manifest.json' 'fast_artifact\download_manifest.json' -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:MT5_ROOT" -Filter 'ASTRA*.csv' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            $safe=($_.FullName -replace '[:\\/]','_')
+            Copy-Item $_.FullName ("fast_artifact\"+$safe) -Force
+          }
           Get-ChildItem "$env:MT5_ROOT\Tester\logs","$env:MT5_ROOT\MQL5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
             $safe=($_.FullName -replace '[:\\/]','_')
             Copy-Item $_.FullName ("fast_artifact\"+$safe) -Force
