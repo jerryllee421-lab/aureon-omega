@@ -28,6 +28,7 @@ InpMinReclaimBody=0.30||0.30||0.05||0.30||N
 InpRequireDirectionalReclaim=false||false||0||true||N
 InpMSSLookback=5||5||1||5||N
 InpRequireClosedMSS=true||false||0||true||N
+InpMSSMaxBarsAfterSweep=12||12||1||12||N
 InpDisplacementATR=0.90||0.90||0.05||0.90||N
 InpMinBodyEfficiency=0.50||0.50||0.05||0.50||N
 InpUseVolumeFilter=false||false||0||true||N
