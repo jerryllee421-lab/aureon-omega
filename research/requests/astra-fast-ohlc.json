@@ -1,8 +1,8 @@
 {
-  "id": "astra-fast-ohlc-v1-retry2-tester-permission",
+  "id": "astra-fast-ohlc-v1-v111-event-causality",
   "enabled": true,
   "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
   "from": "2025-08-20",
   "to": "2026-08-20",
-  "purpose": "Get the first meaningful ASTRA trade sample quickly on real XAUUSD M1 OHLC while broker-native authorization is repaired."
+  "purpose": "Validate V1.11 post-sweep MSS/displacement causality, then compare E1, E1-E3, E1-E5 and precision pending entries on the frozen one-year XAUUSD sample."
 }
