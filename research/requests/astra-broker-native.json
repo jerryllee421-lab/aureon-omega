@@ -1,5 +1,5 @@
 {
-  "id": "astra-broker-native-v1-retry-pxbt-pending",
+  "id": "astra-broker-native-v1-retry-logprobe",
   "enabled": true,
   "symbol": "XAUUSD.ecn",
   "from": "2026-01-01",
