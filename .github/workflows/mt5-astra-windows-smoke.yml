@@ -7,6 +7,12 @@ on:
       - feature/astra-campaign-ea-v1
     paths:
       - '.github/workflows/mt5-astra-windows-smoke.yml'
+      - 'ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+      - 'ea/astra/tools/AUREON_CustomSymbolLoader.mq5'
+      - 'ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set'
+      - 'research/mirror_m1.py'
+      - 'research/export_mt5_m1.py'
+      - 'research/requirements.txt'
 
 permissions:
   contents: read
