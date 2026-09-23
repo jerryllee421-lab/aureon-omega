@@ -17,6 +17,30 @@ input double InpMaxVolume=100.0;
 input double InpVolumeStep=0.01;
 input bool InpCloseTerminal=true;
 
+bool SetIntProp(ENUM_SYMBOL_INFO_INTEGER prop,long value,string label)
+{
+   ResetLastError();
+   if(CustomSymbolSetInteger(InpSymbolName,prop,value)) return true;
+   PrintFormat("ASTRA_IMPORT_FAIL property=%s value=%I64d error=%d",label,value,GetLastError());
+   return false;
+}
+
+bool SetDoubleProp(ENUM_SYMBOL_INFO_DOUBLE prop,double value,string label)
+{
+   ResetLastError();
+   if(CustomSymbolSetDouble(InpSymbolName,prop,value)) return true;
+   PrintFormat("ASTRA_IMPORT_FAIL property=%s value=%.10f error=%d",label,value,GetLastError());
+   return false;
+}
+
+bool SetStringProp(ENUM_SYMBOL_INFO_STRING prop,string value,string label)
+{
+   ResetLastError();
+   if(CustomSymbolSetString(InpSymbolName,prop,value)) return true;
+   PrintFormat("ASTRA_IMPORT_FAIL property=%s value=%s error=%d",label,value,GetLastError());
+   return false;
+}
+
 bool ConfigureSymbol()
 {
    SymbolSelect(InpSymbolName,false);
@@ -31,47 +55,58 @@ bool ConfigureSymbol()
       }
    }
 
-   bool ok=true;
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_CHART_MODE,SYMBOL_CHART_MODE_BID);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_DIGITS,InpDigits);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_TRADE_MODE,SYMBOL_TRADE_MODE_FULL);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_TRADE_EXEMODE,SYMBOL_TRADE_EXECUTION_MARKET);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_TRADE_CALC_MODE,SYMBOL_CALC_MODE_CFD);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_TRADE_STOPS_LEVEL,0);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_TRADE_FREEZE_LEVEL,0);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_SPREAD_FLOAT,true);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_ORDER_MODE,SYMBOL_ORDER_MARKET|SYMBOL_ORDER_SL|SYMBOL_ORDER_TP);
-   ok &= CustomSymbolSetInteger(InpSymbolName,SYMBOL_FILLING_MODE,SYMBOL_FILLING_IOC);
+   // Apply specification in dependency-safe order. In particular, MT5
+   // validates VOLUME_MIN against VOLUME_MAX, so MAX must be set first.
+   if(!SetIntProp(SYMBOL_CHART_MODE,SYMBOL_CHART_MODE_BID,"SYMBOL_CHART_MODE")) return false;
+   if(!SetIntProp(SYMBOL_DIGITS,InpDigits,"SYMBOL_DIGITS")) return false;
+   if(!SetDoubleProp(SYMBOL_POINT,InpPoint,"SYMBOL_POINT")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_SIZE,InpPoint,"SYMBOL_TRADE_TICK_SIZE")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_CONTRACT_SIZE,InpContractSize,"SYMBOL_TRADE_CONTRACT_SIZE")) return false;
 
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_POINT,InpPoint);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_TRADE_TICK_SIZE,InpPoint);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_TRADE_TICK_VALUE,InpPoint*InpContractSize);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_TRADE_TICK_VALUE_PROFIT,InpPoint*InpContractSize);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_TRADE_TICK_VALUE_LOSS,InpPoint*InpContractSize);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_TRADE_CONTRACT_SIZE,InpContractSize);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_VOLUME_MIN,InpMinVolume);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_VOLUME_MAX,InpMaxVolume);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_VOLUME_STEP,InpVolumeStep);
-   ok &= CustomSymbolSetDouble(InpSymbolName,SYMBOL_VOLUME_LIMIT,InpMaxVolume);
+   if(!SetDoubleProp(SYMBOL_VOLUME_MAX,InpMaxVolume,"SYMBOL_VOLUME_MAX")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_STEP,InpVolumeStep,"SYMBOL_VOLUME_STEP")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_MIN,InpMinVolume,"SYMBOL_VOLUME_MIN")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_LIMIT,InpMaxVolume,"SYMBOL_VOLUME_LIMIT")) return false;
 
-   ok &= CustomSymbolSetString(InpSymbolName,SYMBOL_DESCRIPTION,"AUREON ASTRA XAUUSD research symbol");
-   ok &= CustomSymbolSetString(InpSymbolName,SYMBOL_CURRENCY_BASE,"XAU");
-   ok &= CustomSymbolSetString(InpSymbolName,SYMBOL_CURRENCY_PROFIT,"USD");
-   ok &= CustomSymbolSetString(InpSymbolName,SYMBOL_CURRENCY_MARGIN,"USD");
+   if(!SetIntProp(SYMBOL_TRADE_CALC_MODE,SYMBOL_CALC_MODE_CFD,"SYMBOL_TRADE_CALC_MODE")) return false;
+   if(!SetIntProp(SYMBOL_TRADE_MODE,SYMBOL_TRADE_MODE_FULL,"SYMBOL_TRADE_MODE")) return false;
+   if(!SetIntProp(SYMBOL_TRADE_EXEMODE,SYMBOL_TRADE_EXECUTION_MARKET,"SYMBOL_TRADE_EXEMODE")) return false;
+   if(!SetIntProp(SYMBOL_TRADE_STOPS_LEVEL,0,"SYMBOL_TRADE_STOPS_LEVEL")) return false;
+   if(!SetIntProp(SYMBOL_TRADE_FREEZE_LEVEL,0,"SYMBOL_TRADE_FREEZE_LEVEL")) return false;
+   if(!SetIntProp(SYMBOL_SPREAD_FLOAT,true,"SYMBOL_SPREAD_FLOAT")) return false;
+   if(!SetIntProp(SYMBOL_ORDER_MODE,SYMBOL_ORDER_MARKET|SYMBOL_ORDER_SL|SYMBOL_ORDER_TP,"SYMBOL_ORDER_MODE")) return false;
+   if(!SetIntProp(SYMBOL_FILLING_MODE,SYMBOL_FILLING_IOC,"SYMBOL_FILLING_MODE")) return false;
+
+   // Tick value is 1 point * contract size for this CFD-style research symbol.
+   double tickValue=InpPoint*InpContractSize;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE,tickValue,"SYMBOL_TRADE_TICK_VALUE")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_PROFIT,tickValue,"SYMBOL_TRADE_TICK_VALUE_PROFIT")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_LOSS,tickValue,"SYMBOL_TRADE_TICK_VALUE_LOSS")) return false;
+
+   if(!SetStringProp(SYMBOL_DESCRIPTION,"AUREON ASTRA XAUUSD research symbol","SYMBOL_DESCRIPTION")) return false;
+   if(!SetStringProp(SYMBOL_CURRENCY_BASE,"XAU","SYMBOL_CURRENCY_BASE")) return false;
+   if(!SetStringProp(SYMBOL_CURRENCY_PROFIT,"USD","SYMBOL_CURRENCY_PROFIT")) return false;
+   if(!SetStringProp(SYMBOL_CURRENCY_MARGIN,"USD","SYMBOL_CURRENCY_MARGIN")) return false;
 
    datetime from=D'1970.01.01 00:00:00';
    datetime to=D'1970.01.01 23:59:59';
    for(int d=MONDAY;d<=FRIDAY;d++)
    {
-      ok &= CustomSymbolSetSessionQuote(InpSymbolName,(ENUM_DAY_OF_WEEK)d,0,from,to);
-      ok &= CustomSymbolSetSessionTrade(InpSymbolName,(ENUM_DAY_OF_WEEK)d,0,from,to);
+      ResetLastError();
+      if(!CustomSymbolSetSessionQuote(InpSymbolName,(ENUM_DAY_OF_WEEK)d,0,from,to))
+      {
+         PrintFormat("ASTRA_IMPORT_FAIL property=QUOTE_SESSION day=%d error=%d",d,GetLastError());
+         return false;
+      }
+      ResetLastError();
+      if(!CustomSymbolSetSessionTrade(InpSymbolName,(ENUM_DAY_OF_WEEK)d,0,from,to))
+      {
+         PrintFormat("ASTRA_IMPORT_FAIL property=TRADE_SESSION day=%d error=%d",d,GetLastError());
+         return false;
+      }
    }
 
-   if(!ok)
-   {
-      PrintFormat("ASTRA_IMPORT_FAIL configure symbol error=%d",GetLastError());
-      return false;
-   }
+   Print("ASTRA_IMPORT_SPEC_OK");
    return true;
 }
 
