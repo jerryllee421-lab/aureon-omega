@@ -1,0 +1,8 @@
+{
+  "id": "astra-fast-ohlc-v1",
+  "enabled": true,
+  "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
+  "from": "2025-08-20",
+  "to": "2026-08-20",
+  "purpose": "Get the first meaningful ASTRA trade sample quickly on real XAUUSD M1 OHLC while broker-native authorization is repaired."
+}
