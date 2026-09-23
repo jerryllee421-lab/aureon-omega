@@ -330,6 +330,85 @@ def rank(args):
         print(f"| {r['name']} | {r['trades']} | {r.get('pf',0):.3f} | {r.get('expected_payoff',0):.2f} | {r.get('net_profit',0):.2f} | {r.get('dd_percent',0):.2f} | {r.get('sharpe',0):.2f} | {r.get('win_rate',0):.1f} | {r['score']:.3f} |")
 
 
+def valid_changes(ch):
+    try:
+        if float(ch.get("InpSweepMaxATR", DISCOVERY_BASE["InpSweepMaxATR"])) <= float(ch.get("InpSweepMinATR", DISCOVERY_BASE["InpSweepMinATR"])):
+            return False
+        minrr=float(ch.get("InpMinimumRR",DISCOVERY_BASE["InpMinimumRR"]))
+        t1=float(ch.get("InpTP1R",DISCOVERY_BASE["InpTP1R"]))
+        t2=float(ch.get("InpTP2R",DISCOVERY_BASE["InpTP2R"]))
+        t3=float(ch.get("InpTP3R",DISCOVERY_BASE["InpTP3R"]))
+        if t1 < minrr or not (t2>t1 and t3>t2):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def cross_generate(args):
+    order,rows=read_set(Path(args.base))
+    roots=sorted(Path(args.tops).glob("*/top.json"))
+    if len(roots)<4:
+        raise SystemExit(f"Expected top.json for four families under {args.tops}; found {len(roots)}")
+    family_map={}
+    for p in roots:
+        arr=json.loads(p.read_text())
+        family=p.parent.name
+        family_map[family]=arr[:args.per_family]
+    required=["structure","trigger","exit","session"]
+    missing=[x for x in required if x not in family_map]
+    if missing:
+        raise SystemExit(f"Missing family top results: {missing}")
+
+    from itertools import product
+    combos=[]
+    seen=set()
+    for picks in product(*(family_map[f] for f in required)):
+        delta={}
+        labels=[]
+        for f,item in zip(required,picks):
+            delta.update(item.get("changes",{}))
+            labels.append(item["name"])
+        if not valid_changes({**DISCOVERY_BASE,**delta}):
+            continue
+        key=json.dumps(delta,sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        combos.append({"name":"__".join(labels),"changes":delta,"components":dict(zip(required,labels))})
+
+    out=Path(args.out); out.mkdir(parents=True,exist_ok=True)
+    manifest=[]
+    for i,item in enumerate(combos):
+        changes=dict(DISCOVERY_BASE); changes.update(item["changes"])
+        fn=f"CROSS_{i:02d}.set"
+        write_set(out/fn,order,rows,changes,f"ASTRA_CROSS_{i:02d}.csv",args.magic_base+i)
+        manifest.append({"index":i,"name":f"CROSS_{i:02d}","preset":fn,"family":"cross",
+                         "changes":item["changes"],"components":item["components"]})
+    (out/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
+    print(json.dumps({"cross_count":len(manifest),"components":required},indent=2))
+
+
+def make_oos(args):
+    ranking=json.loads(Path(args.ranking).read_text())
+    selected=[r for r in ranking if not r.get("missing") and r.get("trades",0)>=args.min_trades][:args.top]
+    if not selected:
+        selected=[r for r in ranking if not r.get("missing")][:args.top]
+    source=Path(args.presets)
+    out=Path(args.out); out.mkdir(parents=True,exist_ok=True)
+    manifest=[]
+    for i,r in enumerate(selected):
+        src=source/r["preset"]
+        if not src.exists():
+            raise SystemExit(f"Missing selected preset {src}")
+        dst=out/f"OOS_{i:02d}_{r['name']}.set"
+        dst.write_text(src.read_text(encoding="utf-8"),encoding="utf-8")
+        manifest.append({"index":i,"name":f"OOS_{i:02d}_{r['name']}","preset":dst.name,
+                         "source_variant":r["name"],"screen_metrics":{k:r.get(k) for k in ("trades","pf","expected_payoff","net_profit","dd_percent","sharpe","win_rate","score")},
+                         "changes":r.get("changes",{}),"components":r.get("components",{})})
+    (out/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
+    print(json.dumps({"oos_count":len(manifest)},indent=2))
+
 def main():
     ap=argparse.ArgumentParser()
     sub=ap.add_subparsers(dest="cmd",required=True)
@@ -345,6 +424,20 @@ def main():
     r.add_argument("--out",required=True)
     r.add_argument("--top",type=int,default=3)
     r.set_defaults(func=rank)
+    x=sub.add_parser("cross")
+    x.add_argument("--base",required=True)
+    x.add_argument("--tops",required=True)
+    x.add_argument("--out",required=True)
+    x.add_argument("--per-family",type=int,default=2)
+    x.add_argument("--magic-base",type=int,default=26200000)
+    x.set_defaults(func=cross_generate)
+    o=sub.add_parser("oos")
+    o.add_argument("--ranking",required=True)
+    o.add_argument("--presets",required=True)
+    o.add_argument("--out",required=True)
+    o.add_argument("--top",type=int,default=4)
+    o.add_argument("--min-trades",type=int,default=10)
+    o.set_defaults(func=make_oos)
     args=ap.parse_args()
     args.func(args)
 
