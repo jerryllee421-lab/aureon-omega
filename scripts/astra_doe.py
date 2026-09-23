@@ -354,6 +354,8 @@ def cross_generate(args):
     for p in roots:
         arr=json.loads(p.read_text())
         family=p.parent.name
+        if family.startswith("astra-doe-"):
+            family=family[len("astra-doe-"):]
         family_map[family]=arr[:args.per_family]
     required=["structure","trigger","exit","session"]
     missing=[x for x in required if x not in family_map]
