@@ -1,0 +1,52 @@
+name: MT5 Linux Compile Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/mt5-linux-github-runner
+    paths:
+      - '.github/workflows/mt5-linux-compile.yml'
+      - 'scripts/mt5_linux_compile.sh'
+      - 'ea/baseline/**'
+
+permissions:
+  contents: read
+
+env:
+  WINEARCH: win64
+  WINEDEBUG: -all
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+
+jobs:
+  compile:
+    name: Wine + MT5 + MetaEditor compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Wine and headless display
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+          wine --version
+
+      - name: Run MT5 compile smoke
+        shell: bash
+        run: bash scripts/mt5_linux_compile.sh
+
+      - name: Upload compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-linux-compile-${{ github.run_id }}
+          path: mt5_ci_artifact
+          retention-days: 30
+          if-no-files-found: warn
