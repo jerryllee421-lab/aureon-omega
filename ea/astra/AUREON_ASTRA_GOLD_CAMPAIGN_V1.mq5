@@ -1059,6 +1059,17 @@ bool AllStopsProtected(double avg)
    return found;
 }
 
+bool ReduceNettingPosition(double closeVol,long positionType)
+{
+   if(closeVol<=0) return false;
+   bool ok=(positionType==POSITION_TYPE_BUY)
+           ? trade.Sell(closeVol,_Symbol,0,0,0,"ASTRA partial close")
+           : trade.Buy(closeVol,_Symbol,0,0,0,"ASTRA partial close");
+   if(!ok) return false;
+   uint rc=trade.ResultRetcode();
+   return rc==TRADE_RETCODE_DONE || rc==TRADE_RETCODE_DONE_PARTIAL || rc==TRADE_RETCODE_PLACED;
+}
+
 void CloseCampaignPercent(double pct)
 {
    if(pct<=0) return;
@@ -1073,6 +1084,9 @@ void CloseCampaignPercent(double pct)
    target=MathFloor(target/step+1e-9)*step;
    if(target<minLot) return;
 
+   ENUM_ACCOUNT_MARGIN_MODE marginMode=(ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   bool hedging=(marginMode==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING);
+
    double remaining=target;
    for(int i=PositionsTotal()-1;i>=0 && remaining>=minLot-1e-9;i--)
    {
@@ -1081,13 +1095,19 @@ void CloseCampaignPercent(double pct)
       if(PositionGetString(POSITION_SYMBOL)!=_Symbol || (ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
 
       double pv=PositionGetDouble(POSITION_VOLUME);
+      long positionType=PositionGetInteger(POSITION_TYPE);
       double closeVol=MathMin(pv,remaining);
       closeVol=MathFloor(closeVol/step+1e-9)*step;
       if(closeVol<minLot) continue;
 
       bool ok=false;
-      if(closeVol>=pv-step/2.0) ok=trade.PositionClose(ticket);
-      else ok=trade.PositionClosePartial(ticket,closeVol);
+      if(closeVol>=pv-step/2.0)
+         ok=trade.PositionClose(ticket);
+      else if(hedging)
+         ok=trade.PositionClosePartial(ticket,closeVol);
+      else
+         ok=ReduceNettingPosition(closeVol,positionType);
+
       if(ok) remaining-=closeVol;
    }
 }
@@ -1415,5 +1435,21 @@ void ClearVisuals()
 {
    string names[6]={"ASTRA_LIQ","ASTRA_ENTRY","ASTRA_SL","ASTRA_TP1","ASTRA_TP2","ASTRA_TP3"};
    for(int i=0;i<6;i++) ObjectDelete(0,names[i]);
+}
+
+double OnTester()
+{
+   double trades=TesterStatistics(STAT_TRADES);
+   double pf=TesterStatistics(STAT_PROFIT_FACTOR);
+   double dd=TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+   double payoff=TesterStatistics(STAT_EXPECTED_PAYOFF);
+
+   // Custom robustness criterion for later controlled optimization.
+   // It intentionally penalizes tiny samples and drawdown instead of
+   // maximizing headline balance or win rate.
+   if(trades<30.0 || pf<=0.0) return -1000000.0+trades;
+   double samplePenalty=MathMin(1.0,trades/100.0);
+   double drawdownPenalty=MathMax(0.05,1.0-dd/100.0);
+   return pf*samplePenalty*drawdownPenalty*MathMax(0.01,payoff);
 }
 //+------------------------------------------------------------------+
