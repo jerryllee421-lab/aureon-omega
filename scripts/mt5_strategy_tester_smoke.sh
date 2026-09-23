@@ -76,6 +76,8 @@ NewsEnable=0
 CertInstall=0
 
 [StartUp]
+Symbol=EURUSD
+Period=M1
 Script=AUREON\AUREON_LoadCustomGold
 ShutdownTerminal=1
 EOF
