@@ -172,7 +172,7 @@ jobs:
           $config=Join-Path $root 'astra-smoke.ini'
           @'
           [Tester]
-          Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1.ex5
+          Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1
           ExpertParameters=ASTRA_GOLD_V1_SMOKE.set
           Symbol=ASTRA_XAUUSD
           Period=M5
@@ -186,7 +186,7 @@ jobs:
           FromDate=2026.07.01
           ToDate=2026.08.20
           ForwardMode=0
-          Report=reports\ASTRA_SMOKE.htm
+          Report=reports\ASTRA_SMOKE
           ReplaceReport=1
           ShutdownTerminal=1
           UseLocal=1
