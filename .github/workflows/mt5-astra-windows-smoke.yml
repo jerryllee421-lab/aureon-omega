@@ -24,7 +24,7 @@ permissions:
 env:
   MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
   MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
-  MT5_DEMO_SERVER: ${{ secrets.MT5_DEMO_SERVER }}
+  MT5_DEMO_SERVER: ${{ secrets.MT5_DEMO_SERVER || 'PXBTTrading-1' }}
   MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
   XAU_MIRROR_COMMIT: 922f83a60cc574e7395fb27397077288055a1ef6
   TEST_FROM: '2026-07-01'
@@ -43,11 +43,14 @@ jobs:
         shell: pwsh
         run: |
           if([string]::IsNullOrWhiteSpace($env:MT5_DEMO_LOGIN) -or
-             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_PASSWORD) -or
-             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_SERVER)){
-            throw 'MT5 demo account context is not configured. Add repository Actions secrets MT5_DEMO_LOGIN, MT5_DEMO_PASSWORD and MT5_DEMO_SERVER.'
+             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_PASSWORD)){
+            throw 'MT5 demo account context is not configured. Add repository Actions secrets MT5_DEMO_LOGIN and MT5_DEMO_PASSWORD.'
           }
-          Write-Host 'MT5 demo account context is configured (values remain masked).'
+          if([string]::IsNullOrWhiteSpace($env:MT5_DEMO_SERVER)){
+            throw 'MT5 demo server is not configured.'
+          }
+          Write-Host 'MT5 demo account context is configured (secret values remain masked).'
+          Write-Host ("Configured demo server: "+$env:MT5_DEMO_SERVER)
 
       - name: Python research environment
         uses: actions/setup-python@v5
@@ -183,11 +186,10 @@ jobs:
           Copy-Item 'ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set' "$mql5\Profiles\Tester\ASTRA_GOLD_V1_SMOKE.set" -Force
 
           if([string]::IsNullOrWhiteSpace($env:MT5_DEMO_LOGIN) -or
-             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_PASSWORD) -or
-             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_SERVER)){
-            'MT5_NATIVE_TEST_BLOCKED: configure GitHub Actions secrets MT5_DEMO_LOGIN, MT5_DEMO_PASSWORD, MT5_DEMO_SERVER' |
+             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_PASSWORD)){
+            'MT5_NATIVE_TEST_BLOCKED: configure GitHub Actions secrets MT5_DEMO_LOGIN and MT5_DEMO_PASSWORD' |
               Set-Content 'mt5_windows_artifact\account-required.txt'
-            throw 'Native MT5 Strategy Tester requires a configured demo trading account. Add the three MT5_DEMO_* GitHub Actions secrets; credentials are never committed or uploaded.'
+            throw 'Native MT5 Strategy Tester requires the demo login and trading password as GitHub Actions secrets. Credentials are never committed or uploaded.'
           }
 
           $config=Join-Path $root 'astra-smoke.ini'
