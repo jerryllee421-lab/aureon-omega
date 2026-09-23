@@ -1,0 +1,10 @@
+{
+  "id": "fvg-scalper-v211-logic-baseline-1",
+  "enabled": true,
+  "source_ea": "FVG_Scalper_V2_AutoLot_v2.11",
+  "dataset": "XAUUSD_M1_bid_ask_pinned",
+  "from": "2025-08-20",
+  "to": "2026-08-20",
+  "split": "2026-04-20",
+  "purpose": "Test the uploaded FVG Scalper V2.11 strategy logic before integrating it into ASTRA. Compare the original RR30 design against predeclared RR, rejection, midpoint, bias, session and profit-lock ablations. Rank on in-sample only; report out-of-sample separately."
+}
