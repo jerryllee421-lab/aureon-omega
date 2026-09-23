@@ -1,0 +1,218 @@
+name: ASTRA Native MT5 Windows Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - '.github/workflows/mt5-astra-windows-smoke.yml'
+
+permissions:
+  contents: read
+
+env:
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+  XAU_MIRROR_COMMIT: 922f83a60cc574e7395fb27397077288055a1ef6
+  TEST_FROM: '2026-07-01'
+  TEST_TO: '2026-08-20'
+
+jobs:
+  native-windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python research environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: pip install -r research/requirements.txt
+
+      - name: Build pinned XAUUSD M1 dataset
+        shell: pwsh
+        run: |
+          python research/mirror_m1.py --start "${{ env.TEST_FROM }}" --end "${{ env.TEST_TO }}" --commit "${{ env.XAU_MIRROR_COMMIT }}"
+          python research/export_mt5_m1.py --root research_data --symbol XAUUSD --point 0.001 --output mt5_input/ASTRA_XAUUSD_M1.csv
+
+      - name: Install official MetaTrader 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\AUREON_MT5'
+          $installer=Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri $env:MT5_INSTALLER_URL -OutFile $installer
+          if((Get-Item $installer).Length -lt 100000){ throw 'MT5 installer download is unexpectedly small' }
+
+          Get-Process terminal64,metaeditor64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $p=Start-Process -FilePath $installer -ArgumentList @('/auto',"/path:$root") -PassThru
+          if(-not $p.WaitForExit(600000)){
+            $p.Kill()
+            throw 'MT5 installer timed out'
+          }
+
+          $deadline=(Get-Date).AddMinutes(3)
+          while((Get-Date) -lt $deadline -and -not (Test-Path "$root\terminal64.exe")){ Start-Sleep -Seconds 2 }
+          if(-not (Test-Path "$root\terminal64.exe")){ throw 'terminal64.exe not found after install' }
+          if(-not (Test-Path "$root\metaeditor64.exe")){ throw 'metaeditor64.exe not found after install' }
+
+          "MT5_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & "$root\terminal64.exe" /portable
+          Start-Sleep -Seconds 8
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Compile ASTRA EA and custom-symbol loader
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_ROOT
+          $mql5=Join-Path $root 'MQL5'
+          $eaDir=Join-Path $mql5 'Experts\AUREON'
+          $scriptDir=Join-Path $mql5 'Scripts\AUREON'
+          New-Item -ItemType Directory -Force -Path $eaDir,$scriptDir,'mt5_windows_artifact' | Out-Null
+
+          $eaDest=Join-Path $eaDir 'AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+          $loaderDest=Join-Path $scriptDir 'AUREON_CustomSymbolLoader.mq5'
+          Copy-Item 'ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5' $eaDest -Force
+          Copy-Item 'ea/astra/tools/AUREON_CustomSymbolLoader.mq5' $loaderDest -Force
+
+          function Compile-Mql([string]$source,[string]$label){
+            $meta=Join-Path $root 'metaeditor64.exe'
+            $args=@("/compile:$source","/include:$mql5",'/log')
+            $p=Start-Process -FilePath $meta -ArgumentList $args -PassThru
+            if(-not $p.WaitForExit(180000)){ $p.Kill(); throw "$label compile timed out" }
+            Start-Sleep -Seconds 2
+            $ex5=[IO.Path]::ChangeExtension($source,'.ex5')
+            $log=[IO.Path]::ChangeExtension($source,'.log')
+            if(-not (Test-Path $ex5)){ throw "$label did not produce EX5" }
+            if(-not (Test-Path $log)){ throw "$label did not produce compile log" }
+            $txt=Get-Content $log -Raw -Encoding Unicode
+            $txt | Out-File "mt5_windows_artifact\$label-compile.log" -Encoding utf8
+            if($txt -notmatch '0 errors'){ throw "$label compiler did not confirm 0 errors" }
+            if($txt -notmatch '0 warnings'){ throw "$label compiler did not confirm 0 warnings" }
+          }
+
+          Compile-Mql $eaDest 'astra-ea'
+          Compile-Mql $loaderDest 'custom-loader'
+          Copy-Item ([IO.Path]::ChangeExtension($eaDest,'.ex5')) 'mt5_windows_artifact\AUREON_ASTRA_GOLD_CAMPAIGN_V1.ex5'
+          Copy-Item $eaDest 'mt5_windows_artifact\AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+
+      - name: Import real M1 bars into custom symbol
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_ROOT
+          $mql5=Join-Path $root 'MQL5'
+          New-Item -ItemType Directory -Force -Path "$mql5\Files" | Out-Null
+          Copy-Item 'mt5_input/ASTRA_XAUUSD_M1.csv' "$mql5\Files\ASTRA_XAUUSD_M1.csv" -Force
+
+          $config=Join-Path $root 'astra-loader.ini'
+          @'
+          [Experts]
+          Enabled=1
+          AllowLiveTrading=0
+          AllowDllImport=0
+
+          [StartUp]
+          Script=AUREON\AUREON_CustomSymbolLoader
+          Symbol=EURUSD
+          Period=M1
+          ShutdownTerminal=1
+          '@ | Set-Content -Path $config -Encoding Unicode
+
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $terminal=Join-Path $root 'terminal64.exe'
+          $p=Start-Process -FilePath $terminal -ArgumentList @('/portable',"/config:$config") -PassThru
+          if(-not $p.WaitForExit(300000)){
+            $p.Kill()
+            throw 'Custom-symbol loader terminal timed out'
+          }
+          Start-Sleep -Seconds 2
+
+          $events=@()
+          Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            try { $events += (Get-Content $_.FullName -Encoding Unicode -ErrorAction Stop | Select-String 'ASTRA_IMPORT_').Line } catch {}
+          }
+          $events | Set-Content 'mt5_windows_artifact\import-events.log'
+          $events | ForEach-Object { Write-Host $_ }
+          if(-not ($events -match 'ASTRA_IMPORT_OK')){ throw 'Custom symbol import did not report ASTRA_IMPORT_OK' }
+
+      - name: Run native Strategy Tester smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_ROOT
+          $mql5=Join-Path $root 'MQL5'
+          New-Item -ItemType Directory -Force -Path "$mql5\Profiles\Tester","$root\reports" | Out-Null
+          Copy-Item 'ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set' "$mql5\Profiles\Tester\ASTRA_GOLD_V1_SMOKE.set" -Force
+
+          $config=Join-Path $root 'astra-smoke.ini'
+          @'
+          [Tester]
+          Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1.ex5
+          ExpertParameters=ASTRA_GOLD_V1_SMOKE.set
+          Symbol=ASTRA_XAUUSD
+          Period=M5
+          Deposit=10000
+          Currency=USD
+          Leverage=1:100
+          Model=1
+          ExecutionMode=0
+          Optimization=0
+          OptimizationCriterion=6
+          FromDate=2026.07.01
+          ToDate=2026.08.20
+          ForwardMode=0
+          Report=reports\ASTRA_SMOKE.htm
+          ReplaceReport=1
+          ShutdownTerminal=1
+          UseLocal=1
+          UseRemote=0
+          UseCloud=0
+          Visual=0
+          '@ | Set-Content -Path $config -Encoding Unicode
+
+          Copy-Item $config 'mt5_windows_artifact\astra-smoke.ini'
+          Get-Process terminal64,metatester64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $terminal=Join-Path $root 'terminal64.exe'
+          $p=Start-Process -FilePath $terminal -ArgumentList @('/portable',"/config:$config") -PassThru
+          if(-not $p.WaitForExit(900000)){
+            $p.Kill()
+            Get-Process metatester64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            throw 'MT5 Strategy Tester smoke timed out'
+          }
+          Start-Sleep -Seconds 3
+
+          $report=Join-Path $root 'reports\ASTRA_SMOKE.htm'
+          if(-not (Test-Path $report)){ throw 'MT5 did not produce ASTRA_SMOKE.htm' }
+          if((Get-Item $report).Length -lt 500){ throw 'MT5 report is unexpectedly small' }
+          Copy-Item $report 'mt5_windows_artifact\ASTRA_SMOKE.htm'
+
+          Get-ChildItem "$root\Tester\logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName ("mt5_windows_artifact\"+$_.Name) -Force
+          }
+          Get-ChildItem "$root\Tester" -Filter 'AUREON_ASTRA_GOLD_CAMPAIGN_SMOKE.csv' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName 'mt5_windows_artifact\AUREON_ASTRA_GOLD_CAMPAIGN_SMOKE.csv' -Force
+          }
+
+          (Get-FileHash $report -Algorithm SHA256).Hash | Set-Content 'mt5_windows_artifact\report.sha256'
+          (Get-FileHash 'ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5' -Algorithm SHA256).Hash | Set-Content 'mt5_windows_artifact\source.sha256'
+          (Get-FileHash 'ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set' -Algorithm SHA256).Hash | Set-Content 'mt5_windows_artifact\preset.sha256'
+          'ASTRA_NATIVE_WINDOWS_MT5_SMOKE_PASSED' | Set-Content 'mt5_windows_artifact\status.txt'
+
+      - name: Upload native Windows MT5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-native-windows-mt5-${{ github.run_id }}
+          path: mt5_windows_artifact
+          retention-days: 30
+          if-no-files-found: warn
