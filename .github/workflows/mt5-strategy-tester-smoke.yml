@@ -36,9 +36,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo dpkg --add-architecture i386
+          sudo mkdir -pm755 /etc/apt/keyrings
+          curl -fsSL https://dl.winehq.org/wine-builds/winehq.key \
+            | sudo tee /etc/apt/keyrings/winehq-archive.key >/dev/null
+          curl -fsSL https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources \
+            | sudo tee /etc/apt/sources.list.d/winehq-noble.sources >/dev/null
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --install-recommends \
+            winehq-stable xvfb xauth cabextract winbind curl ca-certificates p7zip-full
           wine --version
           python3 --version
 
