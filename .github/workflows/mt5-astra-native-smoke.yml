@@ -154,8 +154,17 @@ jobs:
           wineserver -k >/dev/null 2>&1 || true
           sleep 2
 
-          grep -R -a -h 'ASTRA_IMPORT_' "$TERMINAL_DIR" > "$ART/import-events.log" || true
+          : > "$ART/import-events.log"
+          for d in "$TERMINAL_DIR/logs" "$MQL5_ROOT/Logs"; do
+            if [ -d "$d" ]; then
+              grep -R -a -h 'ASTRA_IMPORT_' "$d" >> "$ART/import-events.log" || true
+            fi
+          done
+          find "$TERMINAL_DIR/logs" "$MQL5_ROOT/Logs" -type f -name '*.log' -exec cp '{}' "$ART/" ';' 2>/dev/null || true
           cat "$ART/import-events.log" || true
+          if [ "$rc" != "0" ]; then
+            echo "Loader terminal exit code: $rc" | tee -a "$ART/import-events.log"
+          fi
           grep -q 'ASTRA_IMPORT_OK' "$ART/import-events.log"
 
       - name: Run native MT5 Strategy Tester smoke
@@ -206,6 +215,7 @@ jobs:
           echo "$rc" > "$ART/tester-terminal-exit-code.txt"
           wineserver -k >/dev/null 2>&1 || true
           sleep 3
+          find "$TERMINAL_DIR/logs" "$MQL5_ROOT/Logs" -type f -name '*.log' -exec cp '{}' "$ART/" ';' 2>/dev/null || true
 
           find "$TERMINAL_DIR" -type f \( -iname '*.log' -o -iname '*.htm' -o -iname '*.html' -o -iname '*.csv' \) -print > "$ART/generated-files.txt" || true
           cat "$ART/generated-files.txt"
