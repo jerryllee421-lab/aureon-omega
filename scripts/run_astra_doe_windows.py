@@ -58,7 +58,10 @@ def install_mt5(root: Path):
         r = requests.get(INSTALLER_URL, timeout=(20, 180))
         r.raise_for_status()
         installer.write_bytes(r.content)
-    run([installer, "/auto", f"/path:{root}"], timeout=600)
+    # MetaQuotes' installer can return a non-zero process code even when the
+    # requested installation completed. Treat the filesystem as authoritative,
+    # matching the already-proven PowerShell CI lane.
+    run([installer, "/auto", f"/path:{root}"], timeout=600, check=False)
     deadline = time.time() + 180
     while time.time() < deadline and not (root / "metaeditor64.exe").exists():
         time.sleep(2)
