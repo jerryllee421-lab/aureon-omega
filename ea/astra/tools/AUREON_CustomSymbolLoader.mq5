@@ -41,72 +41,81 @@ bool SetStringProp(ENUM_SYMBOL_INFO_STRING prop,string value,string label)
    return false;
 }
 
+bool SetIntProp(ENUM_SYMBOL_INFO_INTEGER prop,long value,string label)
+{
+   ResetLastError();
+   if(CustomSymbolSetInteger(InpSymbolName,prop,value))
+      return true;
+   PrintFormat("ASTRA_PROP_FAIL %s error=%d value=%I64d",label,GetLastError(),value);
+   return false;
+}
+
+bool SetDoubleProp(ENUM_SYMBOL_INFO_DOUBLE prop,double value,string label)
+{
+   ResetLastError();
+   if(CustomSymbolSetDouble(InpSymbolName,prop,value))
+      return true;
+   PrintFormat("ASTRA_PROP_FAIL %s error=%d value=%.10f",label,GetLastError(),value);
+   return false;
+}
+
+bool SetStringProp(ENUM_SYMBOL_INFO_STRING prop,string value,string label)
+{
+   ResetLastError();
+   if(CustomSymbolSetString(InpSymbolName,prop,value))
+      return true;
+   PrintFormat("ASTRA_PROP_FAIL %s error=%d value=%s",label,GetLastError(),value);
+   return false;
+}
+
 bool ConfigureSymbol()
 {
    SymbolSelect(InpSymbolName,false);
+   string origin=Symbol();
+
    ResetLastError();
-   if(!CustomSymbolCreate(InpSymbolName,InpSymbolPath,NULL))
+   if(!CustomSymbolCreate(InpSymbolName,InpSymbolPath,origin))
    {
       int err=GetLastError();
       if(err!=5304)
       {
-         PrintFormat("ASTRA_IMPORT_FAIL create symbol error=%d",err);
+         PrintFormat("ASTRA_IMPORT_FAIL create symbol origin=%s error=%d",origin,err);
          return false;
       }
    }
 
-   // Apply specification in dependency-safe order. In particular, MT5
-   // validates VOLUME_MIN against VOLUME_MAX, so MAX must be set first.
+   // Start from the terminal's current chart symbol so quote/trade sessions and
+   // other required specification fields are valid. Override only properties
+   // needed for deterministic XAUUSD research economics.
    if(!SetIntProp(SYMBOL_CHART_MODE,SYMBOL_CHART_MODE_BID,"SYMBOL_CHART_MODE")) return false;
    if(!SetIntProp(SYMBOL_DIGITS,InpDigits,"SYMBOL_DIGITS")) return false;
-   if(!SetDoubleProp(SYMBOL_POINT,InpPoint,"SYMBOL_POINT")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_SIZE,InpPoint,"SYMBOL_TRADE_TICK_SIZE")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_CONTRACT_SIZE,InpContractSize,"SYMBOL_TRADE_CONTRACT_SIZE")) return false;
-
-   if(!SetDoubleProp(SYMBOL_VOLUME_MAX,InpMaxVolume,"SYMBOL_VOLUME_MAX")) return false;
-   if(!SetDoubleProp(SYMBOL_VOLUME_STEP,InpVolumeStep,"SYMBOL_VOLUME_STEP")) return false;
-   if(!SetDoubleProp(SYMBOL_VOLUME_MIN,InpMinVolume,"SYMBOL_VOLUME_MIN")) return false;
-   if(!SetDoubleProp(SYMBOL_VOLUME_LIMIT,InpMaxVolume,"SYMBOL_VOLUME_LIMIT")) return false;
-
-   if(!SetIntProp(SYMBOL_TRADE_CALC_MODE,SYMBOL_CALC_MODE_CFD,"SYMBOL_TRADE_CALC_MODE")) return false;
    if(!SetIntProp(SYMBOL_TRADE_MODE,SYMBOL_TRADE_MODE_FULL,"SYMBOL_TRADE_MODE")) return false;
    if(!SetIntProp(SYMBOL_TRADE_EXEMODE,SYMBOL_TRADE_EXECUTION_MARKET,"SYMBOL_TRADE_EXEMODE")) return false;
+   if(!SetIntProp(SYMBOL_TRADE_CALC_MODE,SYMBOL_CALC_MODE_CFD,"SYMBOL_TRADE_CALC_MODE")) return false;
    if(!SetIntProp(SYMBOL_TRADE_STOPS_LEVEL,0,"SYMBOL_TRADE_STOPS_LEVEL")) return false;
    if(!SetIntProp(SYMBOL_TRADE_FREEZE_LEVEL,0,"SYMBOL_TRADE_FREEZE_LEVEL")) return false;
    if(!SetIntProp(SYMBOL_SPREAD_FLOAT,true,"SYMBOL_SPREAD_FLOAT")) return false;
    if(!SetIntProp(SYMBOL_ORDER_MODE,SYMBOL_ORDER_MARKET|SYMBOL_ORDER_SL|SYMBOL_ORDER_TP,"SYMBOL_ORDER_MODE")) return false;
    if(!SetIntProp(SYMBOL_FILLING_MODE,SYMBOL_FILLING_IOC,"SYMBOL_FILLING_MODE")) return false;
 
-   // Tick value is 1 point * contract size for this CFD-style research symbol.
-   double tickValue=InpPoint*InpContractSize;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE,tickValue,"SYMBOL_TRADE_TICK_VALUE")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_PROFIT,tickValue,"SYMBOL_TRADE_TICK_VALUE_PROFIT")) return false;
-   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_LOSS,tickValue,"SYMBOL_TRADE_TICK_VALUE_LOSS")) return false;
+   if(!SetDoubleProp(SYMBOL_POINT,InpPoint,"SYMBOL_POINT")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_SIZE,InpPoint,"SYMBOL_TRADE_TICK_SIZE")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE,InpPoint*InpContractSize,"SYMBOL_TRADE_TICK_VALUE")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_PROFIT,InpPoint*InpContractSize,"SYMBOL_TRADE_TICK_VALUE_PROFIT")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_TICK_VALUE_LOSS,InpPoint*InpContractSize,"SYMBOL_TRADE_TICK_VALUE_LOSS")) return false;
+   if(!SetDoubleProp(SYMBOL_TRADE_CONTRACT_SIZE,InpContractSize,"SYMBOL_TRADE_CONTRACT_SIZE")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_MIN,InpMinVolume,"SYMBOL_VOLUME_MIN")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_MAX,InpMaxVolume,"SYMBOL_VOLUME_MAX")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_STEP,InpVolumeStep,"SYMBOL_VOLUME_STEP")) return false;
+   if(!SetDoubleProp(SYMBOL_VOLUME_LIMIT,InpMaxVolume,"SYMBOL_VOLUME_LIMIT")) return false;
 
    if(!SetStringProp(SYMBOL_DESCRIPTION,"AUREON ASTRA XAUUSD research symbol","SYMBOL_DESCRIPTION")) return false;
    if(!SetStringProp(SYMBOL_CURRENCY_BASE,"XAU","SYMBOL_CURRENCY_BASE")) return false;
    if(!SetStringProp(SYMBOL_CURRENCY_PROFIT,"USD","SYMBOL_CURRENCY_PROFIT")) return false;
    if(!SetStringProp(SYMBOL_CURRENCY_MARGIN,"USD","SYMBOL_CURRENCY_MARGIN")) return false;
 
-   datetime from=D'1970.01.01 00:00:00';
-   datetime to=D'1970.01.01 23:59:59';
-   for(int d=MONDAY;d<=FRIDAY;d++)
-   {
-      ResetLastError();
-      if(!CustomSymbolSetSessionQuote(InpSymbolName,(ENUM_DAY_OF_WEEK)d,0,from,to))
-      {
-         PrintFormat("ASTRA_IMPORT_FAIL property=QUOTE_SESSION day=%d error=%d",d,GetLastError());
-         return false;
-      }
-      ResetLastError();
-      if(!CustomSymbolSetSessionTrade(InpSymbolName,(ENUM_DAY_OF_WEEK)d,0,from,to))
-      {
-         PrintFormat("ASTRA_IMPORT_FAIL property=TRADE_SESSION day=%d error=%d",d,GetLastError());
-         return false;
-      }
-   }
-
-   Print("ASTRA_IMPORT_SPEC_OK");
+   PrintFormat("ASTRA_SYMBOL_CONFIG_OK origin=%s digits=%d point=%.6f contract=%.2f",
+               origin,InpDigits,InpPoint,InpContractSize);
    return true;
 }
 
