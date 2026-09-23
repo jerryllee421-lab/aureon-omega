@@ -1,5 +1,5 @@
 {
-  "id": "astra-fast-ohlc-v1",
+  "id": "astra-fast-ohlc-v1-retry1",
   "enabled": true,
   "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
   "from": "2025-08-20",
