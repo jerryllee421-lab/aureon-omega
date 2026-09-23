@@ -24,17 +24,45 @@ wine --version | tee "$ARTIFACT_DIR/wine-version.txt"
 
 echo "== Initialize Wine prefix =="
 mkdir -p "$WINEPREFIX"
-set +e
-xvfb-run -a timeout 180s wineboot -u >"$ARTIFACT_DIR/wineboot.log" 2>&1
-wineboot_rc=$?
-set -e
-if [[ "$wineboot_rc" != "0" && "$wineboot_rc" != "124" ]]; then
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
+KERNEL32="$WINEPREFIX/drive_c/windows/system32/kernel32.dll"
+: > "$ARTIFACT_DIR/wineboot.log"
+
+wineboot_ready=false
+for attempt in 1 2; do
+  echo "Wine prefix initialization attempt $attempt" | tee -a "$ARTIFACT_DIR/wineboot.log"
+  set +e
+  xvfb-run -a timeout 300s wineboot -u >>"$ARTIFACT_DIR/wineboot.log" 2>&1
+  wineboot_rc=$?
+  set -e
+  echo "wineboot_exit_code=$wineboot_rc" | tee -a "$ARTIFACT_DIR/wineboot.log"
+
+  if [[ "$wineboot_rc" == "0" ]]; then
+    wineserver -w >/dev/null 2>&1 || true
+  else
+    wineserver -k >/dev/null 2>&1 || true
+    sleep 2
+  fi
+
+  if [[ -s "$KERNEL32" ]]; then
+    wineboot_ready=true
+    break
+  fi
+
+  if [[ "$wineboot_rc" != "0" && "$wineboot_rc" != "124" ]]; then
+    break
+  fi
+done
+
+if [[ "$wineboot_ready" != "true" ]]; then
   cat "$ARTIFACT_DIR/wineboot.log"
-  echo "wineboot failed with exit code $wineboot_rc"
-  exit "$wineboot_rc"
+  echo "Wine prefix is incomplete: kernel32.dll was not materialized." | tee "$ARTIFACT_DIR/failure.txt"
+  find "$WINEPREFIX" -maxdepth 5 -type f -iname 'kernel32.dll' -print | tee "$ARTIFACT_DIR/kernel32-search.txt" || true
+  exit 1
 fi
-wineserver -w >/dev/null 2>&1 || true
+
 test -d "$WINEPREFIX/drive_c"
+wine cmd /c ver | tee "$ARTIFACT_DIR/wine-windows-version.txt" || true
 
 echo "== Download official MT5 installer =="
 curl --fail --location --retry 5 --retry-delay 3 \
