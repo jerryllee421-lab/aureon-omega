@@ -125,7 +125,30 @@ jobs:
 
           Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           $p=Start-Process -FilePath "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
-          if(-not $p.WaitForExit(300000)){ $p.Kill(); throw 'Broker symbol probe timed out' }
+
+          # The broker terminal may remain open after startup scripts even when
+          # the probe itself has completed. Give it enough time to authenticate
+          # and synchronize, then stop the GUI and evaluate the probe log.
+          $deadline=(Get-Date).AddSeconds(120)
+          while((Get-Date) -lt $deadline -and -not $p.HasExited){
+            Start-Sleep -Seconds 5
+            $probeLogs=Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue
+            $probeHit=$false
+            foreach($pl in $probeLogs){
+              try {
+                $txt=Get-Content $pl.FullName -Raw -Encoding Unicode -ErrorAction Stop
+                if($txt -match 'ASTRA_BROKER_PROBE_OK' -or $txt -match 'ASTRA_BROKER_PROBE_FAIL'){
+                  $probeHit=$true
+                  break
+                }
+              } catch {}
+            }
+            if($probeHit){ break }
+          }
+          if(-not $p.HasExited){
+            $p.Kill()
+            Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
           Start-Sleep -Seconds 3
 
           $events=''
