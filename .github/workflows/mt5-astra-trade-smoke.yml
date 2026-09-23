@@ -149,6 +149,10 @@ jobs:
         shell: pwsh
         run: |
           if(-not (Test-Path trigger_artifact)){ New-Item -ItemType Directory trigger_artifact | Out-Null }
+          Get-ChildItem "$env:MT5_ROOT" -Filter 'ASTRA*.csv' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            $safe=($_.FullName -replace '[:\\/]','_')
+            Copy-Item $_.FullName ("trigger_artifact\"+$safe) -Force
+          }
           Get-ChildItem "$env:MT5_ROOT\Tester\logs","$env:MT5_ROOT\MQL5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | % {
             $safe=($_.FullName -replace '[:\\/]','_'); Copy-Item $_.FullName ("trigger_artifact\"+$safe) -Force
           }
