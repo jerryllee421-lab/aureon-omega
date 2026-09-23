@@ -2,6 +2,11 @@ name: ASTRA MT5 Baseline Matrix
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - 'research/requests/astra-mt5-matrix.json'
 
 permissions:
   contents: read
