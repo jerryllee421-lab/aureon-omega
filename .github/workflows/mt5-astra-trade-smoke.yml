@@ -1,0 +1,158 @@
+name: ASTRA Trade Trigger Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - 'research/requests/astra-trade-smoke.json'
+
+permissions:
+  contents: read
+
+env:
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+  XAU_MIRROR_COMMIT: 922f83a60cc574e7395fb27397077288055a1ef6
+
+jobs:
+  trade-trigger:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+      - run: pip install -r research/requirements.txt
+
+      - name: Build 112-day real XAUUSD M1 slice
+        shell: pwsh
+        run: |
+          python research/mirror_m1.py --start 2026-05-01 --end 2026-08-20 --commit $env:XAU_MIRROR_COMMIT --output research_data
+          python research/export_mt5_m1.py --root research_data --symbol XAUUSD --point 0.001 --output mt5_input/ASTRA_XAUUSD_M1.csv
+
+      - name: Install MT5
+        shell: pwsh
+        run: |
+          $root='C:\AUREON_MT5_TRIGGER'
+          $installer=Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri $env:MT5_INSTALLER_URL -OutFile $installer
+          $p=Start-Process $installer -ArgumentList @('/auto',"/path:$root") -PassThru
+          if(-not $p.WaitForExit(600000)){ $p.Kill(); throw 'installer timeout' }
+          $deadline=(Get-Date).AddMinutes(3)
+          while((Get-Date) -lt $deadline -and -not (Test-Path "$root\metaeditor64.exe")){ Start-Sleep 2 }
+          if(-not (Test-Path "$root\metaeditor64.exe")){ throw 'MetaEditor missing' }
+          & "$root\terminal64.exe" /portable
+          Start-Sleep 8
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          "MT5_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compile EA and loader
+        shell: pwsh
+        run: |
+          $root=$env:MT5_ROOT; $mql5=Join-Path $root 'MQL5'
+          $eaDir=Join-Path $mql5 'Experts\AUREON'; $scriptDir=Join-Path $mql5 'Scripts\AUREON'
+          New-Item -ItemType Directory -Force -Path $eaDir,$scriptDir,'trigger_artifact' | Out-Null
+          $ea=Join-Path $eaDir 'AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+          $loader=Join-Path $scriptDir 'AUREON_CustomSymbolLoader.mq5'
+          Copy-Item 'ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5' $ea -Force
+          Copy-Item 'ea/astra/tools/AUREON_CustomSymbolLoader.mq5' $loader -Force
+          function C([string]$s,[string]$n){
+            $p=Start-Process "$root\metaeditor64.exe" -ArgumentList @("/compile:$s","/include:$mql5",'/log') -PassThru
+            if(-not $p.WaitForExit(180000)){ $p.Kill(); throw "$n timeout" }
+            Start-Sleep 2
+            $log=[IO.Path]::ChangeExtension($s,'.log'); $ex=[IO.Path]::ChangeExtension($s,'.ex5')
+            $txt=Get-Content $log -Raw -Encoding Unicode
+            if($txt -notmatch '0 errors' -or $txt -notmatch '0 warnings' -or -not (Test-Path $ex)){ throw "$n compile failure" }
+          }
+          C $ea 'EA'; C $loader 'loader'
+
+      - name: Import data
+        shell: pwsh
+        run: |
+          $root=$env:MT5_ROOT; $mql5=Join-Path $root 'MQL5'
+          Copy-Item 'mt5_input/ASTRA_XAUUSD_M1.csv' "$mql5\Files\ASTRA_XAUUSD_M1.csv" -Force
+          $cfg=Join-Path $root 'loader.ini'
+          @(
+            '[Experts]','Enabled=1','AllowLiveTrading=0','AllowDllImport=0','',
+            '[StartUp]','Script=AUREON\AUREON_CustomSymbolLoader','Symbol=EURUSD','Period=M1','ShutdownTerminal=1'
+          ) | Set-Content $cfg -Encoding Unicode
+          $p=Start-Process "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
+          if(-not $p.WaitForExit(420000)){ $p.Kill(); throw 'loader timeout' }
+          Start-Sleep 2
+          $events=''
+          Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | % {
+            try { $events+=(Get-Content $_.FullName -Raw -Encoding Unicode)+"`n" } catch {}
+          }
+          if($events -notmatch 'ASTRA_IMPORT_OK'){ throw 'import failed' }
+          ($events -split "`n" | ? {$_ -match 'ASTRA_IMPORT_'}) | Set-Content 'trigger_artifact\import.log'
+
+      - name: Execute diagnostic trades
+        shell: pwsh
+        env:
+          MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+          MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+        run: |
+          $root=$env:MT5_ROOT; $mql5=Join-Path $root 'MQL5'; $profile=Join-Path $mql5 'Profiles\Tester'
+          New-Item -ItemType Directory -Force -Path $profile,"$root\reports",'trigger_artifact\reports' | Out-Null
+          $cases=@(
+            @{Name='DISCOVERY';Preset='ASTRA_GOLD_V1_DISCOVERY.set'},
+            @{Name='E1';Preset='ASTRA_GOLD_V1_E1_ONLY_OHLC.set'}
+          )
+          foreach($case in $cases){
+            Copy-Item ("ea/astra/presets/"+$case.Preset) (Join-Path $profile $case.Preset) -Force
+            $cfg=Join-Path $root ("trigger-"+$case.Name+".ini"); $reportName="TRIGGER_"+$case.Name
+            @(
+              '[Common]',
+              ("Login="+$env:MT5_DEMO_LOGIN),
+              ("Password="+$env:MT5_DEMO_PASSWORD),
+              'Server=PXBTTrading-1','KeepPrivate=0','NewsEnable=0','',
+              '[Experts]','Enabled=1','AllowLiveTrading=0','AllowDllImport=0','',
+              '[Tester]','Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1',
+              ("ExpertParameters="+$case.Preset),
+              'Symbol=ASTRA_XAUUSD','Period=M5',
+              ("Login="+$env:MT5_DEMO_LOGIN),
+              'Deposit=10000','Currency=USD','Leverage=1:100','Model=1','ExecutionMode=0',
+              'Optimization=0','FromDate=2026.05.01','ToDate=2026.08.20','ForwardMode=0',
+              ("Report=\reports\"+$reportName),'ReplaceReport=1','ShutdownTerminal=1',
+              'UseLocal=1','UseRemote=0','UseCloud=0','Visual=0'
+            ) | Set-Content $cfg -Encoding Unicode
+            Get-Process terminal64,metatester64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            $p=Start-Process "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
+            if(-not $p.WaitForExit(480000)){ $p.Kill(); throw ($case.Name+' tester timeout') }
+            Start-Sleep 2
+            $report=Get-ChildItem $root -File -Recurse | ? { $_.Name -like ($reportName+'*.htm*') } | Sort LastWriteTime -Descending | Select -First 1
+            if(-not $report){ throw ($case.Name+' report missing') }
+            Copy-Item $report.FullName ("trigger_artifact\reports\"+$case.Name+".htm") -Force
+          }
+
+      - name: Analyze trade smoke
+        shell: pwsh
+        run: |
+          foreach($name in @('DISCOVERY','E1')){
+            $out="trigger_artifact\analysis\$name"; New-Item -ItemType Directory -Force -Path $out | Out-Null
+            python scripts/analyze_mt5_report.py ("trigger_artifact\reports\"+$name+".htm") --out $out --min-trades 1 --min-pf 0 --max-dd 100
+            Write-Host ($name+' exit='+$LASTEXITCODE)
+          }
+          python scripts/summarize_mt5_matrix.py 'trigger_artifact\analysis' --out 'trigger_artifact'
+
+      - name: Capture logs
+        if: always()
+        shell: pwsh
+        run: |
+          if(-not (Test-Path trigger_artifact)){ New-Item -ItemType Directory trigger_artifact | Out-Null }
+          Get-ChildItem "$env:MT5_ROOT\Tester\logs","$env:MT5_ROOT\MQL5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | % {
+            $safe=($_.FullName -replace '[:\\/]','_'); Copy-Item $_.FullName ("trigger_artifact\"+$safe) -Force
+          }
+          git rev-parse HEAD | Set-Content 'trigger_artifact\source_commit.txt'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-trade-trigger-${{ github.run_id }}
+          path: trigger_artifact
+          retention-days: 30
+          if-no-files-found: warn
