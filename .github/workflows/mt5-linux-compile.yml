@@ -14,7 +14,6 @@ permissions:
   contents: read
 
 env:
-  WINEPREFIX: ${{ runner.temp }}/aureon-mt5-wine
   WINEARCH: win64
   WINEDEBUG: -all
   MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
