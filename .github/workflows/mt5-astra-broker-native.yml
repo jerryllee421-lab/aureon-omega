@@ -248,6 +248,7 @@ jobs:
             $code=$LASTEXITCODE
             Write-Host ($name+' analyzer exit='+$code)
           }
+          python scripts/summarize_mt5_matrix.py 'broker_artifact\analysis' --out 'broker_artifact'
           'BROKER_NATIVE_BASELINE_COMPLETE' | Set-Content 'broker_artifact\status.txt'
 
       - name: Capture broker/tester diagnostics
