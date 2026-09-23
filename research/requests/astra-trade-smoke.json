@@ -1,1 +1,1 @@
-{"id":"astra-gate-ablation-v1","enabled":true,"purpose":"Identify which deterministic ASTRA gates suppress all baseline trades before any optimization."}
+{"id":"astra-gate-ablation-v1-daily-loss-reset","enabled":true,"purpose":"Identify which deterministic ASTRA gates suppress all baseline trades before any optimization."}
