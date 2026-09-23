@@ -1,0 +1,117 @@
+name: MT5 Account Bootstrap Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - '.github/workflows/mt5-account-bootstrap-probe.yml'
+
+permissions:
+  contents: read
+
+env:
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install official MetaTrader 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\MT5_BOOTSTRAP'
+          $installer=Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri $env:MT5_INSTALLER_URL -OutFile $installer
+          $p=Start-Process -FilePath $installer -ArgumentList @('/auto',"/path:$root") -PassThru
+          if(-not $p.WaitForExit(600000)){ $p.Kill(); throw 'MT5 installer timed out' }
+          $deadline=(Get-Date).AddMinutes(3)
+          while((Get-Date) -lt $deadline -and -not (Test-Path "$root\terminal64.exe")){ Start-Sleep -Seconds 2 }
+          if(-not (Test-Path "$root\terminal64.exe")){ throw 'terminal64.exe not found' }
+          "MT5_BOOT_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Probe automatic demo allocation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_BOOT_ROOT
+          New-Item -ItemType Directory -Force -Path 'bootstrap_artifact' | Out-Null
+
+          function Read-TerminalLog {
+            $text=''
+            Get-ChildItem "$root\Logs" -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | ForEach-Object {
+              try { $text += (Get-Content $_.FullName -Raw -Encoding Unicode -ErrorAction Stop) + "`n" } catch {}
+            }
+            return $text
+          }
+
+          function Wait-ForAccount([int]$seconds) {
+            $deadline=(Get-Date).AddSeconds($seconds)
+            while((Get-Date) -lt $deadline){
+              Start-Sleep -Seconds 5
+              $log=Read-TerminalLog
+              if($log -match 'authorized on' -or $log -match 'terminal synchronized with'){
+                return $true
+              }
+            }
+            return $false
+          }
+
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $terminal=Join-Path $root 'terminal64.exe'
+          $p=Start-Process -FilePath $terminal -ArgumentList @('/portable') -PassThru
+          $ok=Wait-ForAccount 75
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+
+          if(-not $ok){
+            $cfg=Join-Path $root 'bootstrap-metaquotes.ini'
+            @'
+            [Common]
+            Server=MetaQuotes-Demo
+            AutoConfiguration=1
+            KeepPrivate=1
+            NewsEnable=0
+
+            [Experts]
+            Enabled=0
+            AllowLiveTrading=0
+            AllowDllImport=0
+            '@ | Set-Content -Path $cfg -Encoding Unicode
+
+            $p=Start-Process -FilePath $terminal -ArgumentList @('/portable',"/config:$cfg") -PassThru
+            $ok=Wait-ForAccount 75
+            Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+          }
+
+          Get-ChildItem "$root\Logs" -Filter '*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName ("bootstrap_artifact\"+$_.Name) -Force
+          }
+
+          $all=Read-TerminalLog
+          $all | Out-File 'bootstrap_artifact\combined-terminal.log' -Encoding utf8
+          ($all -split "`n" | Where-Object { $_ -match 'Network|authorized|account|demo|server|MCP|Terminal' }) |
+            Out-File 'bootstrap_artifact\account-events.log' -Encoding utf8
+          Get-Content 'bootstrap_artifact\account-events.log' -ErrorAction SilentlyContinue
+
+          if($ok){
+            'MT5_ACCOUNT_AUTO_BOOTSTRAP_AVAILABLE' | Set-Content 'bootstrap_artifact\status.txt'
+          } else {
+            'MT5_ACCOUNT_AUTO_BOOTSTRAP_NOT_AVAILABLE' | Set-Content 'bootstrap_artifact\status.txt'
+            throw 'Fresh official MT5 did not auto-allocate/login a demo account in CI'
+          }
+
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-account-bootstrap-${{ github.run_id }}
+          path: bootstrap_artifact
+          retention-days: 30
+          if-no-files-found: warn
