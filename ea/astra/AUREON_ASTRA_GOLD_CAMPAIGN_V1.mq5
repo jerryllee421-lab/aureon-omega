@@ -4,7 +4,7 @@
 //| M5 execution · M15 liquidity · H1/H4 context · E1-E5 scaling     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.12"
+#property version   "1.13"
 #property description "AUREON ASTRA Gold Campaign V1: deterministic liquidity sweep/reclaim, MSS, displacement, FVG retracement, E1-E5 campaign scaling and risk governance."
 
 #include <Trade/Trade.mqh>
@@ -1319,16 +1319,27 @@ void CloseCampaignPercent(double pct)
    double total=CampaignCurrentVolume();
    if(total<=0) return;
 
-   double target=g_campaign.peakVolume*pct/100.0;
-   target=MathMin(target,total);
    double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
    double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
    if(step<=0 || minLot<=0) return;
+
+   // Allocate against peak campaign volume so the configured 30/30/20/runner
+   // plan remains stable after previous partial exits. For small campaigns,
+   // promote a non-zero target to one valid broker lot step while preserving
+   // at least one minimum lot for the runner when requested.
+   double rawTarget=g_campaign.peakVolume*pct/100.0;
+   double target=MathFloor(rawTarget/step+0.5)*step;
+
+   double reserve=InpUseRunner?minLot:0.0;
+   double maxClose=MathMax(0.0,total-reserve);
+   maxClose=MathFloor(maxClose/step+1e-9)*step;
+
+   if(target<minLot && rawTarget>0.0 && maxClose>=minLot)
+      target=minLot;
+
+   target=MathMin(target,maxClose);
    target=MathFloor(target/step+1e-9)*step;
    if(target<minLot) return;
-
-   ENUM_ACCOUNT_MARGIN_MODE marginMode=(ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE);
-   bool hedging=(marginMode==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING);
 
    double remaining=target;
    for(int i=PositionsTotal()-1;i>=0 && remaining>=minLot-1e-9;i--)
@@ -1338,20 +1349,19 @@ void CloseCampaignPercent(double pct)
       if(PositionGetString(POSITION_SYMBOL)!=_Symbol || (ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
 
       double pv=PositionGetDouble(POSITION_VOLUME);
-      long positionType=PositionGetInteger(POSITION_TYPE);
       double closeVol=MathMin(pv,remaining);
       closeVol=MathFloor(closeVol/step+1e-9)*step;
       if(closeVol<minLot) continue;
 
       bool ok=false;
-      if(closeVol>=pv-step/2.0)
-         ok=trade.PositionClose(ticket);
-      else if(hedging)
-         ok=trade.PositionClosePartial(ticket,closeVol);
-      else
-         ok=ReduceNettingPosition(closeVol,positionType);
+      if(closeVol>=pv-step/2.0) ok=trade.PositionClose(ticket);
+      else ok=trade.PositionClosePartial(ticket,closeVol);
 
-      if(ok) remaining-=closeVol;
+      if(ok)
+      {
+         remaining-=closeVol;
+         LogEvent("PARTIAL_CLOSE",0.0,StringFormat("requested_pct=%.1f close_volume=%.2f",pct,closeVol));
+      }
    }
 }
 
