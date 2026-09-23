@@ -99,7 +99,6 @@ bool ReadCsv(MqlRates &rates[])
    }
 
    FileClose(h);
-   ArraySort(rates);
    PrintFormat("AUREON_IMPORT_READ rows=%d",count);
    return(count>0);
 }
