@@ -39,6 +39,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Require MT5 demo account context
+        shell: pwsh
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:MT5_DEMO_LOGIN) -or
+             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_PASSWORD) -or
+             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_SERVER)){
+            throw 'MT5 demo account context is not configured. Add repository Actions secrets MT5_DEMO_LOGIN, MT5_DEMO_PASSWORD and MT5_DEMO_SERVER.'
+          }
+          Write-Host 'MT5 demo account context is configured (values remain masked).'
+
       - name: Python research environment
         uses: actions/setup-python@v5
         with:
