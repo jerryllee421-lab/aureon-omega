@@ -48,7 +48,8 @@ For CI, use a **demo account only** and configure these GitHub Actions repositor
 
 - `MT5_DEMO_LOGIN`
 - `MT5_DEMO_PASSWORD`
-- `MT5_DEMO_SERVER`
+
+The demo server is pinned in the workflow as `PXBTTrading-1`; it is not a secret.
 
 The Windows smoke workflow consumes these values only at runtime. They are not committed, printed, or copied into uploaded artifacts. A redacted tester configuration is retained for auditability.
 
@@ -66,4 +67,4 @@ The Windows lane has independently proven:
 4. The pinned external XAUUSD M1 dataset is imported into `ASTRA_XAUUSD` successfully.
 5. The remaining native tester gate is authenticated demo-account context.
 
-Once the three secrets exist, the smoke workflow can proceed through the actual Strategy Tester report generation before any long-range optimization is allowed.
+Once the two secrets exist, the smoke workflow can proceed through the actual Strategy Tester report generation before any long-range optimization is allowed.
