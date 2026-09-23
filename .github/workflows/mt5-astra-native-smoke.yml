@@ -19,7 +19,7 @@ permissions:
 env:
   WINEARCH: win64
   WINEDEBUG: -all
-  WINEPREFIX: ${{ runner.temp }}/aureon-mt5-wine
+  WINEPREFIX: /tmp/aureon-mt5-wine
   MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
   EA_SOURCE: ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5
   XAU_MIRROR_COMMIT: 922f83a60cc574e7395fb27397077288055a1ef6
