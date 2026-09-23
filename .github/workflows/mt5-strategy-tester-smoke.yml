@@ -43,7 +43,7 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/winehq-noble.sources >/dev/null
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --install-recommends \
-            winehq-stable xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+            winehq-stable xvfb xauth x11-utils cabextract winbind curl ca-certificates p7zip-full
           wine --version
           python3 --version
 
