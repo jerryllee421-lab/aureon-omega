@@ -7,43 +7,84 @@ on:
       - feature/astra-campaign-ea-v1
     paths:
       - '.github/workflows/mt5-astra-compile.yml'
-      - 'scripts/mt5_linux_compile.sh'
-      - 'ea/astra/**'
+      - 'ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
 
 permissions:
   contents: read
 
 env:
-  WINEARCH: win64
-  WINEDEBUG: -all
   MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
-  EA_SOURCE: ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5
 
 jobs:
   compile:
-    name: Compile ASTRA Campaign EA with MetaEditor
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    name: Compile ASTRA Campaign EA with official MetaEditor
+    runs-on: windows-latest
+    timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Wine and headless display
-        shell: bash
+
+      - name: Install official MetaTrader 5
+        shell: pwsh
         run: |
-          set -euo pipefail
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full
-          wine --version
-      - name: Compile ASTRA EA
-        shell: bash
-        run: bash scripts/mt5_linux_compile.sh
+          $ErrorActionPreference='Stop'
+          $root='C:\AUREON_MT5'
+          $installer=Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri $env:MT5_INSTALLER_URL -OutFile $installer
+          if((Get-Item $installer).Length -lt 100000){ throw 'MT5 installer download is unexpectedly small' }
+
+          $p=Start-Process -FilePath $installer -ArgumentList @('/auto',"/path:$root") -PassThru
+          if(-not $p.WaitForExit(600000)){ $p.Kill(); throw 'MT5 installer timed out' }
+
+          $deadline=(Get-Date).AddMinutes(3)
+          while((Get-Date) -lt $deadline -and -not (Test-Path "$root\metaeditor64.exe")){ Start-Sleep -Seconds 2 }
+          if(-not (Test-Path "$root\metaeditor64.exe")){ throw 'metaeditor64.exe not found after install' }
+          "MT5_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compile EA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_ROOT
+          $mql5=Join-Path $root 'MQL5'
+          $destDir=Join-Path $mql5 'Experts\AUREON'
+          New-Item -ItemType Directory -Force -Path $destDir,'mt5_compile_artifact' | Out-Null
+
+          $src='ea/astra/AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+          $dest=Join-Path $destDir 'AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+          Copy-Item $src $dest -Force
+
+          $meta=Join-Path $root 'metaeditor64.exe'
+          $p=Start-Process -FilePath $meta -ArgumentList @("/compile:$dest","/include:$mql5",'/log') -PassThru
+          if(-not $p.WaitForExit(180000)){ $p.Kill(); throw 'MetaEditor compile timed out' }
+          Start-Sleep -Seconds 2
+
+          $ex5=[IO.Path]::ChangeExtension($dest,'.ex5')
+          $log=[IO.Path]::ChangeExtension($dest,'.log')
+          if(Test-Path $log){
+            $txt=Get-Content $log -Raw -Encoding Unicode
+            $txt | Out-File 'mt5_compile_artifact\compile.log' -Encoding utf8
+            Write-Host $txt
+          } else {
+            throw 'MetaEditor did not create a compile log'
+          }
+
+          if(-not (Test-Path $ex5)){ throw 'Compilation did not produce EX5' }
+          if($txt -notmatch '0 errors'){ throw 'Compiler did not confirm zero errors' }
+          if($txt -notmatch '0 warnings'){ throw 'Compiler did not confirm zero warnings' }
+
+          Copy-Item $src 'mt5_compile_artifact\AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5'
+          Copy-Item $ex5 'mt5_compile_artifact\AUREON_ASTRA_GOLD_CAMPAIGN_V1.ex5'
+          (Get-FileHash $src -Algorithm SHA256).Hash | Set-Content 'mt5_compile_artifact\source.sha256'
+          (Get-FileHash $ex5 -Algorithm SHA256).Hash | Set-Content 'mt5_compile_artifact\ex5.sha256'
+          'ASTRA_MT5_COMPILE_PASSED' | Set-Content 'mt5_compile_artifact\status.txt'
+
       - name: Upload compile evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: astra-campaign-ea-${{ github.run_id }}
-          path: mt5_ci_artifact
+          path: mt5_compile_artifact
           retention-days: 30
           if-no-files-found: warn
