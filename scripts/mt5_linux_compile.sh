@@ -70,10 +70,35 @@ fi
 printf 'terminal=%s\nmetaeditor=%s\n' "$TERMINAL" "$METAEDITOR" \
   | tee "$ARTIFACT_DIR/mt5-paths.txt"
 
+echo "== Resolve MT5 MQL5 data root =="
+TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
+
+if [[ -z "$TRADE_MQH" ]]; then
+  echo "Standard Library not materialized yet; launching terminal once in portable mode."
+  set +e
+  xvfb-run -a timeout 45s wine "$TERMINAL" /portable \
+    >"$ARTIFACT_DIR/terminal-first-launch.log" 2>&1
+  terminal_launch_rc=$?
+  set -e
+  echo "$terminal_launch_rc" > "$ARTIFACT_DIR/terminal-first-launch-exit-code.txt"
+  wineserver -k >/dev/null 2>&1 || true
+  sleep 3
+  TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
+fi
+
+if [[ -z "$TRADE_MQH" ]]; then
+  echo "MT5 Standard Library Trade.mqh was not found." | tee "$ARTIFACT_DIR/failure.txt"
+  find "$WINEPREFIX/drive_c" -type d -iname 'MQL5' -print | tee "$ARTIFACT_DIR/mql5-roots.txt" || true
+  exit 1
+fi
+
+MQL5_ROOT="$(dirname "$(dirname "$(dirname "$TRADE_MQH")")")"
+printf 'trade_mqh=%s\nmql5_root=%s\n' "$TRADE_MQH" "$MQL5_ROOT" \
+  | tee "$ARTIFACT_DIR/mql5-root.txt"
+
 echo "== Stage immutable EA baseline =="
 test -s "$EA_SOURCE"
-MT5_DIR="$(dirname "$TERMINAL")"
-EXPERT_DIR="$MT5_DIR/MQL5/Experts/AUREON"
+EXPERT_DIR="$MQL5_ROOT/Experts/AUREON"
 mkdir -p "$EXPERT_DIR"
 EA_DEST="$EXPERT_DIR/FVG_Scalper_V2_11_ORIGINAL.mq5"
 cp "$EA_SOURCE" "$EA_DEST"
@@ -82,10 +107,12 @@ sha256sum "$EA_SOURCE" | tee "$ARTIFACT_DIR/ea-source.sha256"
 
 echo "== Compile with official MetaEditor =="
 EA_WIN="$(winepath -w "$EA_DEST")"
+MQL5_WIN="$(winepath -w "$MQL5_ROOT")"
 printf '%s\n' "$EA_WIN" > "$ARTIFACT_DIR/ea-windows-path.txt"
+printf '%s\n' "$MQL5_WIN" > "$ARTIFACT_DIR/mql5-windows-path.txt"
 
 set +e
-xvfb-run -a timeout 480s wine "$METAEDITOR" /compile:"$EA_WIN" /log \
+xvfb-run -a timeout 480s wine "$METAEDITOR" /compile:"$EA_WIN" /include:"$MQL5_WIN" /log \
   >"$ARTIFACT_DIR/metaeditor-process.log" 2>&1
 compile_rc=$?
 set -e
