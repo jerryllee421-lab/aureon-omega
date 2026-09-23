@@ -1,4 +1,4 @@
-name: ASTRA Trade Trigger Smoke
+name: ASTRA Gate Ablation Smoke
 
 on:
   workflow_dispatch:
@@ -99,8 +99,13 @@ jobs:
           $root=$env:MT5_ROOT; $mql5=Join-Path $root 'MQL5'; $profile=Join-Path $mql5 'Profiles\Tester'
           New-Item -ItemType Directory -Force -Path $profile,"$root\reports",'trigger_artifact\reports' | Out-Null
           $cases=@(
-            @{Name='DISCOVERY';Preset='ASTRA_GOLD_V1_DISCOVERY.set'},
-            @{Name='E1';Preset='ASTRA_GOLD_V1_E1_ONLY_OHLC.set'}
+            @{Name='E1';Preset='ASTRA_GOLD_V1_E1_ONLY_OHLC.set'},
+            @{Name='CONTEXT_OFF';Preset='ASTRA_GOLD_V1_ABL_CONTEXT_OFF.set'},
+            @{Name='SESSION_OFF';Preset='ASTRA_GOLD_V1_ABL_SESSION_OFF.set'},
+            @{Name='SPREAD_OFF';Preset='ASTRA_GOLD_V1_ABL_SPREAD_OFF.set'},
+            @{Name='ENTRY_RELAXED';Preset='ASTRA_GOLD_V1_ABL_ENTRY_RELAXED.set'},
+            @{Name='RR_125';Preset='ASTRA_GOLD_V1_ABL_RR_125.set'},
+            @{Name='DISCOVERY';Preset='ASTRA_GOLD_V1_DISCOVERY.set'}
           )
           foreach($case in $cases){
             Copy-Item ("ea/astra/presets/"+$case.Preset) (Join-Path $profile $case.Preset) -Force
@@ -132,7 +137,7 @@ jobs:
       - name: Analyze trade smoke
         shell: pwsh
         run: |
-          foreach($name in @('DISCOVERY','E1')){
+          foreach($name in @('E1','CONTEXT_OFF','SESSION_OFF','SPREAD_OFF','ENTRY_RELAXED','RR_125','DISCOVERY')){
             $out="trigger_artifact\analysis\$name"; New-Item -ItemType Directory -Force -Path $out | Out-Null
             python scripts/analyze_mt5_report.py ("trigger_artifact\reports\"+$name+".htm") --out $out --min-trades 1 --min-pf 0 --max-dd 100
             Write-Host ($name+' exit='+$LASTEXITCODE)
