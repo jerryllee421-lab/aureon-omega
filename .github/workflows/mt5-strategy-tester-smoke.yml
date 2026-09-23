@@ -1,0 +1,58 @@
+name: MT5 Strategy Tester Cloud Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/mt5-strategy-tester-cloud
+    paths:
+      - '.github/workflows/mt5-strategy-tester-smoke.yml'
+      - 'scripts/mt5_strategy_tester_smoke.sh'
+      - 'scripts/mt5_linux_compile.sh'
+      - 'scripts/prepare_mt5_custom_gold.py'
+      - 'mt5/AUREON_LoadCustomGold.mq5'
+      - 'ea/baseline/**'
+
+permissions:
+  contents: read
+
+env:
+  WINEARCH: win64
+  WINEDEBUG: -all
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+
+jobs:
+  tester:
+    name: Zero-VPS MT5 Strategy Tester
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Wine and headless dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+          wine --version
+          python3 --version
+
+      - name: Run credential-free MT5 Strategy Tester smoke
+        shell: bash
+        run: bash scripts/mt5_strategy_tester_smoke.sh
+
+      - name: Upload Strategy Tester evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-strategy-tester-${{ github.run_id }}
+          path: |
+            mt5_tester_artifact
+            mt5_ci_artifact
+          retention-days: 30
+          if-no-files-found: warn
