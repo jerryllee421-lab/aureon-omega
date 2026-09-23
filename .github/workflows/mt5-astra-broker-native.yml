@@ -15,7 +15,7 @@ env:
   MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
   MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
   MT5_DEMO_SERVER: PXBTTrading-1
-  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/pxbt.trading.ltd/mt5/pxbttrading5setup.exe
   BROKER_SYMBOL: XAUUSD.ecn
   TEST_FROM: '2026.01.01'
   TEST_TO: '2026.09.22'
@@ -151,7 +151,8 @@ jobs:
             @{Name='E1_BASELINE'; Preset='ASTRA_GOLD_V1_E1_ONLY.set'},
             @{Name='DISCOVERY'; Preset='ASTRA_GOLD_V1_DISCOVERY.set'},
             @{Name='E1_E3'; Preset='ASTRA_GOLD_V1_E1_E3.set'},
-            @{Name='E1_E5'; Preset='ASTRA_GOLD_V1_E1_E5.set'}
+            @{Name='E1_E5'; Preset='ASTRA_GOLD_V1_E1_E5.set'},
+            @{Name='PENDING_PRECISION'; Preset='ASTRA_GOLD_V1_PENDING_PRECISION.set'}
           )
 
           foreach($case in $cases){
@@ -217,7 +218,7 @@ jobs:
       - name: Analyze broker-native reports
         shell: pwsh
         run: |
-          foreach($name in @('E1_BASELINE','DISCOVERY','E1_E3','E1_E5')){
+          foreach($name in @('E1_BASELINE','DISCOVERY','E1_E3','E1_E5','PENDING_PRECISION')){
             $out="broker_artifact\analysis\$name"
             New-Item -ItemType Directory -Force -Path $out | Out-Null
             python scripts/analyze_mt5_report.py ("broker_artifact\reports\"+$name+".htm") --out $out --min-trades 20 --min-pf 1.00 --max-dd 20.0
