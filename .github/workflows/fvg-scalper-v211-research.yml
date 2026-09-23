@@ -1,0 +1,74 @@
+name: FVG Scalper V2.11 Logic Research
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - 'research/requests/fvg-scalper-v211.json'
+
+permissions:
+  contents: read
+
+env:
+  XAU_MIRROR_COMMIT: 922f83a60cc574e7395fb27397077288055a1ef6
+  TEST_FROM: '2025-08-20'
+  TEST_TO: '2026-08-20'
+
+jobs:
+  logic-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+
+      - name: Install research dependencies
+        run: pip install -r research/requirements.txt
+
+      - name: Build pinned XAUUSD bid/ask M1 dataset
+        run: |
+          python research/mirror_m1.py \
+            --start "$TEST_FROM" \
+            --end "$TEST_TO" \
+            --commit "$XAU_MIRROR_COMMIT" \
+            --output research_data
+
+      - name: Run FVG Scalper V2.11 logic matrix
+        run: |
+          python research/fvg_scalper_v211_backtest.py \
+            --root research_data \
+            --output fvg_scalper_results \
+            --split 2026-04-20 | tee fvg_scalper_results/run.log
+
+      - name: Build manifest
+        if: always()
+        run: |
+          mkdir -p fvg_scalper_results
+          cat > fvg_scalper_results/manifest.txt <<EOF
+          SOURCE_EA=FVG_Scalper_V2_AutoLot_v2.11
+          DATA=DUKASCOPY_EXTERNAL_PINNED_MIRROR
+          MIRROR_COMMIT=$XAU_MIRROR_COMMIT
+          FROM=$TEST_FROM
+          TO=$TEST_TO
+          SPLIT=2026-04-20
+          METHOD=M1_BID_ASK_OHLC_CONSERVATIVE_PROXY
+          NATIVE_MT5_CONFIRMATION=REQUIRED_FOR_PROMISING_VARIANTS
+          EOF
+          git rev-parse HEAD > fvg_scalper_results/source_commit.txt
+
+      - name: Upload FVG research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fvg-scalper-v211-research-${{ github.run_id }}
+          path: fvg_scalper_results
+          retention-days: 30
+          if-no-files-found: warn
