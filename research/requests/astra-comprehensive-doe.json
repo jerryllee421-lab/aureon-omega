@@ -1,5 +1,5 @@
 {
-  "id": "astra-comprehensive-doe-v1-retry-installer",
+  "id": "astra-comprehensive-doe-v1-retry-metaeditor-oos",
   "enabled": true,
   "objective": "Screen all material ASTRA Gold strategy parameters by family, cross-test top parameter deltas, then validate top candidates on an untouched OOS window.",
   "data": {
