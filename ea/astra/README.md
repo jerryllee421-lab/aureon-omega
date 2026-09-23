@@ -38,3 +38,32 @@ The shared compile script accepts `EA_SOURCE`, allowing the original baseline EA
 8. Only then consider forward-demo testing.
 
 Do not optimize for headline win rate. Optimize for robust expectancy, drawdown control, repeatability, and execution realism.
+
+
+## Native MT5 Strategy Tester account context
+
+The official MT5 terminal requires an active trading-account context before its Strategy Tester will start, even when the test symbol itself is a locally imported custom symbol.
+
+For CI, use a **demo account only** and configure these GitHub Actions repository secrets:
+
+- `MT5_DEMO_LOGIN`
+- `MT5_DEMO_PASSWORD`
+- `MT5_DEMO_SERVER`
+
+The Windows smoke workflow consumes these values only at runtime. They are not committed, printed, or copied into uploaded artifacts. A redacted tester configuration is retained for auditability.
+
+Path in GitHub: **Repository → Settings → Secrets and variables → Actions → New repository secret**.
+
+Do not use a live funded account for CI/backtesting credentials.
+
+### Current native validation status
+
+The Windows lane has independently proven:
+
+1. Official MT5 installs on the GitHub-hosted Windows runner.
+2. `AUREON_ASTRA_GOLD_CAMPAIGN_V1.mq5` compiles with MetaEditor at zero errors and zero warnings.
+3. `AUREON_CustomSymbolLoader.mq5` compiles at zero errors and zero warnings.
+4. The pinned external XAUUSD M1 dataset is imported into `ASTRA_XAUUSD` successfully.
+5. The remaining native tester gate is authenticated demo-account context.
+
+Once the three secrets exist, the smoke workflow can proceed through the actual Strategy Tester report generation before any long-range optimization is allowed.
