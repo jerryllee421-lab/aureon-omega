@@ -59,15 +59,26 @@ jobs:
           --point 0.001
           --output mt5_input/ASTRA_XAUUSD_M1.csv
 
-      - name: Install Wine and headless display
+      - name: Install supported Wine and headless display
         shell: bash
         run: |
           set -euo pipefail
           sudo dpkg --add-architecture i386
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://dl.winehq.org/wine-builds/winehq.key | sudo tee /etc/apt/keyrings/winehq-archive.key >/dev/null
+          sudo curl -fsSL -o /etc/apt/sources.list.d/winehq-noble.sources \
+            https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --install-recommends \
+            winehq-stable xvfb xauth cabextract winbind curl ca-certificates p7zip-full
           wine --version
+          python - <<'PY'
+          import re, subprocess
+          s=subprocess.check_output(["wine","--version"],text=True).strip()
+          m=re.search(r"(\d+)\.",s)
+          if not m or int(m.group(1)) < 10:
+              raise SystemExit(f"MetaTrader runtime requires Wine 10+, got {s}")
+          PY
 
       - name: Install MT5 and compile ASTRA EA
         shell: bash
