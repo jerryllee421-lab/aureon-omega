@@ -11,10 +11,33 @@ INSTALLER_URL="${MT5_INSTALLER_URL:-https://download.terminal.free/cdn/web/metaq
 INSTALLER="${RUNNER_TEMP:-/tmp}/mt5setup.exe"
 EA_SOURCE="ea/baseline/FVG_Scalper_V2_11_ORIGINAL.mq5"
 
+XVFB_PID=""
+
 cleanup() {
   wineserver -k >/dev/null 2>&1 || true
+  if [[ -n "${XVFB_PID}" ]]; then
+    kill "${XVFB_PID}" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
+
+echo "== Start persistent headless display =="
+if [[ -z "${DISPLAY:-}" ]]; then
+  export DISPLAY=:99
+  Xvfb "$DISPLAY" -screen 0 1280x720x24 -nolisten tcp >"$ARTIFACT_DIR/xvfb.log" 2>&1 &
+  XVFB_PID=$!
+  for _ in {1..30}; do
+    if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  if ! xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+    cat "$ARTIFACT_DIR/xvfb.log" || true
+    echo "Xvfb failed to become ready."
+    exit 1
+  fi
+fi
 
 echo "== Environment =="
 uname -a | tee "$ARTIFACT_DIR/uname.txt"
@@ -22,17 +45,40 @@ wine --version | tee "$ARTIFACT_DIR/wine-version.txt"
 
 echo "== Initialize Wine prefix =="
 mkdir -p "$WINEPREFIX"
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
+
 set +e
-xvfb-run -a timeout 180s wineboot -u >"$ARTIFACT_DIR/wineboot.log" 2>&1
+timeout 360s wineboot --init >"$ARTIFACT_DIR/wineboot.log" 2>&1
 wineboot_rc=$?
 set -e
-if [[ "$wineboot_rc" != "0" && "$wineboot_rc" != "124" ]]; then
-  cat "$ARTIFACT_DIR/wineboot.log"
-  echo "wineboot failed with exit code $wineboot_rc"
-  exit "$wineboot_rc"
+
+if [[ "$wineboot_rc" != "0" ]]; then
+  echo "wineboot first pass exited with $wineboot_rc; collecting diagnostics and retrying once."
+  tail -n 200 "$ARTIFACT_DIR/wineboot.log" || true
+  wineserver -k >/dev/null 2>&1 || true
+  sleep 3
+  set +e
+  timeout 180s wineboot --update >>"$ARTIFACT_DIR/wineboot.log" 2>&1
+  wineboot_retry_rc=$?
+  set -e
+  echo "$wineboot_retry_rc" >"$ARTIFACT_DIR/wineboot-retry-exit-code.txt"
 fi
-wineserver -w >/dev/null 2>&1 || true
-test -d "$WINEPREFIX/drive_c"
+
+set +e
+timeout 60s wineserver -w >>"$ARTIFACT_DIR/wineboot.log" 2>&1
+wineserver_wait_rc=$?
+set -e
+echo "$wineserver_wait_rc" >"$ARTIFACT_DIR/wineserver-wait-exit-code.txt"
+
+KERNEL32="$WINEPREFIX/drive_c/windows/system32/kernel32.dll"
+if [[ ! -s "$KERNEL32" ]]; then
+  echo "Wine prefix is incomplete: kernel32.dll is missing." | tee "$ARTIFACT_DIR/failure.txt"
+  tail -n 250 "$ARTIFACT_DIR/wineboot.log" || true
+  exit 1
+fi
+
+echo "Wine prefix verified: $KERNEL32"
+wine cmd /c ver | tee "$ARTIFACT_DIR/wine-windows-version.txt"
 
 echo "== Download official MT5 installer =="
 curl --fail --location --retry 5 --retry-delay 3 \
@@ -43,7 +89,7 @@ file "$INSTALLER" | tee "$ARTIFACT_DIR/mt5setup.file.txt"
 
 echo "== Install MetaTrader 5 =="
 set +e
-xvfb-run -a timeout 900s wine "$INSTALLER" /auto /path:"C:\\AUREON_MT5" \
+timeout 900s wine "$INSTALLER" /auto /path:"C:\\AUREON_MT5" \
   >"$ARTIFACT_DIR/installer.log" 2>&1
 installer_rc=$?
 set -e
@@ -76,7 +122,7 @@ TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Tra
 if [[ -z "$TRADE_MQH" ]]; then
   echo "Standard Library not materialized yet; launching terminal once in portable mode."
   set +e
-  xvfb-run -a timeout 45s wine "$TERMINAL" /portable \
+  timeout 45s wine "$TERMINAL" /portable \
     >"$ARTIFACT_DIR/terminal-first-launch.log" 2>&1
   terminal_launch_rc=$?
   set -e
@@ -112,7 +158,7 @@ printf '%s\n' "$EA_WIN" > "$ARTIFACT_DIR/ea-windows-path.txt"
 printf '%s\n' "$MQL5_WIN" > "$ARTIFACT_DIR/mql5-windows-path.txt"
 
 set +e
-xvfb-run -a timeout 480s wine "$METAEDITOR" /compile:"$EA_WIN" /include:"$MQL5_WIN" /log \
+timeout 480s wine "$METAEDITOR" /compile:"$EA_WIN" /include:"$MQL5_WIN" /log \
   >"$ARTIFACT_DIR/metaeditor-process.log" 2>&1
 compile_rc=$?
 set -e
