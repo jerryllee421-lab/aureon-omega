@@ -4,7 +4,7 @@
 //| M5 execution · M15 liquidity · H1/H4 context · E1-E5 scaling     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.10"
+#property version   "1.11"
 #property description "AUREON ASTRA Gold Campaign V1: deterministic liquidity sweep/reclaim, MSS, displacement, FVG retracement, E1-E5 campaign scaling and risk governance."
 
 #include <Trade/Trade.mqh>
@@ -1422,9 +1422,18 @@ bool EntryExpired()
 bool NewEntryAllowed()
 {
    if(g_emergencyHalt) return false;
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return false;
-   if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
-   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) return false;
+
+   // Strategy Tester simulates order execution internally and must not be
+   // blocked by the host terminal's live-account/autotrading permissions.
+   // Outside the tester, retain all live/demo safety gates.
+   bool inTester=(bool)MQLInfoInteger(MQL_TESTER);
+   if(!inTester)
+   {
+      if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return false;
+      if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) return false;
+      if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) return false;
+   }
+
    if(SymbolInfoInteger(_Symbol,SYMBOL_TRADE_MODE)!=SYMBOL_TRADE_MODE_FULL) return false;
    if(!SessionAllowed()) return false;
    if(InpUseSpreadFilter && CurrentSpreadPoints()>InpMaxSpreadPoints) return false;
