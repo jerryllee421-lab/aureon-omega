@@ -31,7 +31,7 @@ def main():
     else:
         volume=pd.Series(1,index=df.index,dtype="int64")
 
-    spread=((df["ask_close"]-df["bid_close"])/args.point).round().clip(lower=1).astype("int64")
+    if args.spread_multiplier<=0:\n        raise SystemExit("spread-multiplier must be > 0")\n    spread=(((df["ask_close"]-df["bid_close"])/args.point)*args.spread_multiplier).round().clip(lower=1).astype("int64")
 
     out=pd.DataFrame({
         "time":df["time"].dt.strftime("%Y.%m.%d %H:%M:%S"),
