@@ -1,5 +1,5 @@
 {
-  "id": "astra-fast-ohlc-v1-retry1",
+  "id": "astra-fast-ohlc-v1-retry2-tester-permission",
   "enabled": true,
   "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
   "from": "2025-08-20",
