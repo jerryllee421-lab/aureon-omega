@@ -22,6 +22,9 @@ permissions:
   contents: read
 
 env:
+  MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+  MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+  MT5_DEMO_SERVER: ${{ secrets.MT5_DEMO_SERVER }}
   MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
   XAU_MIRROR_COMMIT: 922f83a60cc574e7395fb27397077288055a1ef6
   TEST_FROM: '2026-07-01'
@@ -169,34 +172,76 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$mql5\Profiles\Tester","$root\reports" | Out-Null
           Copy-Item 'ea/astra/presets/ASTRA_GOLD_V1_SMOKE.set' "$mql5\Profiles\Tester\ASTRA_GOLD_V1_SMOKE.set" -Force
 
-          $config=Join-Path $root 'astra-smoke.ini'
-          @'
-          [Tester]
-          Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1
-          ExpertParameters=ASTRA_GOLD_V1_SMOKE.set
-          Symbol=ASTRA_XAUUSD
-          Period=M5
-          Login=100000
-          Deposit=10000
-          Currency=USD
-          Leverage=1:100
-          Model=1
-          ExecutionMode=0
-          Optimization=0
-          OptimizationCriterion=6
-          FromDate=2026.07.01
-          ToDate=2026.08.20
-          ForwardMode=0
-          Report=reports\ASTRA_SMOKE
-          ReplaceReport=1
-          ShutdownTerminal=1
-          UseLocal=1
-          UseRemote=0
-          UseCloud=0
-          Visual=0
-          '@ | Set-Content -Path $config -Encoding Unicode
+          if([string]::IsNullOrWhiteSpace($env:MT5_DEMO_LOGIN) -or
+             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_PASSWORD) -or
+             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_SERVER)){
+            'MT5_NATIVE_TEST_BLOCKED: configure GitHub Actions secrets MT5_DEMO_LOGIN, MT5_DEMO_PASSWORD, MT5_DEMO_SERVER' |
+              Set-Content 'mt5_windows_artifact\account-required.txt'
+            throw 'Native MT5 Strategy Tester requires a configured demo trading account. Add the three MT5_DEMO_* GitHub Actions secrets; credentials are never committed or uploaded.'
+          }
 
-          Copy-Item $config 'mt5_windows_artifact\astra-smoke.ini'
+          $config=Join-Path $root 'astra-smoke.ini'
+          $ini=@"
+[Common]
+Login=$($env:MT5_DEMO_LOGIN)
+Password=$($env:MT5_DEMO_PASSWORD)
+Server=$($env:MT5_DEMO_SERVER)
+KeepPrivate=0
+NewsEnable=0
+
+[Experts]
+Enabled=1
+AllowLiveTrading=0
+AllowDllImport=0
+
+[Tester]
+Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1
+ExpertParameters=ASTRA_GOLD_V1_SMOKE.set
+Symbol=ASTRA_XAUUSD
+Period=M5
+Login=$($env:MT5_DEMO_LOGIN)
+Deposit=10000
+Currency=USD
+Leverage=1:100
+Model=1
+ExecutionMode=0
+Optimization=0
+OptimizationCriterion=6
+FromDate=2026.07.01
+ToDate=2026.08.20
+ForwardMode=0
+Report=\reports\ASTRA_SMOKE
+ReplaceReport=1
+ShutdownTerminal=1
+UseLocal=1
+UseRemote=0
+UseCloud=0
+Visual=0
+"@
+          $ini | Set-Content -Path $config -Encoding Unicode
+
+          # Keep auditable tester settings without ever persisting account credentials.
+          @'
+[Tester]
+Expert=AUREON\AUREON_ASTRA_GOLD_CAMPAIGN_V1
+ExpertParameters=ASTRA_GOLD_V1_SMOKE.set
+Symbol=ASTRA_XAUUSD
+Period=M5
+Deposit=10000
+Currency=USD
+Leverage=1:100
+Model=1
+ExecutionMode=0
+Optimization=0
+FromDate=2026.07.01
+ToDate=2026.08.20
+Report=\reports\ASTRA_SMOKE
+UseLocal=1
+UseRemote=0
+UseCloud=0
+Visual=0
+ACCOUNT_CONTEXT=GITHUB_ACTIONS_SECRET
+'@ | Set-Content 'mt5_windows_artifact\astra-smoke-redacted.ini'
           Get-Process terminal64,metatester64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           $terminal=Join-Path $root 'terminal64.exe'
           $p=Start-Process -FilePath $terminal -ArgumentList @('/portable',"/config:$config") -PassThru
