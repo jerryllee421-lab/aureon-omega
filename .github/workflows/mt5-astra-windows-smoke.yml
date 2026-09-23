@@ -102,10 +102,15 @@ jobs:
             Start-Sleep -Seconds 2
             $ex5=[IO.Path]::ChangeExtension($source,'.ex5')
             $log=[IO.Path]::ChangeExtension($source,'.log')
+            if(Test-Path $log){
+              $txt=Get-Content $log -Raw -Encoding Unicode
+              $txt | Out-File "mt5_windows_artifact\$label-compile.log" -Encoding utf8
+              Write-Host $txt
+            } else {
+              $txt=''
+            }
             if(-not (Test-Path $ex5)){ throw "$label did not produce EX5" }
             if(-not (Test-Path $log)){ throw "$label did not produce compile log" }
-            $txt=Get-Content $log -Raw -Encoding Unicode
-            $txt | Out-File "mt5_windows_artifact\$label-compile.log" -Encoding utf8
             if($txt -notmatch '0 errors'){ throw "$label compiler did not confirm 0 errors" }
             if($txt -notmatch '0 warnings'){ throw "$label compiler did not confirm 0 warnings" }
           }
