@@ -1,7 +1,7 @@
 {
-  "id": "astra-quantum-edge-v2-runner-fixed",
+  "id": "astra-v7-quantum-edge-lab-full-chain",
   "enabled": true,
-  "objective": "Screen every native MT5 timeframe, a dense bounded EMA surface, all material ASTRA structure/trigger/exit/session/risk parameters, cross-test top signal families, then validate on untouched OOS and Monte Carlo stress before any forward-demo promotion.",
+  "objective": "Run the full AUREON Ω V7 Quantum Edge Lab chain: all native MT5 timeframe screens, dense EMA surface, structure/trigger/exit/session/risk DOE, cross-family tests, untouched OOS, regime evidence, parameter stability, setup funnel, Monte Carlo and edge registry. Advance only robust OOS candidates to broker-native confirmation.",
   "data": {
     "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
     "from": "2025-08-20",
@@ -82,5 +82,15 @@
       200
     ],
     "rule": "fast<slow plus asymmetric MTF EMA cascades"
+  },
+  "v7": {
+    "regime_engine": true,
+    "parameter_stability": true,
+    "setup_funnel": true,
+    "monte_carlo_sims": 5000,
+    "edge_registry": true,
+    "broker_native_required": true,
+    "demo_forward_only_after_broker_native": true,
+    "real_money_trading": false
   }
 }
