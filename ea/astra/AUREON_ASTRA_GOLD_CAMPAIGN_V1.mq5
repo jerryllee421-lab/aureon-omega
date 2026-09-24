@@ -412,6 +412,9 @@ void ProcessM5Campaign()
       if(ConfirmM5Signal())
       {
          SetState(ASTRA_ENTRY_ZONE_ACTIVE,"M5 MSS + DQI + FVG confirmed");
+         LogEvent("SIGNAL_QUALIFIED",g_campaign.idealEntry,
+                  StringFormat("signal_id=%s confirm=%s",g_campaign.id,
+                               TimeToString(g_campaign.confirmTime,TIME_DATE|TIME_MINUTES)));
          DrawCampaignObjects();
       }
       return;
