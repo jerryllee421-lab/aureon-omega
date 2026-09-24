@@ -1,6 +1,7 @@
 // Deterministic indicator fixtures only; these values are not market data or performance samples.
 import test from 'node:test';import assert from 'node:assert/strict';
 import {quantSnapshot,mtfAlignment,emaLatest,rsiLatest,atrLatest,adxLatest} from '../server/quant.ts';
+import {deriveMarketBrain} from '../server/marketBrain.ts';
 import type {CandlePack} from '../server/candles.ts';
 
 function trendPack(direction:1|-1):CandlePack{
@@ -21,4 +22,20 @@ test('downtrend context remains non-executable',()=>{
 test('MTF alignment requires broad agreement',()=>{
  assert.equal(mtfAlignment([{bias:'UP'},{bias:'UP'},{bias:'UP'},{bias:'NEUTRAL'}]).alignment,'BULLISH_ALIGNMENT');
  assert.equal(mtfAlignment([{bias:'UP'},{bias:'DOWN'},{bias:'UP'},{bias:'NEUTRAL'}]).alignment,'MIXED');
+});
+
+test('Market Brain routes state without granting execution authority',()=>{
+ const frames=[
+  {status:'READY',timeframe:'M5',intervalMinutes:5,bias:'UP',structure:'HH_HL',regime:'TREND_UP',adx14:26},
+  {status:'READY',timeframe:'M15',intervalMinutes:15,bias:'UP',structure:'HH_HL',regime:'TREND_UP',adx14:28},
+  {status:'READY',timeframe:'H1',intervalMinutes:60,bias:'UP',structure:'HH_HL',regime:'TREND_UP',adx14:24},
+  {status:'READY',timeframe:'H4',intervalMinutes:240,bias:'NEUTRAL',structure:'MIXED',regime:'RANGE_OR_TRANSITION',adx14:18},
+ ];
+ const brain=deriveMarketBrain('XAUUSD',frames,{focusWindow:'LONDON_SESSION',london:{active:true},newYork:{active:false}});
+ assert.equal(brain.executionEligible,false);
+ assert.equal(brain.marketState.directionalState,'BULLISH_LEAN');
+ assert.equal(brain.strategyRouter.preferred,'QEDGE_02_TREND_PULLBACK');
+ assert.equal(brain.dataAuthority.volumeProfile,'UNAVAILABLE');
+ assert.equal(brain.dataAuthority.cvd,'UNAVAILABLE');
+ assert.equal(brain.dataAuthority.gex,'UNAVAILABLE');
 });
