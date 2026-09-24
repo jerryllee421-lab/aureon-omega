@@ -4,7 +4,7 @@
 //| M5 execution · M15 liquidity · H1/H4 context · E1-E5 scaling     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.13"
+#property version   "1.14"
 #property description "AUREON ASTRA Gold Campaign V1: deterministic liquidity sweep/reclaim, MSS, displacement, FVG retracement, E1-E5 campaign scaling and risk governance."
 
 #include <Trade/Trade.mqh>
@@ -213,6 +213,11 @@ struct AstraCampaign
    double tp2;
    double tp3;
    double initialRiskPrice;
+   double initialStop;
+   double firstEntryPrice;
+   datetime firstEntryTime;
+   double maxMfeR;
+   double maxMaeR;
    double bestPrice;
    double peakVolume;
    int entries;
@@ -330,6 +335,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       double p=HistoryDealGetDouble(trans.deal,DEAL_PROFIT)
               +HistoryDealGetDouble(trans.deal,DEAL_SWAP)
               +HistoryDealGetDouble(trans.deal,DEAL_COMMISSION);
+      double dealPrice=HistoryDealGetDouble(trans.deal,DEAL_PRICE);
+      ENUM_DEAL_REASON reason=(ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal,DEAL_REASON);
+      LogEvent("DEAL_EXIT",dealPrice,StringFormat("reason=%s pnl=%.2f",EnumToString(reason),p));
       if(p<0) g_consecutiveLosses++;
       else if(p>0) g_consecutiveLosses=0;
    }
@@ -943,7 +951,15 @@ void SyncPendingFill()
 
    g_campaign.entries=MathMax(g_campaign.entries,stage);
    g_campaign.peakVolume=MathMax(g_campaign.peakVolume,total);
-   g_campaign.initialRiskPrice=MathAbs(avg-g_campaign.stop);
+   if(g_campaign.firstEntryPrice<=0)
+   {
+      g_campaign.firstEntryPrice=avg;
+      g_campaign.firstEntryTime=TimeCurrent();
+      g_campaign.initialStop=g_campaign.stop;
+      g_campaign.initialRiskPrice=MathAbs(avg-g_campaign.initialStop);
+      g_campaign.maxMfeR=0.0;
+      g_campaign.maxMaeR=0.0;
+   }
    if(g_campaign.bestPrice<=0) g_campaign.bestPrice=avg;
    BuildTargets(avg);
 
@@ -1001,7 +1017,15 @@ bool OpenTranche(int stage)
    if(GetCampaignPositionStats(total,avg,dir))
    {
       g_campaign.peakVolume=MathMax(g_campaign.peakVolume,total);
-      g_campaign.initialRiskPrice=MathAbs(avg-g_campaign.stop);
+      if(g_campaign.firstEntryPrice<=0)
+      {
+         g_campaign.firstEntryPrice=avg;
+         g_campaign.firstEntryTime=TimeCurrent();
+         g_campaign.initialStop=g_campaign.stop;
+         g_campaign.initialRiskPrice=MathAbs(avg-g_campaign.initialStop);
+         g_campaign.maxMfeR=0.0;
+         g_campaign.maxMaeR=0.0;
+      }
       if(g_campaign.bestPrice<=0) g_campaign.bestPrice=avg;
       BuildTargets(avg);
    }
@@ -1144,7 +1168,10 @@ void ManageOpenCampaign()
    {
       if(g_campaign.entries>0)
       {
+         double exitPrice=g_campaign.bullish?SymbolInfoDouble(_Symbol,SYMBOL_BID)
+                                            :SymbolInfoDouble(_Symbol,SYMBOL_ASK);
          SetState(ASTRA_COMPLETED,"Campaign position fully closed");
+         LogEvent("CAMPAIGN_FINAL",exitPrice,"Final excursion snapshot before reset");
          ResetCampaign();
       }
       return;
@@ -1159,10 +1186,19 @@ void ManageOpenCampaign()
    if(g_campaign.bullish) g_campaign.bestPrice=MathMax(g_campaign.bestPrice,price);
    else g_campaign.bestPrice=MathMin(g_campaign.bestPrice,price);
 
-   double risk=MathAbs(avg-g_campaign.stop);
-   if(risk<=0) risk=g_campaign.initialRiskPrice;
+   // R-multiples are measured from the immutable first fill and initial
+   // stop. Trailing the stop or adding tranches must not inflate measured R.
+   double risk=g_campaign.initialRiskPrice;
+   double basis=g_campaign.firstEntryPrice>0?g_campaign.firstEntryPrice:avg;
+   if(risk<=0)
+   {
+      double refStop=g_campaign.initialStop>0?g_campaign.initialStop:g_campaign.stop;
+      risk=MathAbs(basis-refStop);
+   }
    if(risk<=0) return;
-   double rr=g_campaign.bullish?(price-avg)/risk:(avg-price)/risk;
+   double rr=g_campaign.bullish?(price-basis)/risk:(basis-price)/risk;
+   g_campaign.maxMfeR=MathMax(g_campaign.maxMfeR,rr);
+   g_campaign.maxMaeR=MathMax(g_campaign.maxMaeR,-rr);
 
    if(!g_campaign.tp1Done && PriceReached(price,g_campaign.tp1))
    {
@@ -1607,6 +1643,11 @@ void ResetCampaign()
    g_campaign.tp2=0.0;
    g_campaign.tp3=0.0;
    g_campaign.initialRiskPrice=0.0;
+   g_campaign.initialStop=0.0;
+   g_campaign.firstEntryPrice=0.0;
+   g_campaign.firstEntryTime=0;
+   g_campaign.maxMfeR=0.0;
+   g_campaign.maxMaeR=0.0;
    g_campaign.bestPrice=0.0;
    g_campaign.peakVolume=0.0;
    g_campaign.entries=0;
@@ -1653,7 +1694,8 @@ void OpenLog()
       FileWrite(g_logHandle,
          "time","campaign_id","event","state","direction","price","liquidity",
          "sweep_extreme","fvg_low","fvg_high","ideal_entry","stop","tp1","tp2","tp3",
-         "entries","volume","spread_points","equity","note");
+         "entries","volume","spread_points","equity","first_entry","initial_stop","initial_risk_price",
+         "max_mfe_r","max_mae_r","hold_seconds","note");
    }
    FileSeek(g_logHandle,0,SEEK_END);
 }
@@ -1680,6 +1722,12 @@ void LogEvent(string event,double price,string note)
       DoubleToString(vol,2),
       DoubleToString(CurrentSpreadPoints(),1),
       DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY),2),
+      DoubleToString(g_campaign.firstEntryPrice,_Digits),
+      DoubleToString(g_campaign.initialStop,_Digits),
+      DoubleToString(g_campaign.initialRiskPrice,_Digits),
+      DoubleToString(g_campaign.maxMfeR,4),
+      DoubleToString(g_campaign.maxMaeR,4),
+      g_campaign.firstEntryTime>0?(long)(TimeCurrent()-g_campaign.firstEntryTime):0,
       note);
    FileFlush(g_logHandle);
 }
