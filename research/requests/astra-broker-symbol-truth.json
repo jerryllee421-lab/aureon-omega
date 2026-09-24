@@ -1,5 +1,5 @@
 {
-  "id": "astra-broker-symbol-truth-v1-launch",
+  "id": "astra-broker-symbol-truth-v2-python-bridge",
   "purpose": "Discover and fingerprint the broker-native Gold symbol without placing any trades.",
   "server": "PXBTTrading-1",
   "live_trading": false,
@@ -22,5 +22,6 @@
     "spread",
     "M1/M5/M15/H1/H4 history"
   ],
-  "requested_at": "2026-09-24"
+  "requested_at": "2026-09-24",
+  "transport": "MetaTrader5 Python bridge to official PrimeXBT terminal"
 }
