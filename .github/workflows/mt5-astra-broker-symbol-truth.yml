@@ -132,6 +132,31 @@ jobs:
           ) | Set-Content 'broker_truth\context.txt'
           git rev-parse HEAD | Set-Content 'broker_truth\source_commit.txt'
 
+      - name: Capture sanitized broker diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $root=$env:MT5_ROOT
+          if(-not (Test-Path 'broker_truth')){ New-Item -ItemType Directory -Path 'broker_truth' | Out-Null }
+          if($root -and (Test-Path $root)){
+            Get-ChildItem "$root\Logs","$root\MQL5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              try {
+                $body=Get-Content $_.FullName -Raw -Encoding Unicode
+                ($body -split "`n" | Where-Object {
+                  $_ -match 'authorized|authorization|server|network|connect|failed|error|account|trade server'
+                }) | Out-File 'broker_truth\terminal-auth-events.log' -Append -Encoding utf8
+              } catch {}
+            }
+            Get-ChildItem $root -Filter '*.srv' -Recurse -ErrorAction SilentlyContinue |
+              ForEach-Object { $_.BaseName } | Sort-Object -Unique |
+              Set-Content 'broker_truth\local-server-catalog.txt'
+          }
+          @(
+            'NO_CREDENTIAL_VALUES_ARE_WRITTEN_TO_ARTIFACTS',
+            'ALLOW_LIVE_TRADING=0',
+            'ORDERS_PLACED=0'
+          ) | Set-Content 'broker_truth\safety-context.txt'
+
       - name: Upload broker truth evidence
         if: always()
         uses: actions/upload-artifact@v4
