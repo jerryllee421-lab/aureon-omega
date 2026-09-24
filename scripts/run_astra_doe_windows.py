@@ -299,6 +299,27 @@ def cross(args):
         run([sys.executable, "scripts/mt5_monte_carlo.py", report,
              "--out", mc_out, "--sims", "5000", "--seed", "260923"], timeout=120, check=False)
 
+    # V7 evidence layers: market regimes, family stability surfaces and a
+    # conservative edge registry. These add evidence; they never override OOS.
+    for tf, label in (("15min","M15"),("1h","H1")):
+        run([sys.executable, "research/regime_engine.py",
+             "--root", "research_data", "--tf", tf,
+             "--out", artifact / "regimes" / label], timeout=180, check=False)
+
+    family_root=Path(args.tops)
+    stability_root=artifact / "stability"
+    for ranking in family_root.rglob("ranking.json"):
+        family=ranking.parent.name
+        run([sys.executable, "scripts/astra_parameter_stability.py",
+             "--ranking", ranking, "--out", stability_root / family], timeout=60, check=False)
+
+    selection=artifact / "final_selection" / "candidate_selection.json"
+    if selection.exists():
+        run([sys.executable, "scripts/astra_edge_registry.py",
+             "--selection", selection,
+             "--monte-carlo-root", artifact / "oos_monte_carlo",
+             "--out", artifact / "edge_registry"], timeout=60, check=False)
+
     methodology = [
         "DATA=DUKASCOPY_EXTERNAL_PINNED_MIRROR",
         "MODEL=MT5_1_MINUTE_OHLC",
