@@ -1,0 +1,45 @@
+{
+  "id": "qedge-portfolio-5y-v1",
+  "data": {
+    "symbol": "XAUUSD",
+    "start": "2021-08-20",
+    "end": "2026-08-20",
+    "source": "pinned bid/ask M1 external dataset"
+  },
+  "strategies": [
+    "QEDGE_01_LIQUIDITY_REVERSAL",
+    "QEDGE_02_TREND_PULLBACK",
+    "QEDGE_03_BREAKOUT_RETEST",
+    "QEDGE_04_LONDON_RAID",
+    "QEDGE_05_NY_CONT_REV"
+  ],
+  "cascades": [
+    "M1_M5_M15_H1",
+    "M4_M20_H1_H4",
+    "M5_M15_H1_H4",
+    "M10_M30_H2_H6",
+    "M15_H1_H4_H12"
+  ],
+  "common_execution": {
+    "reward_risk": 2,
+    "max_hold_hours": 8,
+    "next_bar_entry": true,
+    "conservative_same_bar_stop_first": true,
+    "performance_unit": "R",
+    "one_campaign_per_variant": true
+  },
+  "historical_holdout_start": "2026-04-20",
+  "walk_forward": {
+    "train_months": 18,
+    "test_months": 6,
+    "step_months": 6
+  },
+  "promotion": {
+    "min_development_campaigns": 30,
+    "positive_expectancy_required": true,
+    "min_pf": 1,
+    "broker_native_required": true,
+    "forward_demo_required": true,
+    "live_trading": false
+  }
+}
