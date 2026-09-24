@@ -11,6 +11,7 @@ def main():
     ap.add_argument("--symbol",default="XAUUSD")
     ap.add_argument("--output",required=True)
     ap.add_argument("--point",type=float,default=0.001)
+    ap.add_argument("--spread-multiplier",type=float,default=1.0)
     args=ap.parse_args()
 
     root=Path(args.root)
@@ -31,7 +32,13 @@ def main():
     else:
         volume=pd.Series(1,index=df.index,dtype="int64")
 
-    if args.spread_multiplier<=0:\n        raise SystemExit("spread-multiplier must be > 0")\n    spread=(((df["ask_close"]-df["bid_close"])/args.point)*args.spread_multiplier).round().clip(lower=1).astype("int64")
+    if args.spread_multiplier<=0:
+        raise SystemExit("spread-multiplier must be > 0")
+
+    spread=(
+        ((df["ask_close"]-df["bid_close"])/args.point)
+        * args.spread_multiplier
+    ).round().clip(lower=1).astype("int64")
 
     out=pd.DataFrame({
         "time":df["time"].dt.strftime("%Y.%m.%d %H:%M:%S"),
