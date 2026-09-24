@@ -30,6 +30,8 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from astra_pattern_engine import annotate_patterns
+
 
 BRAIN_COLUMNS = [
     "time",
@@ -42,6 +44,14 @@ BRAIN_COLUMNS = [
     "momentum",
     "displacement",
     "fvg_state",
+    "candlestick_pattern",
+    "candlestick_bias",
+    "candlestick_quality",
+    "chart_pattern",
+    "chart_pattern_bias",
+    "chart_pattern_quality",
+    "chart_pattern_status",
+    "chart_pattern_invalidation",
     "trend_bias",
     "context_bias",
     "contradictions",
@@ -137,6 +147,11 @@ def _router(row: pd.Series) -> tuple[int, int, int, int, int, str, int, str]:
     displacement = str(row["displacement"])
     structure = str(row["structure"])
     fvg = str(row["fvg_state"])
+    candle_bias = int(row.get("candlestick_bias",0))
+    candle_quality = int(row.get("candlestick_quality",0))
+    chart = str(row.get("chart_pattern","NONE"))
+    chart_bias = int(row.get("chart_pattern_bias",0))
+    chart_quality = int(row.get("chart_pattern_quality",0))
     trend_bias = int(row["trend_bias"])
     context_bias = int(row["context_bias"])
 
@@ -149,6 +164,10 @@ def _router(row: pd.Series) -> tuple[int, int, int, int, int, str, int, str]:
         q1 += 1
     if fvg != "NONE":
         q1 += 1
+    if chart in ("DOUBLE_TOP_LIQUIDITY","DOUBLE_BOTTOM_LIQUIDITY","HEAD_AND_SHOULDERS","INVERSE_HEAD_AND_SHOULDERS"):
+        q1 += 1
+    if candle_quality>=58 and candle_bias!=0:
+        q1 += 1
 
     q2 = 0  # trend pullback
     if regime in ("TREND_UP", "TREND_DOWN", "EXPANSION_UP", "EXPANSION_DOWN"):
@@ -158,6 +177,10 @@ def _router(row: pd.Series) -> tuple[int, int, int, int, int, str, int, str]:
     if context_bias == trend_bias and trend_bias != 0:
         q2 += 1
     if (trend_bias == 1 and location != "PREMIUM") or (trend_bias == -1 and location != "DISCOUNT"):
+        q2 += 1
+    if candle_quality>=55 and candle_bias==trend_bias and trend_bias!=0:
+        q2 += 1
+    if chart in ("RISING_CHANNEL","FALLING_CHANNEL") and chart_bias==trend_bias and trend_bias!=0:
         q2 += 1
 
     q3 = 0  # breakout retest
@@ -169,6 +192,8 @@ def _router(row: pd.Series) -> tuple[int, int, int, int, int, str, int, str]:
         q3 += 1
     if fvg != "NONE":
         q3 += 1
+    if chart in ("BULLISH_BREAK_RETEST","BEARISH_BREAK_RETEST","SYMMETRICAL_TRIANGLE","ASCENDING_TRIANGLE","DESCENDING_TRIANGLE"):
+        q3 += 2
 
     q4 = 0  # London raid
     if session == "LONDON":
@@ -177,6 +202,8 @@ def _router(row: pd.Series) -> tuple[int, int, int, int, int, str, int, str]:
         q4 += 3
     if structure in ("MIXED", "HH_HL", "LH_LL"):
         q4 += 1
+    if candle_quality>=58 or chart in ("DOUBLE_TOP_LIQUIDITY","DOUBLE_BOTTOM_LIQUIDITY"):
+        q4 += 1
 
     q5 = 0  # New York continuation/reversal
     if session == "NEW_YORK":
@@ -184,6 +211,8 @@ def _router(row: pd.Series) -> tuple[int, int, int, int, int, str, int, str]:
     if liq in ("SELL_SIDE_SWEPT", "BUY_SIDE_SWEPT", "BREAKOUT_UP", "BREAKOUT_DOWN"):
         q5 += 2
     if trend_bias != 0 or regime in ("TREND_UP", "TREND_DOWN", "EXPANSION_UP", "EXPANSION_DOWN"):
+        q5 += 1
+    if candle_quality>=55 or chart_quality>=68:
         q5 += 1
 
     scores = {
@@ -336,6 +365,7 @@ def prepare_entry_features(entry: pd.DataFrame) -> pd.DataFrame:
         default="NONE",
     )
 
+    x=annotate_patterns(x)
     x["regime"] = x.apply(_regime, axis=1)
     x["session"] = x["time"].map(_session)
     return x
