@@ -88,6 +88,15 @@ class Trade:
     note: str
 
 
+def rule_minutes(rule: str) -> int:
+    text=rule.strip().lower()
+    if text.endswith("min"):
+        return int(text[:-3])
+    if text.endswith("h"):
+        return int(text[:-1]) * 60
+    raise ValueError(f"Unsupported timeframe rule: {rule}")
+
+
 def load_m1(root: Path) -> pd.DataFrame:
     files = sorted((root / "XAUUSD" / "M1").rglob("*.parquet"))
     if not files:
@@ -635,7 +644,7 @@ def main():
     ap.add_argument("--end", default="2026-08-20")
     ap.add_argument("--holdout-start", default="2026-04-20")
     ap.add_argument("--reward-risk", type=float, default=2.0)
-    ap.add_argument("--max-hold-bars", type=int, default=96)
+    ap.add_argument("--max-hold-hours", type=float, default=8.0)
     args = ap.parse_args()
 
     root = Path(args.root)
@@ -660,29 +669,20 @@ def main():
         print(f"BUILD {cascade.name}", flush=True)
         pack = build_pack(m1, cascade)
         strategy_signals = [
-            liquidity_reversal(pack, cascade),
-            trend_pullback(pack, cascade),
-            breakout_retest(pack, cascade),
-            london_raid(pack, cascade, levels),
-            ny_continuation_reversal(pack, cascade, levels),
+            ("QEDGE_01_LIQUIDITY_REVERSAL", liquidity_reversal(pack, cascade)),
+            ("QEDGE_02_TREND_PULLBACK", trend_pullback(pack, cascade)),
+            ("QEDGE_03_BREAKOUT_RETEST", breakout_retest(pack, cascade)),
+            ("QEDGE_04_LONDON_RAID", london_raid(pack, cascade, levels)),
+            ("QEDGE_05_NY_CONT_REV", ny_continuation_reversal(pack, cascade, levels)),
         ]
-        for signals in strategy_signals:
-            signals = dedupe_signals(signals, cascade.entry)
-            strategy = signals[0].strategy if signals else "UNKNOWN"
-            # If a strategy emitted zero signals, recover its name by position.
-            if strategy == "UNKNOWN":
-                strategy = [
-                    "QEDGE_01_LIQUIDITY_REVERSAL",
-                    "QEDGE_02_TREND_PULLBACK",
-                    "QEDGE_03_BREAKOUT_RETEST",
-                    "QEDGE_04_LONDON_RAID",
-                    "QEDGE_05_NY_CONT_REV",
-                ][strategy_signals.index(signals)]
+        hold_bars=max(1, int(round(args.max_hold_hours * 60.0 / rule_minutes(cascade.entry))))
+        for strategy, raw_signals in strategy_signals:
+            signals = dedupe_signals(raw_signals, cascade.entry)
             trades = simulate(
                 pack["entry"],
                 signals,
                 reward_risk=args.reward_risk,
-                max_hold_bars=args.max_hold_bars,
+                max_hold_bars=hold_bars,
             )
             trade_map[(strategy, cascade.name)] = trades
             all_trades.extend(trades)
@@ -759,7 +759,7 @@ def main():
             "entry": "next execution bar open",
             "same_bar_sl_tp": "SL wins",
             "reward_risk": args.reward_risk,
-            "max_hold_bars": args.max_hold_bars,
+            "max_hold_hours": args.max_hold_hours,
             "strategies": [
                 "QEDGE_01_LIQUIDITY_REVERSAL",
                 "QEDGE_02_TREND_PULLBACK",
