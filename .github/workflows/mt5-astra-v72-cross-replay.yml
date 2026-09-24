@@ -1,0 +1,112 @@
+name: ASTRA V7.2 Cross Replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Completed comprehensive DOE run containing family artifacts'
+        required: true
+        type: string
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - 'research/requests/astra-cross-replay.json'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: astra-v72-cross-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-replay:
+    runs-on: windows-latest
+    timeout-minutes: 420
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+      MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+      MT5_DEMO_SERVER: PXBTTrading-1
+      DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+
+      - run: pip install -r research/requirements.txt
+
+      - name: Resolve source DOE run
+        shell: pwsh
+        run: |
+          $id=$env:DISPATCH_SOURCE_RUN_ID
+          if([string]::IsNullOrWhiteSpace($id) -and (Test-Path 'research/requests/astra-cross-replay.json')){
+            $req=Get-Content 'research/requests/astra-cross-replay.json' -Raw | ConvertFrom-Json
+            $id=[string]$req.source_run_id
+          }
+          if($id -notmatch '^\d+$'){ throw 'A valid numeric source_run_id is required' }
+          "SOURCE_RUN_ID=$id" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Source comprehensive DOE run: $id"
+
+      - name: Download completed signal-family artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force -Path downloaded | Out-Null
+          $families=@('timeframe','ema','structure','trigger','exit','session')
+          foreach($family in $families){
+            $name="astra-doe-$family"
+            $dest="downloaded/$name"
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            gh run download $env:SOURCE_RUN_ID --repo $env:GITHUB_REPOSITORY --name $name --dir $dest
+            if($LASTEXITCODE -ne 0){ throw "Missing required source artifact: $name" }
+            if(-not (Test-Path "$dest/manifest.json") -or -not (Test-Path "$dest/analysis")){
+              throw "Incomplete family artifact: $name"
+            }
+          }
+
+      - name: Re-rank family evidence with V7.2 sample shrinkage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $families=@('timeframe','ema','structure','trigger','exit','session')
+          foreach($family in $families){
+            $root="downloaded/astra-doe-$family"
+            python scripts/astra_doe.py rank --analysis "$root/analysis" --manifest "$root/manifest.json" --out $root --top 3 --min-cross-trades 15
+            if($LASTEXITCODE -ne 0){ throw "V7.2 re-ranking failed for $family" }
+            Write-Host "==== $family V7.2 top ===="
+            Get-Content "$root/top.json"
+          }
+
+      - name: Cross-test V7.2 family survivors and run robustness chain
+        shell: pwsh
+        run: |
+          python scripts/run_astra_doe_windows.py cross --tops downloaded --artifact cross_artifact --magic-base 26420000
+          if($LASTEXITCODE -ne 0){ throw 'V7.2 cross replay failed' }
+
+      - name: Record replay provenance
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path cross_artifact | Out-Null
+          @(
+            "SOURCE_DOE_RUN=$env:SOURCE_RUN_ID",
+            "REPLAY_COMMIT=$(git rev-parse HEAD)",
+            "MIN_CROSS_TRADES=15",
+            "RISK_FAMILY_EXCLUDED_FROM_SIGNAL_SELECTION=1",
+            "LIVE_TRADING=DISABLED"
+          ) | Set-Content cross_artifact/v72_replay_provenance.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-v72-cross-replay-${{ github.run_id }}
+          path: cross_artifact
+          retention-days: 30
+          if-no-files-found: warn
