@@ -337,19 +337,8 @@ def family_variants(family: str):
             v("SPREAD_1200",InpUseSpreadFilter=True,InpMaxSpreadPoints=1200),
             v("SPREAD_1600",InpUseSpreadFilter=True,InpMaxSpreadPoints=1600),
             v("DEVIATION_10",InpDeviationPoints=10),
+            v("DEVIATION_30",InpDeviationPoints=30),
             v("DEVIATION_60",InpDeviationPoints=60),
-            v("DAILY_1",InpMaxDailyCampaigns=1),
-            v("DAILY_3",InpMaxDailyCampaigns=3),
-            v("DAILY_10",InpMaxDailyCampaigns=10),
-            v("LOSS_STREAK_1",InpMaxConsecutiveLosses=1),
-            v("LOSS_STREAK_2",InpMaxConsecutiveLosses=2),
-            v("LOSS_STREAK_5",InpMaxConsecutiveLosses=5),
-            v("DAILY_LOSS_150",InpMaxDailyLossPercent=1.5),
-            v("DAILY_LOSS_500",InpMaxDailyLossPercent=5.0),
-            v("DD_300",InpMaxEquityDDPercent=3.0),
-            v("DD_1000",InpMaxEquityDDPercent=10.0),
-            v("RISK_050",InpSizingMode=1,InpRiskPercent=0.50,InpMaxCampaignRiskPercent=0.50),
-            v("RISK_100",InpSizingMode=1,InpRiskPercent=1.00,InpMaxCampaignRiskPercent=1.00),
         ]
     else:
         raise SystemExit(f"Unknown family {family}")
@@ -414,7 +403,20 @@ def rank(args):
     out=Path(args.out)
     out.mkdir(parents=True,exist_ok=True)
     (out/"ranking.json").write_text(json.dumps(rows,indent=2),encoding="utf-8")
-    top=rows[:max(1,args.top)]
+    # Cross-family generation must not be driven by tiny-sample headline
+    # metrics. Keep the full ranking for research, but admit only variants with
+    # at least 10 trades and positive basic economics to top.json. If an entire
+    # family has no such variant, fall back to the ranking so the pipeline can
+    # finish and the later OOS gate can reject it explicitly.
+    eligible=[
+        r for r in rows
+        if not r.get("missing")
+        and int(r.get("trades",0))>=10
+        and float(r.get("pf",0.0))>1.0
+        and float(r.get("expected_payoff",0.0))>0.0
+        and float(r.get("net_profit",0.0))>0.0
+    ]
+    top=(eligible if eligible else rows)[:max(1,args.top)]
     (out/"top.json").write_text(json.dumps(top,indent=2),encoding="utf-8")
     print("| Variant | Trades | PF | Exp | Net | DD% | Sharpe | Win% | Score |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
