@@ -324,7 +324,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("screen")
-    s.add_argument("--family", required=True, choices=["structure", "trigger", "exit", "session"])
+    s.add_argument("--family", required=True, choices=["timeframe", "ema", "structure", "trigger", "exit", "session", "risk"])
     s.add_argument("--artifact", required=True)
     s.add_argument("--magic-base", type=int, default=26300000)
     s.set_defaults(func=screen)
