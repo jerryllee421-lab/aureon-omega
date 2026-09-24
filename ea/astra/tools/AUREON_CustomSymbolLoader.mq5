@@ -4,7 +4,7 @@
 //+------------------------------------------------------------------+
 #property strict
 #property script_show_inputs
-#property version "1.02"
+#property version "1.03"
 
 input string InpCsvFile="ASTRA_XAUUSD_M1.csv";
 input string InpSymbolName="ASTRA_XAUUSD";
@@ -81,7 +81,7 @@ bool ConfigureSymbol()
    if(!SetIntProp(SYMBOL_TRADE_STOPS_LEVEL,0,"SYMBOL_TRADE_STOPS_LEVEL")) return false;
    if(!SetIntProp(SYMBOL_TRADE_FREEZE_LEVEL,0,"SYMBOL_TRADE_FREEZE_LEVEL")) return false;
    if(!SetIntProp(SYMBOL_SPREAD_FLOAT,true,"SYMBOL_SPREAD_FLOAT")) return false;
-   if(!SetIntProp(SYMBOL_ORDER_MODE,SYMBOL_ORDER_MARKET|SYMBOL_ORDER_SL|SYMBOL_ORDER_TP,"SYMBOL_ORDER_MODE")) return false;
+   if(!SetIntProp(SYMBOL_ORDER_MODE,SYMBOL_ORDER_MARKET|SYMBOL_ORDER_LIMIT|SYMBOL_ORDER_SL|SYMBOL_ORDER_TP,"SYMBOL_ORDER_MODE")) return false;
    if(!SetIntProp(SYMBOL_FILLING_MODE,SYMBOL_FILLING_IOC,"SYMBOL_FILLING_MODE")) return false;
 
    // PROFIT/LOSS tick values are derived/read-only on current MT5 builds.
