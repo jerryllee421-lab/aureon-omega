@@ -370,6 +370,25 @@ def metric(m,key,default=0.0):
         return default
 
 
+def cross_family_owned(item):
+    """Prevent old/legacy artifacts from leaking another family's controls into cross selection."""
+    family=item.get("family","")
+    keys=set((item.get("changes") or {}).keys())
+    if family=="session":
+        forbidden={
+            "InpSizingMode","InpRiskPercent","InpMaxCampaignRiskPercent",
+            "InpMaxDailyLossPercent","InpMaxDailyCampaigns",
+            "InpMaxConsecutiveLosses","InpMaxEquityDDPercent",
+        }
+        if keys & forbidden:
+            return False
+    if family=="structure":
+        # EMA geometry has its own dedicated V7.2 family.
+        if keys & {"InpH4FastEMA","InpH4SlowEMA","InpH1FastEMA","InpH1SlowEMA"}:
+            return False
+    return True
+
+
 def rank(args):
     root=Path(args.analysis)
     manifest=json.loads(Path(args.manifest).read_text())
@@ -421,6 +440,7 @@ def rank(args):
     eligible=[
         r for r in rows
         if not r.get("missing")
+        and cross_family_owned(r)
         and int(r.get("trades",0))>=args.min_cross_trades
         and float(r.get("pf",0.0))>1.0
         and float(r.get("expected_payoff",0.0))>0.0
