@@ -389,17 +389,27 @@ def rank(args):
         win=0.0
         try: win=float(d["metrics"]["profit_trades"]["percent"] or 0.0)
         except Exception: pass
-        # Screening score: sample size + PF + payoff + Sharpe, penalize DD.
-        # It is only a research ordering; promotion requires cross validation.
-        sample=min(1.0,trades/20.0)
-        pf_cap=min(max(pf,0.0),3.0)
-        exp_term=math.tanh(exp/20.0)
-        sharpe_term=math.tanh(sharpe/3.0)
-        score=(2.0*sample)+(1.5*(pf_cap-1.0))+exp_term+0.5*sharpe_term-(dd/10.0)
-        if trades<3: score-=3.0
+        # V7.2 evidence score: shrink headline economics toward neutral when
+        # the sample is small. This is not a statistical confidence interval;
+        # it is a conservative research ordering designed to stop 4-10 trade
+        # outliers from outranking materially larger positive samples.
+        sample=min(1.0,trades/30.0)
+        reliability=trades/(trades+20.0) if trades>0 else 0.0
+        pf_cap=min(max(pf,0.0),4.0)
+        shrunk_pf=1.0+(pf_cap-1.0)*reliability
+        shrunk_expectancy=exp*reliability
+        shrunk_sharpe=sharpe*reliability
+        exp_term=math.tanh(shrunk_expectancy/10.0)
+        sharpe_term=math.tanh(shrunk_sharpe/2.0)
+        score=(2.0*sample)+(1.75*(shrunk_pf-1.0))+exp_term+0.4*sharpe_term-(dd/10.0)
+        if trades<args.min_cross_trades:
+            score-=1.0+(args.min_cross_trades-trades)/max(args.min_cross_trades,1)
         rows.append({**item,"trades":int(trades),"pf":pf,"expected_payoff":exp,"net_profit":net,
-                     "dd_percent":dd,"sharpe":sharpe,"win_rate":win,"score":score,"missing":False})
-    rows.sort(key=lambda r:r["score"],reverse=True)
+                     "dd_percent":dd,"sharpe":sharpe,"win_rate":win,
+                     "reliability":reliability,"shrunk_pf":shrunk_pf,
+                     "shrunk_expectancy":shrunk_expectancy,"evidence_score":score,
+                     "score":score,"missing":False})
+    rows.sort(key=lambda r:r["evidence_score"],reverse=True)
     out=Path(args.out)
     out.mkdir(parents=True,exist_ok=True)
     (out/"ranking.json").write_text(json.dumps(rows,indent=2),encoding="utf-8")
@@ -411,17 +421,17 @@ def rank(args):
     eligible=[
         r for r in rows
         if not r.get("missing")
-        and int(r.get("trades",0))>=10
+        and int(r.get("trades",0))>=args.min_cross_trades
         and float(r.get("pf",0.0))>1.0
         and float(r.get("expected_payoff",0.0))>0.0
         and float(r.get("net_profit",0.0))>0.0
     ]
     top=(eligible if eligible else rows)[:max(1,args.top)]
     (out/"top.json").write_text(json.dumps(top,indent=2),encoding="utf-8")
-    print("| Variant | Trades | PF | Exp | Net | DD% | Sharpe | Win% | Score |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    print("| Variant | Trades | PF | Shrunk PF | Exp | Shrunk Exp | Net | DD% | Reliability | Evidence |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in rows:
-        print(f"| {r['name']} | {r['trades']} | {r.get('pf',0):.3f} | {r.get('expected_payoff',0):.2f} | {r.get('net_profit',0):.2f} | {r.get('dd_percent',0):.2f} | {r.get('sharpe',0):.2f} | {r.get('win_rate',0):.1f} | {r['score']:.3f} |")
+        print(f"| {r['name']} | {r['trades']} | {r.get('pf',0):.3f} | {r.get('shrunk_pf',1):.3f} | {r.get('expected_payoff',0):.2f} | {r.get('shrunk_expectancy',0):.2f} | {r.get('net_profit',0):.2f} | {r.get('dd_percent',0):.2f} | {r.get('reliability',0):.2f} | {r['evidence_score']:.3f} |")
 
 
 def valid_changes(ch):
@@ -519,6 +529,7 @@ def main():
     r.add_argument("--manifest",required=True)
     r.add_argument("--out",required=True)
     r.add_argument("--top",type=int,default=3)
+    r.add_argument("--min-cross-trades",type=int,default=15)
     r.set_defaults(func=rank)
     x=sub.add_parser("cross")
     x.add_argument("--base",required=True)
