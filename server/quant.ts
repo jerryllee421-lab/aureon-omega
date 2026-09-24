@@ -1,5 +1,6 @@
 import {acquireCandles,intervalLabel,type Candle,type CandlePack,type SupportedInterval} from './candles.ts';
 import {marketSessions} from './session.ts';
+import {deriveMarketBrain} from './marketBrain.ts';
 
 const round=(v:number|null,d=6)=>v===null?null:Number(v.toFixed(d));
 const sma=(values:number[])=>values.reduce((a,b)=>a+b,0)/values.length;
@@ -89,9 +90,11 @@ export async function multiTimeframeQuant(symbol:string){
     ?{status:'READY',...quantSnapshot(result.value)}
     :{status:'UNAVAILABLE',symbol,timeframe:intervalLabel(intervals[index]),intervalMinutes:intervals[index],reason:result.reason instanceof Error?result.reason.message:'PROVIDER_UNAVAILABLE',authority:'UNAVAILABLE',executionEligible:false});
   const ready=frames.filter((f:any)=>f.status==='READY') as Array<{bias:string}>;
+  const sessions=marketSessions();
+  const brain=deriveMarketBrain(symbol,frames as any,sessions);
   return {
     symbol,generatedAt:new Date().toISOString(),authority:'CLOSED_CANDLE_REFERENCE',executionEligible:false,
     explanation:'Deterministic multi-timeframe reference context from closed provider candles. This is not a broker quote, fill model, trade signal or execution authority.',
-    mtf:mtfAlignment(ready),sessions:marketSessions(),frames
+    mtf:mtfAlignment(ready),sessions,frames,brain
   };
 }
