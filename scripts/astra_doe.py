@@ -446,7 +446,28 @@ def rank(args):
         and float(r.get("expected_payoff",0.0))>0.0
         and float(r.get("net_profit",0.0))>0.0
     ]
-    top=(eligible if eligible else rows)[:max(1,args.top)]
+    if eligible:
+        top=eligible[:max(1,args.top)]
+    else:
+        family=(rows[0].get("family") if rows else "unknown") or "unknown"
+        # No family may be forced into the cross merely because it was tested.
+        # If every tested variant is non-positive / undersampled, contribute a
+        # neutral delta so the base strategy continues without that family.
+        top=[{
+            "index":-1,
+            "name":f"{str(family).upper()}_NEUTRAL",
+            "preset":"",
+            "family":family,
+            "changes":{},
+            "trades":0,
+            "pf":0.0,
+            "expected_payoff":0.0,
+            "net_profit":0.0,
+            "dd_percent":0.0,
+            "evidence_score":-1e9,
+            "neutral_fallback":True,
+            "reason":f"No {family} variant passed V7.2 minimum evidence gate",
+        }]
     (out/"top.json").write_text(json.dumps(top,indent=2),encoding="utf-8")
     print("| Variant | Trades | PF | Shrunk PF | Exp | Shrunk Exp | Net | DD% | Reliability | Evidence |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
