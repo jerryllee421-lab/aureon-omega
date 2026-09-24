@@ -28,6 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install MT5 Python bridge
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check MetaTrader5
+
       - name: Require demo authentication
         shell: pwsh
         run: |
@@ -76,64 +84,15 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $root=$env:MT5_ROOT
-          $mql5=Join-Path $root 'MQL5'
-          $cfg=Join-Path $root 'broker-truth.ini'
-          $ini=@"
-          [Common]
-          Login=$($env:MT5_DEMO_LOGIN)
-          Password=$($env:MT5_DEMO_PASSWORD)
-          Server=$($env:MT5_DEMO_SERVER)
-          KeepPrivate=0
-          NewsEnable=0
-
-          [Experts]
-          Enabled=1
-          AllowLiveTrading=0
-          AllowDllImport=0
-
-          [StartUp]
-          Script=AUREON\AUREON_BrokerSymbolProbe
-          Symbol=EURUSD
-          Period=M1
-          ShutdownTerminal=1
-          "@
-          $ini | Set-Content -Path $cfg -Encoding Unicode
-
-          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-          $p=Start-Process -FilePath "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
-          $deadline=(Get-Date).AddSeconds(150)
-          $hit=$false
-          while((Get-Date) -lt $deadline){
-            Start-Sleep -Seconds 5
-            $events=''
-            Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-              try { $events += (Get-Content $_.FullName -Raw -Encoding Unicode) + "`n" } catch {}
-            }
-            if($events -match 'ASTRA_BROKER_PROBE_OK' -or $events -match 'ASTRA_BROKER_PROBE_FAIL'){
-              $hit=$true
-              break
-            }
-            if($p.HasExited){ break }
-          }
-          if(-not $p.HasExited){ $p.Kill() }
-          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-
-          $events=''
-          Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            try { $events += (Get-Content $_.FullName -Raw -Encoding Unicode) + "`n" } catch {}
-          }
-          $lines=$events -split "`n" | Where-Object {
-            $_ -match 'ASTRA_BROKER_(PROBE|CANDIDATE|SELECTED|SYMBOL_ENUM|PREFERRED)_'
-          }
-          $lines | Set-Content 'broker_truth\broker-symbol-truth.log'
-          $lines | ForEach-Object { Write-Host $_ }
-
-          if($events -notmatch 'ASTRA_BROKER_PROBE_OK'){ throw 'Gold broker symbol discovery failed' }
-          $m=[regex]::Match($events,'ASTRA_BROKER_SELECTED symbol=([^\s]+)')
-          if(-not $m.Success){ throw 'Gold probe did not emit selected symbol' }
-          $m.Groups[1].Value.Trim() | Set-Content 'broker_truth\selected-symbol.txt'
+          New-Item -ItemType Directory -Force -Path 'broker_truth' | Out-Null
+          python scripts/mt5_broker_truth.py --terminal "$root\terminal64.exe" --out broker_truth
+          if($LASTEXITCODE -ne 0){ throw 'Python MT5 broker truth probe failed' }
+          $selected=(Get-Content 'broker_truth\selected-symbol.txt' -Raw).Trim()
+          if([string]::IsNullOrWhiteSpace($selected)){ throw 'Broker truth selected symbol is empty' }
+          Write-Host ("Resolved broker-native Gold symbol: "+$selected)
           @(
             'SERVER='+$env:MT5_DEMO_SERVER,
+            'SYMBOL='+$selected,
             'ALLOW_LIVE_TRADING=0',
             'ORDERS_PLACED=0'
           ) | Set-Content 'broker_truth\context.txt'
