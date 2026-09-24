@@ -16,7 +16,6 @@ env:
   MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
   MT5_DEMO_SERVER: PXBTTrading-1
   MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/pxbt.trading.ltd/mt5/pxbttrading5setup.exe
-  BROKER_SYMBOL: XAUUSD.ecn
   TEST_FROM: '2026.01.01'
   TEST_TO: '2026.09.22'
 
@@ -36,7 +35,7 @@ jobs:
             throw 'MT5 demo login/password Actions secrets are required.'
           }
           Write-Host ("Broker-native validation server: "+$env:MT5_DEMO_SERVER)
-          Write-Host ("Requested symbol: "+$env:BROKER_SYMBOL)
+          Write-Host "Gold symbol will be discovered dynamically by the broker probe."
 
       - uses: actions/setup-python@v5
         with:
@@ -117,7 +116,7 @@ jobs:
 
           [StartUp]
           Script=AUREON\AUREON_BrokerSymbolProbe
-          Symbol=$($env:BROKER_SYMBOL)
+          Symbol=EURUSD
           Period=M1
           ShutdownTerminal=1
           "@
@@ -155,11 +154,19 @@ jobs:
           Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
             try { $events += (Get-Content $_.FullName -Raw -Encoding Unicode) + "`n" } catch {}
           }
-          ($events -split "`n" | Where-Object { $_ -match 'ASTRA_BROKER_PROBE_' }) |
+          ($events -split "`n" | Where-Object { $_ -match 'ASTRA_BROKER_(PROBE|CANDIDATE|SELECTED|SYMBOL_ENUM|PREFERRED)_' }) |
             Set-Content 'broker_artifact\broker-probe.log'
-          ($events -split "`n" | Where-Object { $_ -match 'ASTRA_BROKER_PROBE_' }) |
+          ($events -split "`n" | Where-Object { $_ -match 'ASTRA_BROKER_(PROBE|CANDIDATE|SELECTED|SYMBOL_ENUM|PREFERRED)_' }) |
             ForEach-Object { Write-Host $_ }
-          if($events -notmatch 'ASTRA_BROKER_PROBE_OK'){ throw 'PrimeXBT XAUUSD broker symbol probe failed' }
+          if($events -notmatch 'ASTRA_BROKER_PROBE_OK'){ throw 'PrimeXBT Gold broker symbol probe failed' }
+
+          $m=[regex]::Match($events,'ASTRA_BROKER_SELECTED symbol=([^\s]+)')
+          if(-not $m.Success){ throw 'Broker probe succeeded but did not emit ASTRA_BROKER_SELECTED' }
+          $selected=$m.Groups[1].Value.Trim()
+          if([string]::IsNullOrWhiteSpace($selected)){ throw 'Discovered broker symbol is empty' }
+          Write-Host ("Resolved broker-native Gold symbol: "+$selected)
+          "BROKER_SYMBOL=$selected" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $selected | Set-Content 'broker_artifact\selected-symbol.txt'
 
       - name: Run broker-native baseline and discovery tests
         shell: pwsh
@@ -267,7 +274,7 @@ jobs:
             } catch {}
           }
           @(
-            'SYMBOL=XAUUSD.ecn',
+            ('SYMBOL='+$env:BROKER_SYMBOL),
             'PERIOD=M5',
             'MODEL=1_MINUTE_OHLC',
             'FROM=2026-01-01',
