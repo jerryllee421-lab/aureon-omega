@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Only the newest research request on this branch is authoritative. New V7/V7.1
+# requests cancel stale DOE runs so artifacts cannot be mixed accidentally.
+concurrency:
+  group: astra-comprehensive-doe-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   screen:
     strategy:
