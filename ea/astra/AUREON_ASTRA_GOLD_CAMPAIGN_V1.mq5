@@ -698,7 +698,8 @@ void EvaluateE1()
 
       if(PlacePendingTranche(1,entry))
       {
-         g_campaignsToday++;
+         // Daily campaign count increments on the first actual fill, not on
+         // placement. An expired/unfilled limit order is not a traded campaign.
          SetState(ASTRA_PENDING_ENTRY,"E1 precision limit order active");
          DrawCampaignObjects();
       }
@@ -849,9 +850,20 @@ bool PlacePendingTranche(int stage,double entry)
    datetime expiry=TimeCurrent()+MathMax(1,InpPendingExpiryBars)*sec;
    string comment=StringFormat("ASTRA PEND E%d %s",stage,g_campaign.bullish?"BUY":"SELL");
 
+   long expirationMode=SymbolInfoInteger(_Symbol,SYMBOL_EXPIRATION_MODE);
+   ENUM_ORDER_TYPE_TIME orderTime=ORDER_TIME_SPECIFIED;
+   datetime brokerExpiry=expiry;
+   if((expirationMode & SYMBOL_EXPIRATION_SPECIFIED)==0)
+   {
+      // Some brokers/custom symbols do not accept broker-side specified
+      // expiration. Keep the deterministic EA expiry and use GTC on-server.
+      orderTime=ORDER_TIME_GTC;
+      brokerExpiry=0;
+   }
+
    bool ok=g_campaign.bullish
-      ? trade.BuyLimit(vol,entry,_Symbol,g_campaign.stop,0,ORDER_TIME_SPECIFIED,expiry,comment)
-      : trade.SellLimit(vol,entry,_Symbol,g_campaign.stop,0,ORDER_TIME_SPECIFIED,expiry,comment);
+      ? trade.BuyLimit(vol,entry,_Symbol,g_campaign.stop,0,orderTime,brokerExpiry,comment)
+      : trade.SellLimit(vol,entry,_Symbol,g_campaign.stop,0,orderTime,brokerExpiry,comment);
 
    if(!ok)
    {
@@ -915,6 +927,7 @@ void MaintainPendingEntry()
    {
       CancelCampaignPendingOrders("Pending entry expired");
       SetState(ASTRA_EXPIRED,"Precision pending entry expired");
+      ResetCampaign();
       return;
    }
 
@@ -922,6 +935,7 @@ void MaintainPendingEntry()
    {
       CancelCampaignPendingOrders("Session window ended");
       SetState(ASTRA_EXPIRED,"Pending order cancelled outside approved session");
+      ResetCampaign();
       return;
    }
 
@@ -929,6 +943,7 @@ void MaintainPendingEntry()
    {
       CancelCampaignPendingOrders("Structure invalidated before fill");
       SetState(ASTRA_INVALIDATED,"Pending order cancelled on invalidation");
+      ResetCampaign();
       return;
    }
 
@@ -949,10 +964,12 @@ void SyncPendingFill()
    long dir=-1;
    if(!GetCampaignPositionStats(total,avg,dir)) return;
 
+   bool firstFill=(g_campaign.firstEntryPrice<=0);
    g_campaign.entries=MathMax(g_campaign.entries,stage);
    g_campaign.peakVolume=MathMax(g_campaign.peakVolume,total);
-   if(g_campaign.firstEntryPrice<=0)
+   if(firstFill)
    {
+      g_campaignsToday++;
       g_campaign.firstEntryPrice=avg;
       g_campaign.firstEntryTime=TimeCurrent();
       g_campaign.initialStop=g_campaign.stop;
