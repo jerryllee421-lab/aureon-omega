@@ -37,6 +37,8 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from astra_market_brain import build_market_brain
+
 
 @dataclass(frozen=True)
 class Cascade:
@@ -86,6 +88,21 @@ class Trade:
     bars: int
     reason: str
     note: str
+    brain_regime: str
+    brain_structure: str
+    brain_liquidity: str
+    brain_session: str
+    brain_location: str
+    brain_volatility: str
+    brain_momentum: str
+    brain_displacement: str
+    brain_fvg: str
+    brain_trend_bias: int
+    brain_context_bias: int
+    brain_router: str
+    brain_router_score: int
+    brain_next_event: str
+    brain_contradictions: str
 
 
 def rule_minutes(rule: str) -> int:
@@ -412,11 +429,13 @@ def simulate(
     reward_risk: float = 2.0,
     stop_buffer_atr: float = 0.10,
     max_hold_bars: int = 96,
+    brain: pd.DataFrame | None = None,
 ) -> list[Trade]:
     if not signals:
         return []
     e = entry_bars.reset_index(drop=True)
-    times = e["time"].to_numpy()
+    times = e["time"].astype("int64").to_numpy()
+    brain_times = brain["time"].astype("int64").to_numpy() if brain is not None and not brain.empty else np.array([], dtype=np.int64)
     trades: list[Trade] = []
     next_available = 0
 
@@ -486,6 +505,27 @@ def simulate(
                 exit_time = b.time
 
         r_mult = ((exit_price - entry) / risk) * s.direction
+
+        if brain is not None and len(brain_times):
+            bi = int(np.searchsorted(brain_times, int(s.signal_time.value), side="right") - 1)
+            bs = brain.iloc[bi] if bi >= 0 else None
+        else:
+            bs = None
+
+        def btext(key: str, default: str = "UNKNOWN") -> str:
+            if bs is None:
+                return default
+            value = bs.get(key, default)
+            return str(value) if pd.notna(value) else default
+
+        def bint(key: str, default: int = 0) -> int:
+            if bs is None:
+                return default
+            try:
+                return int(bs.get(key, default))
+            except Exception:
+                return default
+
         trades.append(Trade(
             strategy=s.strategy,
             cascade=s.cascade,
@@ -504,6 +544,21 @@ def simulate(
             bars=int(end_i - entry_i + 1),
             reason=reason,
             note=s.note,
+            brain_regime=btext("regime"),
+            brain_structure=btext("structure"),
+            brain_liquidity=btext("liquidity_state"),
+            brain_session=btext("session"),
+            brain_location=btext("location"),
+            brain_volatility=btext("volatility"),
+            brain_momentum=btext("momentum"),
+            brain_displacement=btext("displacement"),
+            brain_fvg=btext("fvg_state"),
+            brain_trend_bias=bint("trend_bias"),
+            brain_context_bias=bint("context_bias"),
+            brain_router=btext("router_choice", "WAIT"),
+            brain_router_score=bint("router_score"),
+            brain_next_event=btext("next_required_event"),
+            brain_contradictions=btext("contradictions", "NONE"),
         ))
         next_available = end_i
 
@@ -598,6 +653,30 @@ def yearly_breakdown(trades: list[Trade]) -> list[dict]:
     return [{"year": year, **metrics(rows)} for year, rows in sorted(by.items())]
 
 
+def state_breakdown(trades: list[Trade], field: str) -> list[dict]:
+    by: dict[str, list[Trade]] = {}
+    for t in trades:
+        key = str(getattr(t, field, "UNKNOWN"))
+        by.setdefault(key, []).append(t)
+    return [
+        {"state": key, **metrics(rows)}
+        for key, rows in sorted(by.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    ]
+
+
+def router_alignment(trades: list[Trade], strategy: str) -> dict:
+    if not trades:
+        return {"campaigns":0,"router_match":0,"router_wait":0,"match_fraction":0.0}
+    match=sum(1 for t in trades if t.brain_router==strategy)
+    wait=sum(1 for t in trades if t.brain_router=="WAIT")
+    return {
+        "campaigns":len(trades),
+        "router_match":match,
+        "router_wait":wait,
+        "match_fraction":match/len(trades),
+    }
+
+
 def daily_series(trades: list[Trade]) -> pd.Series:
     if not trades:
         return pd.Series(dtype=float)
@@ -668,6 +747,7 @@ def main():
     for cascade in CASCADES:
         print(f"BUILD {cascade.name}", flush=True)
         pack = build_pack(m1, cascade)
+        brain = build_market_brain(pack["entry"], pack["trend"], pack["context"])
         strategy_signals = [
             ("QEDGE_01_LIQUIDITY_REVERSAL", liquidity_reversal(pack, cascade)),
             ("QEDGE_02_TREND_PULLBACK", trend_pullback(pack, cascade)),
@@ -683,6 +763,7 @@ def main():
                 signals,
                 reward_risk=args.reward_risk,
                 max_hold_bars=hold_bars,
+                brain=brain,
             )
             trade_map[(strategy, cascade.name)] = trades
             all_trades.extend(trades)
@@ -701,6 +782,18 @@ def main():
                 "holdout": hm,
                 "development_score": evidence_score(dm),
                 "yearly": yearly_breakdown(trades),
+                "brain_development": {
+                    "regime": state_breakdown(dev, "brain_regime"),
+                    "session": state_breakdown(dev, "brain_session"),
+                    "liquidity": state_breakdown(dev, "brain_liquidity"),
+                    "router_alignment": router_alignment(dev, strategy),
+                },
+                "brain_holdout": {
+                    "regime": state_breakdown(ho, "brain_regime"),
+                    "session": state_breakdown(ho, "brain_session"),
+                    "liquidity": state_breakdown(ho, "brain_liquidity"),
+                    "router_alignment": router_alignment(ho, strategy),
+                },
             })
             print(strategy, cascade.name, "DEV", dm["campaigns"], round(dm["expectancy_r"], 4), round(dm["pf_r"], 3),
                   "HOLD", hm["campaigns"], round(hm["expectancy_r"], 4), round(hm["pf_r"], 3), flush=True)
@@ -727,6 +820,8 @@ def main():
             "holdout": best["holdout"],
             "holdout_bootstrap_mean_r": boot,
             "yearly": best["yearly"],
+            "brain_development": best["brain_development"],
+            "brain_holdout": best["brain_holdout"],
             "status": (
                 "HOLDOUT_SUPPORT"
                 if best["holdout"]["campaigns"] >= 20
@@ -768,6 +863,10 @@ def main():
                 "QEDGE_05_NY_CONT_REV",
             ],
             "cascades": [asdict(c) for c in CASCADES],
+            "market_brain": "ASTRA_V8_DETERMINISTIC_STATE_ROUTER",
+            "volume_profile_authority": "UNAVAILABLE_WITH_CURRENT_EXTERNAL_OHLC",
+            "cvd_authority": "UNAVAILABLE_WITH_CURRENT_EXTERNAL_OHLC",
+            "gex_authority": "UNAVAILABLE_WITHOUT_OPTIONS_CHAIN",
             "broker_native_confirmation_required": True,
             "live_trading": False,
         },
