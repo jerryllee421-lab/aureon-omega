@@ -79,6 +79,40 @@ jobs:
           $txt | Out-File 'broker_truth\compile.log' -Encoding utf8
           if($txt -notmatch '0 errors' -or $txt -notmatch '0 warnings'){ throw 'Broker probe compile was not clean' }
 
+      - name: Prewarm authenticated broker session
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_ROOT
+          $cfg=Join-Path $root 'broker-prewarm.ini'
+          @"
+          [Common]
+          Login=$($env:MT5_DEMO_LOGIN)
+          Password=$($env:MT5_DEMO_PASSWORD)
+          Server=$($env:MT5_DEMO_SERVER)
+          KeepPrivate=0
+          NewsEnable=0
+
+          [Experts]
+          Enabled=0
+          AllowLiveTrading=0
+          AllowDllImport=0
+          "@ | Set-Content -Path $cfg -Encoding Unicode
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $p=Start-Process -FilePath "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
+          Start-Sleep -Seconds 25
+          $logs=''
+          Get-ChildItem "$root\Logs" -Filter '*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+            try { $logs += (Get-Content $_.FullName -Raw -Encoding Unicode) + "`n" } catch {}
+          }
+          $logs | Out-File 'broker_truth\prewarm-terminal.log' -Encoding utf8
+          if(-not $p.HasExited){ $p.Kill() }
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          if($logs -notmatch 'authorized on' -and $logs -notmatch 'terminal synchronized with'){
+            Write-Warning 'Prewarm did not prove authorization; Python probe will emit the definitive diagnostic.'
+          }
+
       - name: Discover and fingerprint Gold symbol
         shell: pwsh
         run: |
