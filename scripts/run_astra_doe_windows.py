@@ -277,6 +277,11 @@ def screen(args):
     analyze_manifest(generated / "manifest.json", artifact / "reports", artifact / "analysis")
     run([sys.executable, "scripts/astra_doe.py", "rank", "--analysis", artifact / "analysis",
          "--manifest", generated / "manifest.json", "--out", artifact, "--top", "3"], timeout=60)
+    if args.family=="trigger":
+        run([sys.executable, "scripts/astra_execution_ab.py",
+             "--manifest", generated / "manifest.json",
+             "--ledgers", artifact / "event_ledgers",
+             "--out", artifact / "execution_ab"], timeout=60, check=False)
     dm = Path("research_data/XAUUSD/download_manifest.json")
     if dm.exists():
         shutil.copy2(dm, artifact / "download_manifest.json")
