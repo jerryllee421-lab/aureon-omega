@@ -321,9 +321,9 @@ def breakout_retest(pack: dict[str, pd.DataFrame], cascade: Cascade) -> list[Sig
 
     e = pack["entry"]
     out: list[Signal] = []
-    times = e["time"].to_numpy()
+    times = e["time"].astype("int64").to_numpy()
     for t, direction, level in events:
-        start = int(np.searchsorted(times, np.datetime64(t.to_datetime64()), side="right"))
+        start = int(np.searchsorted(times, int(t.value), side="right"))
         stop_i = min(len(e), start + 10)
         for j in range(start, stop_i):
             r = e.iloc[j]
