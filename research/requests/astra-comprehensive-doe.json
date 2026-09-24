@@ -1,5 +1,5 @@
 {
-  "id": "astra-quantum-edge-v2-all-tf-ema-risk",
+  "id": "astra-quantum-edge-v2-runner-fixed",
   "enabled": true,
   "objective": "Screen every native MT5 timeframe, a dense bounded EMA surface, all material ASTRA structure/trigger/exit/session/risk parameters, cross-test top signal families, then validate on untouched OOS and Monte Carlo stress before any forward-demo promotion.",
   "data": {
@@ -21,7 +21,7 @@
   "cross_top_per_family": 2,
   "oos_candidates": 4,
   "live_trading": false,
-  "notes": "Staged DOE avoids naive infinite brute-force overfitting. All 21 native MT5 timeframes are screened; dense EMA and material parameter ranges are cross-tested. External OHLC has no authoritative tick volume, so volume filter remains disabled here. Broker-native real-tick confirmation is mandatory before forward promotion. Live trading disabled.",
+  "notes": "Staged DOE avoids naive infinite brute-force overfitting. All 21 native MT5 timeframes are screened; dense EMA and material parameter ranges are cross-tested. External OHLC has no authoritative tick volume, so volume filter remains disabled here. Broker-native real-tick confirmation is mandatory before forward promotion. Live trading disabled. Windows DOE runner updated to accept timeframe, EMA and risk families.",
   "cross_signal_families": [
     "timeframe",
     "ema",
