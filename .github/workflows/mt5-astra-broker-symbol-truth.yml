@@ -1,0 +1,149 @@
+name: ASTRA Broker Symbol Truth
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/astra-campaign-ea-v1
+    paths:
+      - 'research/requests/astra-broker-symbol-truth.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: astra-broker-symbol-truth-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+  MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+  MT5_DEMO_SERVER: PXBTTrading-1
+  MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/pxbt.trading.ltd/mt5/pxbttrading5setup.exe
+
+jobs:
+  broker-symbol-truth:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require demo authentication
+        shell: pwsh
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:MT5_DEMO_LOGIN) -or
+             [string]::IsNullOrWhiteSpace($env:MT5_DEMO_PASSWORD)){
+            throw 'MT5 demo login/password Actions secrets are required.'
+          }
+
+      - name: Install official PrimeXBT MetaTrader 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\AUREON_MT5_TRUTH'
+          $installer=Join-Path $env:RUNNER_TEMP 'pxbttrading5setup.exe'
+          Invoke-WebRequest -Uri $env:MT5_INSTALLER_URL -OutFile $installer
+          if((Get-Item $installer).Length -lt 100000){ throw 'PrimeXBT MT5 installer download is unexpectedly small' }
+          $p=Start-Process -FilePath $installer -ArgumentList @('/auto',"/path:$root") -PassThru
+          $null=$p.WaitForExit(600000)
+          $deadline=(Get-Date).AddMinutes(3)
+          while((Get-Date) -lt $deadline -and -not (Test-Path "$root\metaeditor64.exe")){ Start-Sleep -Seconds 2 }
+          if(-not (Test-Path "$root\metaeditor64.exe")){ throw 'MetaEditor missing after broker install' }
+          "MT5_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compile broker symbol probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_ROOT
+          $mql5=Join-Path $root 'MQL5'
+          $dir=Join-Path $mql5 'Scripts\AUREON'
+          New-Item -ItemType Directory -Force -Path $dir,'broker_truth' | Out-Null
+          $probe=Join-Path $dir 'AUREON_BrokerSymbolProbe.mq5'
+          Copy-Item 'ea/astra/tools/AUREON_BrokerSymbolProbe.mq5' $probe -Force
+          $p=Start-Process -FilePath "$root\metaeditor64.exe" -ArgumentList @("/compile:$probe","/include:$mql5",'/log') -PassThru
+          if(-not $p.WaitForExit(180000)){ $p.Kill(); throw 'Broker probe compile timeout' }
+          Start-Sleep -Seconds 2
+          $log=[IO.Path]::ChangeExtension($probe,'.log')
+          $ex5=[IO.Path]::ChangeExtension($probe,'.ex5')
+          if(-not (Test-Path $log) -or -not (Test-Path $ex5)){ throw 'Broker probe compile output missing' }
+          $txt=Get-Content $log -Raw -Encoding Unicode
+          $txt | Out-File 'broker_truth\compile.log' -Encoding utf8
+          if($txt -notmatch '0 errors' -or $txt -notmatch '0 warnings'){ throw 'Broker probe compile was not clean' }
+
+      - name: Discover and fingerprint Gold symbol
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:MT5_ROOT
+          $mql5=Join-Path $root 'MQL5'
+          $cfg=Join-Path $root 'broker-truth.ini'
+          $ini=@"
+          [Common]
+          Login=$($env:MT5_DEMO_LOGIN)
+          Password=$($env:MT5_DEMO_PASSWORD)
+          Server=$($env:MT5_DEMO_SERVER)
+          KeepPrivate=0
+          NewsEnable=0
+
+          [Experts]
+          Enabled=1
+          AllowLiveTrading=0
+          AllowDllImport=0
+
+          [StartUp]
+          Script=AUREON\AUREON_BrokerSymbolProbe
+          Symbol=EURUSD
+          Period=M1
+          ShutdownTerminal=1
+          "@
+          $ini | Set-Content -Path $cfg -Encoding Unicode
+
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $p=Start-Process -FilePath "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
+          $deadline=(Get-Date).AddSeconds(150)
+          $hit=$false
+          while((Get-Date) -lt $deadline){
+            Start-Sleep -Seconds 5
+            $events=''
+            Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              try { $events += (Get-Content $_.FullName -Raw -Encoding Unicode) + "`n" } catch {}
+            }
+            if($events -match 'ASTRA_BROKER_PROBE_OK' -or $events -match 'ASTRA_BROKER_PROBE_FAIL'){
+              $hit=$true
+              break
+            }
+            if($p.HasExited){ break }
+          }
+          if(-not $p.HasExited){ $p.Kill() }
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+          $events=''
+          Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            try { $events += (Get-Content $_.FullName -Raw -Encoding Unicode) + "`n" } catch {}
+          }
+          $lines=$events -split "`n" | Where-Object {
+            $_ -match 'ASTRA_BROKER_(PROBE|CANDIDATE|SELECTED|SYMBOL_ENUM|PREFERRED)_'
+          }
+          $lines | Set-Content 'broker_truth\broker-symbol-truth.log'
+          $lines | ForEach-Object { Write-Host $_ }
+
+          if($events -notmatch 'ASTRA_BROKER_PROBE_OK'){ throw 'Gold broker symbol discovery failed' }
+          $m=[regex]::Match($events,'ASTRA_BROKER_SELECTED symbol=([^\s]+)')
+          if(-not $m.Success){ throw 'Gold probe did not emit selected symbol' }
+          $m.Groups[1].Value.Trim() | Set-Content 'broker_truth\selected-symbol.txt'
+          @(
+            'SERVER='+$env:MT5_DEMO_SERVER,
+            'ALLOW_LIVE_TRADING=0',
+            'ORDERS_PLACED=0'
+          ) | Set-Content 'broker_truth\context.txt'
+          git rev-parse HEAD | Set-Content 'broker_truth\source_commit.txt'
+
+      - name: Upload broker truth evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-broker-symbol-truth-${{ github.run_id }}
+          path: broker_truth
+          retention-days: 30
+          if-no-files-found: warn
