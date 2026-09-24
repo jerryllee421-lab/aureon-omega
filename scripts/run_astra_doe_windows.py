@@ -175,6 +175,31 @@ def find_report(root: Path, report_name: str) -> Path:
     return candidates[0]
 
 
+def preset_csv_name(preset: Path) -> str | None:
+    try:
+        for raw in preset.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if raw.startswith("InpCSVFile="):
+                return raw.split("=",1)[1].split("||",1)[0].strip()
+    except Exception:
+        pass
+    return None
+
+
+def copy_case_ledger(root: Path, preset: Path, case_name: str, dest: Path):
+    csv_name=preset_csv_name(preset)
+    if not csv_name:
+        return
+    candidates=sorted(
+        [p for p in root.rglob(csv_name) if p.is_file()],
+        key=lambda p:p.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        return
+    dest.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(candidates[0],dest/f"{case_name}.csv")
+
+
 def run_cases(root: Path, preset_dir: Path, manifest_path: Path, report_dir: Path,
               from_date: str, to_date: str, prefix: str):
     mql5 = root / "MQL5"
@@ -199,6 +224,10 @@ def run_cases(root: Path, preset_dir: Path, manifest_path: Path, report_dir: Pat
         time.sleep(2)
         report = find_report(root, report_name)
         shutil.copy2(report, report_dir / f"{case['name']}.htm")
+        # Capture each case ledger immediately. Tester agents can recycle their
+        # Files directory between cases, so end-of-family collection can lose
+        # earlier variants and makes matched-signal execution A/B impossible.
+        copy_case_ledger(root,preset,case["name"],report_dir.parent/"event_ledgers")
 
 
 def analyze_manifest(manifest_path: Path, report_dir: Path, analysis_dir: Path, min_trades=1, min_pf=0.0, max_dd=100.0):
