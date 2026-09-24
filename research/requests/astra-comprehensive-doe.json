@@ -1,7 +1,7 @@
 {
-  "id": "astra-v7-quantum-edge-lab-full-chain",
+  "id": "astra-v7-1-robustness-execution-truth",
   "enabled": true,
-  "objective": "Run the full AUREON Ω V7 Quantum Edge Lab chain: all native MT5 timeframe screens, dense EMA surface, structure/trigger/exit/session/risk DOE, cross-family tests, untouched OOS, regime evidence, parameter stability, setup funnel, Monte Carlo and edge registry. Advance only robust OOS candidates to broker-native confirmation.",
+  "objective": "Run the AUREON Ω V7.1 Quantum Edge chain with stale-run cancellation, immutable R/MAE/MFE telemetry, all-timeframe/EMA/structure/trigger/exit/session/risk DOE, parameter stability, untouched OOS, four-window temporal robustness, deterministic spread stress through 2.00x, IID plus moving-block Monte Carlo, multiple-testing bias diagnostic, edge registry, then broker-native eligibility only for full-gate survivors.",
   "data": {
     "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
     "from": "2025-08-20",
@@ -92,5 +92,27 @@
     "broker_native_required": true,
     "demo_forward_only_after_broker_native": true,
     "real_money_trading": false
+  },
+  "v7_1": {
+    "stale_run_cancellation": true,
+    "immutable_r_basis": true,
+    "mae_mfe_telemetry": true,
+    "pending_entry_hardening": true,
+    "rolling_temporal_windows": 4,
+    "spread_stress_multipliers": [
+      1,
+      1.25,
+      1.5,
+      2
+    ],
+    "monte_carlo": {
+      "sims": 5000,
+      "iid": true,
+      "moving_block_days": 3
+    },
+    "multiple_testing": "Bonferroni-adjusted one-sided daily-P/L diagnostic",
+    "broker_symbol_truth": true,
+    "broker_native_required": true,
+    "live_money_trading": false
   }
 }
