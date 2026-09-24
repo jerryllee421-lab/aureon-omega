@@ -16,9 +16,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        family: [structure, trigger, exit, session]
+        family: [timeframe, ema, structure, trigger, exit, session, risk]
     runs-on: windows-latest
-    timeout-minutes: 150
+    timeout-minutes: 300
     env:
       MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
       MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
@@ -44,7 +44,7 @@ jobs:
   cross:
     needs: screen
     runs-on: windows-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
       MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
       MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
