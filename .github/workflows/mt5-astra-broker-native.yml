@@ -39,7 +39,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.12'
+
+      - name: Install MT5 Python bridge
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check MetaTrader5
 
       - name: Install official MetaTrader 5
         shell: pwsh
@@ -94,79 +98,20 @@ jobs:
           Copy-Item ([IO.Path]::ChangeExtension($ea,'.ex5')) 'broker_artifact\AUREON_ASTRA_GOLD_CAMPAIGN_V1.ex5'
           (Get-FileHash $ea -Algorithm SHA256).Hash | Set-Content 'broker_artifact\ea.sha256'
 
-      - name: Probe PrimeXBT XAUUSD symbol
+      - name: Discover PrimeXBT Gold symbol and execution specification
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $root=$env:MT5_ROOT
-          $mql5=Join-Path $root 'MQL5'
-          $cfg=Join-Path $root 'broker-probe.ini'
-          $ini=@"
-          [Common]
-          Login=$($env:MT5_DEMO_LOGIN)
-          Password=$($env:MT5_DEMO_PASSWORD)
-          Server=$($env:MT5_DEMO_SERVER)
-          KeepPrivate=0
-          NewsEnable=0
-
-          [Experts]
-          Enabled=1
-          AllowLiveTrading=0
-          AllowDllImport=0
-
-          [StartUp]
-          Script=AUREON\AUREON_BrokerSymbolProbe
-          Symbol=EURUSD
-          Period=M1
-          ShutdownTerminal=1
-          "@
-          $ini | Set-Content -Path $cfg -Encoding Unicode
-
-          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-          $p=Start-Process -FilePath "$root\terminal64.exe" -ArgumentList @('/portable',"/config:$cfg") -PassThru
-
-          # The broker terminal may remain open after startup scripts even when
-          # the probe itself has completed. Give it enough time to authenticate
-          # and synchronize, then stop the GUI and evaluate the probe log.
-          $deadline=(Get-Date).AddSeconds(120)
-          while((Get-Date) -lt $deadline -and -not $p.HasExited){
-            Start-Sleep -Seconds 5
-            $probeLogs=Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue
-            $probeHit=$false
-            foreach($pl in $probeLogs){
-              try {
-                $txt=Get-Content $pl.FullName -Raw -Encoding Unicode -ErrorAction Stop
-                if($txt -match 'ASTRA_BROKER_PROBE_OK' -or $txt -match 'ASTRA_BROKER_PROBE_FAIL'){
-                  $probeHit=$true
-                  break
-                }
-              } catch {}
-            }
-            if($probeHit){ break }
-          }
-          if(-not $p.HasExited){
-            $p.Kill()
-            Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-          }
-          Start-Sleep -Seconds 3
-
-          $events=''
-          Get-ChildItem "$root\Logs","$mql5\Logs" -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            try { $events += (Get-Content $_.FullName -Raw -Encoding Unicode) + "`n" } catch {}
-          }
-          ($events -split "`n" | Where-Object { $_ -match 'ASTRA_BROKER_(PROBE|CANDIDATE|SELECTED|SYMBOL_ENUM|PREFERRED)_' }) |
-            Set-Content 'broker_artifact\broker-probe.log'
-          ($events -split "`n" | Where-Object { $_ -match 'ASTRA_BROKER_(PROBE|CANDIDATE|SELECTED|SYMBOL_ENUM|PREFERRED)_' }) |
-            ForEach-Object { Write-Host $_ }
-          if($events -notmatch 'ASTRA_BROKER_PROBE_OK'){ throw 'PrimeXBT Gold broker symbol probe failed' }
-
-          $m=[regex]::Match($events,'ASTRA_BROKER_SELECTED symbol=([^\s]+)')
-          if(-not $m.Success){ throw 'Broker probe succeeded but did not emit ASTRA_BROKER_SELECTED' }
-          $selected=$m.Groups[1].Value.Trim()
-          if([string]::IsNullOrWhiteSpace($selected)){ throw 'Discovered broker symbol is empty' }
-          Write-Host ("Resolved broker-native Gold symbol: "+$selected)
+          $truth='broker_artifact\broker_truth'
+          New-Item -ItemType Directory -Force -Path $truth | Out-Null
+          python scripts/mt5_broker_truth.py --terminal "$root\terminal64.exe" --out $truth
+          if($LASTEXITCODE -ne 0){ throw 'PrimeXBT broker truth probe failed' }
+          $selected=(Get-Content "$truth\selected-symbol.txt" -Raw).Trim()
+          if([string]::IsNullOrWhiteSpace($selected)){ throw 'Broker truth returned an empty Gold symbol' }
+          Write-Host ("Resolved PrimeXBT Gold symbol: "+$selected)
           "BROKER_SYMBOL=$selected" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $selected | Set-Content 'broker_artifact\selected-symbol.txt'
+          Copy-Item "$truth\selected-symbol.txt" 'broker_artifact\selected-symbol.txt' -Force
 
       - name: Run broker-native baseline and discovery tests
         shell: pwsh
