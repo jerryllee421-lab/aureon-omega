@@ -1,5 +1,5 @@
 {
-  "id": "astra-broker-symbol-truth-v1",
+  "id": "astra-broker-symbol-truth-v1-launch",
   "purpose": "Discover and fingerprint the broker-native Gold symbol without placing any trades.",
   "server": "PXBTTrading-1",
   "live_trading": false,
@@ -21,5 +21,6 @@
     "expiration_mode",
     "spread",
     "M1/M5/M15/H1/H4 history"
-  ]
+  ],
+  "requested_at": "2026-09-24"
 }
