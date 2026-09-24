@@ -43,11 +43,16 @@ def write_ini(path: Path, lines: list[str]):
     path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-16")
 
 
+def export_data(spread_multiplier: float = 1.0):
+    run([sys.executable, "research/export_mt5_m1.py", "--root", "research_data", "--symbol", "XAUUSD",
+         "--point", "0.001", "--spread-multiplier", str(spread_multiplier),
+         "--output", "mt5_input/ASTRA_XAUUSD_M1.csv"], timeout=300)
+
+
 def build_data():
     run([sys.executable, "research/mirror_m1.py", "--start", DATA_FROM, "--end", DATA_TO,
          "--commit", MIRROR_COMMIT, "--output", "research_data"], timeout=900)
-    run([sys.executable, "research/export_mt5_m1.py", "--root", "research_data", "--symbol", "XAUUSD",
-         "--point", "0.001", "--output", "mt5_input/ASTRA_XAUUSD_M1.csv"], timeout=300)
+    export_data(1.0)
 
 
 def install_mt5(root: Path):
@@ -317,10 +322,70 @@ def cross(args):
              "--ranking", ranking, "--out", stability_root / family], timeout=60, check=False)
 
     selection=artifact / "final_selection" / "candidate_selection.json"
+
+    # V7.1 rolling temporal validation: fixed candidates are checked across
+    # four sequential windows. This is a stability gate, not another OOS claim.
+    rolling_root=artifact / "rolling_validation"
+    rolling_windows=[
+        ("W1_20250820_20251120","2025.08.20","2025.11.20"),
+        ("W2_20251120_20260220","2025.11.20","2026.02.20"),
+        ("W3_20260220_20260520","2026.02.20","2026.05.20"),
+        ("W4_20260520_20260820","2026.05.20","2026.08.20"),
+    ]
+    for label, start, end in rolling_windows:
+        report_dir=rolling_root / label / "reports"
+        analysis_dir=rolling_root / label
+        run_cases(root, oos, oos / "manifest.json", report_dir, start, end, "ROLL_"+label)
+        analyze_manifest(oos / "manifest.json", report_dir, analysis_dir,
+                         min_trades=1, min_pf=0.0, max_dd=100.0)
+    run([sys.executable, "scripts/astra_rolling_summary.py",
+         "--root", rolling_root,
+         "--manifest", oos / "manifest.json",
+         "--out", artifact / "rolling_summary"], timeout=60, check=False)
+
+    # Deterministic execution-cost stress. Baseline OOS is reused at 1.00x;
+    # 1.25x, 1.50x and 2.00x spreads are re-imported and retested.
+    spread_root=artifact / "spread_stress"
+    baseline_dir=spread_root / "spread_1.00x"
+    shutil.copytree(artifact / "oos_analysis", baseline_dir / "analysis", dirs_exist_ok=True)
+    for mult in (1.25,1.50,2.00):
+        label=f"spread_{mult:.2f}x"
+        sdir=spread_root / label
+        export_data(mult)
+        import_history(root, sdir)
+        run_cases(root, oos, oos / "manifest.json", sdir / "reports",
+                  "2026.04.20", "2026.08.20", "STRESS_"+label.replace(".","_"))
+        analyze_manifest(oos / "manifest.json", sdir / "reports", sdir / "analysis",
+                         min_trades=1, min_pf=0.0, max_dd=100.0)
+    export_data(1.0)
+    import_history(root, artifact / "baseline_restored")
+    run([sys.executable, "scripts/astra_spread_stress.py",
+         "--root", spread_root,
+         "--manifest", oos / "manifest.json",
+         "--out", artifact / "spread_summary"], timeout=60, check=False)
+
+    # Multiple-testing diagnostic uses the declared number of configurations
+    # actually screened in the family artifacts.
+    trials=0
+    for mp in Path(args.tops).rglob("manifest.json"):
+        try:
+            trials += len(json.loads(mp.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    trials=max(1,trials)
     if selection.exists():
+        run([sys.executable, "scripts/astra_selection_bias.py",
+             "--selection", selection,
+             "--monte-carlo-root", artifact / "oos_monte_carlo",
+             "--trials", str(trials),
+             "--out", artifact / "selection_bias"], timeout=60, check=False)
+
         run([sys.executable, "scripts/astra_edge_registry.py",
              "--selection", selection,
              "--monte-carlo-root", artifact / "oos_monte_carlo",
+             "--rolling", artifact / "rolling_summary" / "rolling_validation.json",
+             "--spread-stress", artifact / "spread_summary" / "spread_stress.json",
+             "--selection-bias", artifact / "selection_bias" / "selection_bias.json",
              "--out", artifact / "edge_registry"], timeout=60, check=False)
 
     methodology = [
@@ -329,6 +394,10 @@ def cross(args):
         "IN_SAMPLE=2025-08-20_to_2026-04-20",
         "OOS=2026-04-20_to_2026-08-20",
         "VOLUME_FILTER=DISABLED_EXTERNAL_DATA_HAS_NO_TRUE_TICK_VOLUME",
+        "ROLLING_TEMPORAL_WINDOWS=4_FIXED_CANDIDATE_STABILITY_CHECKS",
+        "SPREAD_STRESS=1.00x_1.25x_1.50x_2.00x",
+        "MONTE_CARLO=IID_PLUS_3_DAY_MOVING_BLOCK",
+        "MULTIPLE_TESTING=BONFERRONI_DAILY_PL_DIAGNOSTIC",
         "BROKER_NATIVE_REAL_TICK_CONFIRMATION=REQUIRED_BEFORE_FORWARD_PROMOTION",
         "LIVE_TRADING=DISABLED",
     ]
@@ -337,6 +406,12 @@ def cross(args):
     if dm.exists():
         shutil.copy2(dm, artifact / "download_manifest.json")
     copy_event_ledgers(root, artifact / "event_ledgers")
+    run([sys.executable, "scripts/astra_funnel.py",
+         "--root", artifact / "event_ledgers",
+         "--out", artifact / "funnel"], timeout=60, check=False)
+    run([sys.executable, "scripts/astra_excursion_profile.py",
+         "--root", artifact / "event_ledgers",
+         "--out", artifact / "excursions"], timeout=60, check=False)
     try:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         (artifact / "source_commit.txt").write_text(commit + "\n")
