@@ -247,6 +247,9 @@ def screen(args):
     if dm.exists():
         shutil.copy2(dm, artifact / "download_manifest.json")
     copy_event_ledgers(root, artifact / "event_ledgers")
+    run([sys.executable, "scripts/astra_funnel.py",
+         "--root", artifact / "event_ledgers",
+         "--out", artifact / "funnel"], timeout=60, check=False)
     try:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         (artifact / "source_commit.txt").write_text(commit + "\n")
