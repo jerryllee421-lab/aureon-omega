@@ -230,9 +230,9 @@ def liquidity_reversal(pack: dict[str, pd.DataFrame], cascade: Cascade) -> list[
 
     e = pack["entry"].copy()
     out: list[Signal] = []
-    times = e["time"].to_numpy()
+    times = e["time"].astype("int64").to_numpy()
     for t, direction, level, extreme in events:
-        start = int(np.searchsorted(times, np.datetime64(t.to_datetime64()), side="right"))
+        start = int(np.searchsorted(times, int(t.value), side="right"))
         stop_i = min(len(e), start + 12)
         for j in range(start, stop_i):
             r = e.iloc[j]
@@ -421,7 +421,7 @@ def simulate(
     next_available = 0
 
     for s in sorted(signals, key=lambda z: z.signal_time):
-        sig_i = int(np.searchsorted(times, np.datetime64(s.signal_time.to_datetime64()), side="left"))
+        sig_i = int(np.searchsorted(times, int(s.signal_time.value), side="left"))
         entry_i = sig_i + 1
         if entry_i <= next_available or entry_i >= len(e):
             continue
