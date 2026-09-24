@@ -1,0 +1,88 @@
+name: ASTRA V7.2 Self-Hosted Cross + OOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Comprehensive DOE run containing completed family artifacts'
+        required: true
+        default: '35961526471'
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: astra-v72-selfhosted-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-oos:
+    runs-on: [self-hosted, Windows, X64, mt5, aureon]
+    timeout-minutes: 720
+    env:
+      MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+      MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+      MT5_DEMO_SERVER: PXBTTrading-1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install research dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r research/requirements.txt
+          pip install MetaTrader5
+
+      - name: Download completed DOE family artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: astra-doe-*
+          path: downloaded
+          merge-multiple: false
+
+      - name: Re-rank with V7.2 evidence rules
+        shell: pwsh
+        run: |
+          $families=@('timeframe','ema','structure','trigger','exit','session')
+          foreach($family in $families){
+            $root="downloaded/astra-doe-$family"
+            if(-not (Test-Path "$root/manifest.json")){ throw "Missing artifact for $family" }
+            python scripts/astra_doe.py rank --analysis "$root/analysis" --manifest "$root/manifest.json" --out $root --top 3 --min-cross-trades 15
+            if($LASTEXITCODE -ne 0){ throw "V7.2 re-rank failed for $family" }
+          }
+
+      - name: Cross-test, untouched OOS and V7.2 robustness
+        shell: pwsh
+        run: |
+          python scripts/run_astra_doe_windows.py cross --tops downloaded --artifact cross_artifact --magic-base 26420000
+          if($LASTEXITCODE -ne 0){ throw 'V7.2 self-hosted cross/OOS chain failed' }
+
+      - name: Record self-hosted provenance
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path cross_artifact | Out-Null
+          @(
+            "SOURCE_RUN=${{ inputs.source_run_id }}",
+            "RUNNER=self-hosted-Windows-X64-mt5-aureon",
+            "GITHUB_HOSTED_MINUTES_CONSUMED=0",
+            "MIN_CROSS_TRADES=15",
+            "LIVE_TRADING=DISABLED"
+          ) | Set-Content cross_artifact/selfhosted_provenance.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-v72-selfhosted-cross-${{ github.run_id }}
+          path: cross_artifact
+          retention-days: 30
+          if-no-files-found: warn
