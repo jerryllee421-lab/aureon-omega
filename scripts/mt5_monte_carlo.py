@@ -81,6 +81,22 @@ def path_stats(initial: float, pls):
     return eq,maxdd
 
 
+def moving_block_sample(pls, rng, block_days: int):
+    """Circular moving-block bootstrap preserving short serial dependence."""
+    n=len(pls)
+    if n==0:
+        return []
+    b=max(1,min(int(block_days),n))
+    out=[]
+    while len(out)<n:
+        start=rng.randrange(n)
+        for j in range(b):
+            out.append(pls[(start+j)%n])
+            if len(out)>=n:
+                break
+    return out
+
+
 def pct(xs,p):
     if not xs:return 0.0
     ys=sorted(xs)
@@ -96,6 +112,8 @@ def main():
     ap.add_argument("--out",type=Path,required=True)
     ap.add_argument("--sims",type=int,default=5000)
     ap.add_argument("--seed",type=int,default=260923)
+    ap.add_argument("--block-days",type=int,default=3,
+                    help="Moving-block bootstrap length in P/L days")
     args=ap.parse_args()
     initial,pls,daily=extract_daily_pl(args.report)
     if not pls:
@@ -103,10 +121,15 @@ def main():
     actual_end,actual_dd=path_stats(initial,pls)
     rng=random.Random(args.seed)
     ends=[]; dds=[]
+    block_ends=[]; block_dds=[]
     for _ in range(args.sims):
         sample=[rng.choice(pls) for _ in range(len(pls))]
         e,d=path_stats(initial,sample)
         ends.append(e); dds.append(d)
+
+        block_sample=moving_block_sample(pls,rng,args.block_days)
+        be,bd=path_stats(initial,block_sample)
+        block_ends.append(be); block_dds.append(bd)
     result={
         "initial_balance":initial,
         "pl_days":len(pls),
@@ -127,6 +150,20 @@ def main():
         "prob_dd_gt_5pct":sum(d>5 for d in dds)/len(dds),
         "prob_dd_gt_10pct":sum(d>10 for d in dds)/len(dds),
         "prob_dd_gt_20pct":sum(d>20 for d in dds)/len(dds),
+        "block_bootstrap":{
+            "block_days":args.block_days,
+            "ending_balance_percentiles":{
+                "p05":pct(block_ends,0.05),"p25":pct(block_ends,0.25),"p50":pct(block_ends,0.50),
+                "p75":pct(block_ends,0.75),"p95":pct(block_ends,0.95)
+            },
+            "max_dd_percentiles":{
+                "p50":pct(block_dds,0.50),"p90":pct(block_dds,0.90),
+                "p95":pct(block_dds,0.95),"p99":pct(block_dds,0.99)
+            },
+            "prob_end_below_start":sum(e<initial for e in block_ends)/len(block_ends),
+            "prob_dd_gt_10pct":sum(d>10 for d in block_dds)/len(block_dds),
+            "prob_dd_gt_20pct":sum(d>20 for d in block_dds)/len(block_dds),
+        },
         "daily_pl":daily,
     }
     args.out.mkdir(parents=True,exist_ok=True)
@@ -141,6 +178,10 @@ def main():
         f"- Bootstrap 95th percentile max DD: {result['max_dd_percentiles']['p95']:.2f}%",
         f"- P(end below start): {result['prob_end_below_start']*100:.1f}%",
         f"- P(DD > 10%): {result['prob_dd_gt_10pct']*100:.1f}%",
+        f"- Moving-block length: {args.block_days} P/L days",
+        f"- Block-bootstrap median ending balance: {result['block_bootstrap']['ending_balance_percentiles']['p50']:.2f}",
+        f"- Block-bootstrap 95th percentile max DD: {result['block_bootstrap']['max_dd_percentiles']['p95']:.2f}%",
+        f"- Block-bootstrap P(end below start): {result['block_bootstrap']['prob_end_below_start']*100:.1f}%",
     ]
     (args.out/"monte_carlo.md").write_text("\n".join(lines)+"\n")
     print("\n".join(lines))
