@@ -97,6 +97,13 @@ class Trade:
     brain_momentum: str
     brain_displacement: str
     brain_fvg: str
+    brain_candlestick_pattern: str
+    brain_candlestick_bias: int
+    brain_candlestick_quality: int
+    brain_chart_pattern: str
+    brain_chart_bias: int
+    brain_chart_quality: int
+    brain_chart_status: str
     brain_trend_bias: int
     brain_context_bias: int
     brain_router: str
@@ -553,6 +560,13 @@ def simulate(
             brain_momentum=btext("momentum"),
             brain_displacement=btext("displacement"),
             brain_fvg=btext("fvg_state"),
+            brain_candlestick_pattern=btext("candlestick_pattern"),
+            brain_candlestick_bias=bint("candlestick_bias"),
+            brain_candlestick_quality=bint("candlestick_quality"),
+            brain_chart_pattern=btext("chart_pattern"),
+            brain_chart_bias=bint("chart_pattern_bias"),
+            brain_chart_quality=bint("chart_pattern_quality"),
+            brain_chart_status=btext("chart_pattern_status"),
             brain_trend_bias=bint("trend_bias"),
             brain_context_bias=bint("context_bias"),
             brain_router=btext("router_choice", "WAIT"),
@@ -786,12 +800,16 @@ def main():
                     "regime": state_breakdown(dev, "brain_regime"),
                     "session": state_breakdown(dev, "brain_session"),
                     "liquidity": state_breakdown(dev, "brain_liquidity"),
+                    "candlestick_patterns": state_breakdown(dev, "brain_candlestick_pattern"),
+                    "chart_patterns": state_breakdown(dev, "brain_chart_pattern"),
                     "router_alignment": router_alignment(dev, strategy),
                 },
                 "brain_holdout": {
                     "regime": state_breakdown(ho, "brain_regime"),
                     "session": state_breakdown(ho, "brain_session"),
                     "liquidity": state_breakdown(ho, "brain_liquidity"),
+                    "candlestick_patterns": state_breakdown(ho, "brain_candlestick_pattern"),
+                    "chart_patterns": state_breakdown(ho, "brain_chart_pattern"),
                     "router_alignment": router_alignment(ho, strategy),
                 },
             })
