@@ -144,7 +144,99 @@ def v(name, **changes):
 
 def family_variants(family: str):
     x=[v("BASE_DISCOVERY")]
-    if family=="structure":
+
+    # ENUM_TIMEFRAMES integer values from the official MQL5 reference.
+    # Every native MT5 timeframe is screened as an ASTRA entry timeframe.
+    # Higher-horizon periods are diagnostic/sample-sufficiency tests; they are
+    # not automatically eligible for promotion simply because they score well.
+    if family=="timeframe":
+        tf_values=[
+            ("M1",1),("M2",2),("M3",3),("M4",4),("M5",5),("M6",6),
+            ("M10",10),("M12",12),("M15",15),("M20",20),("M30",30),
+            ("H1",16385),("H2",16386),("H3",16387),("H4",16388),
+            ("H6",16390),("H8",16392),("H12",16396),
+            ("D1",16408),("W1",32769),("MN1",49153),
+        ]
+        x=[v(f"ENTRY_{name}",InpEntryTF=value) for name,value in tf_values]
+        # Coherent multi-timeframe cascades. The H1/H4-named inputs accept any
+        # ENUM_TIMEFRAMES value, so these test architecture rather than labels.
+        x += [
+            v("CASCADE_M1_M5_M15_H1",InpEntryTF=1,InpLiquidityTF=5,InpH1TF=15,InpH4TF=16385),
+            v("CASCADE_M2_M10_M30_H2",InpEntryTF=2,InpLiquidityTF=10,InpH1TF=30,InpH4TF=16386),
+            v("CASCADE_M3_M15_H1_H4",InpEntryTF=3,InpLiquidityTF=15,InpH1TF=16385,InpH4TF=16388),
+            v("CASCADE_M4_M20_H1_H4",InpEntryTF=4,InpLiquidityTF=20,InpH1TF=16385,InpH4TF=16388),
+            v("CASCADE_M5_M15_H1_H4",InpEntryTF=5,InpLiquidityTF=15,InpH1TF=16385,InpH4TF=16388),
+            v("CASCADE_M6_M20_H1_H4",InpEntryTF=6,InpLiquidityTF=20,InpH1TF=16385,InpH4TF=16388),
+            v("CASCADE_M10_M30_H2_H6",InpEntryTF=10,InpLiquidityTF=30,InpH1TF=16386,InpH4TF=16390),
+            v("CASCADE_M12_M30_H2_H6",InpEntryTF=12,InpLiquidityTF=30,InpH1TF=16386,InpH4TF=16390),
+            v("CASCADE_M15_H1_H4_H12",InpEntryTF=15,InpLiquidityTF=16385,InpH1TF=16388,InpH4TF=16396),
+            v("CASCADE_M20_H1_H4_H12",InpEntryTF=20,InpLiquidityTF=16385,InpH1TF=16388,InpH4TF=16396),
+            v("CASCADE_M30_H2_H6_D1",InpEntryTF=30,InpLiquidityTF=16386,InpH1TF=16390,InpH4TF=16408),
+            v("CASCADE_H1_H4_H12_D1",InpEntryTF=16385,InpLiquidityTF=16388,InpH1TF=16396,InpH4TF=16408),
+            v("CASCADE_H2_H6_D1_W1",InpEntryTF=16386,InpLiquidityTF=16390,InpH1TF=16408,InpH4TF=32769),
+            v("CASCADE_H4_D1_W1_MN1",InpEntryTF=16388,InpLiquidityTF=16408,InpH1TF=32769,InpH4TF=49153),
+        ]
+
+    elif family=="ema":
+        # Coarse exhaustive EMA surface, followed by cross/OOS confirmation.
+        # This is intentionally bounded to economically plausible trend spans;
+        # integer-by-integer brute force would amplify multiple-testing overfit.
+        fasts=[5,8,9,10,12,13,15,20,21,25,34,50]
+        slows=[20,21,26,34,50,55,75,89,100,144,200]
+        x=[]
+        for fast in fasts:
+            for slow in slows:
+                if fast>=slow:
+                    continue
+                x.append(v(
+                    f"EMA_{fast}_{slow}",
+                    InpRequireH4Bias=True,
+                    InpRequireH1Alignment=True,
+                    InpMinADX=12.0,
+                    InpH4FastEMA=fast,InpH4SlowEMA=slow,
+                    InpH1FastEMA=fast,InpH1SlowEMA=slow,
+                ))
+        # A few asymmetric MTF combinations test whether the execution context
+        # benefits from a faster H1 and slower H4 regime filter.
+        x += [
+            v("EMA_H1_9_21_H4_20_50",InpRequireH4Bias=True,InpRequireH1Alignment=True,InpMinADX=12.0,
+              InpH1FastEMA=9,InpH1SlowEMA=21,InpH4FastEMA=20,InpH4SlowEMA=50),
+            v("EMA_H1_20_50_H4_50_200",InpRequireH4Bias=True,InpRequireH1Alignment=True,InpMinADX=12.0,
+              InpH1FastEMA=20,InpH1SlowEMA=50,InpH4FastEMA=50,InpH4SlowEMA=200),
+            v("EMA_H1_13_34_H4_34_89",InpRequireH4Bias=True,InpRequireH1Alignment=True,InpMinADX=12.0,
+              InpH1FastEMA=13,InpH1SlowEMA=34,InpH4FastEMA=34,InpH4SlowEMA=89),
+        ]
+
+    elif family=="risk":
+        x=[
+            v("RISK_FIXED_002",InpSizingMode=0,InpEntryLot=0.02,InpCampaignLots=0.02),
+            v("RISK_025",InpSizingMode=1,InpRiskPercent=0.25,InpMaxCampaignRiskPercent=0.25),
+            v("RISK_050",InpSizingMode=1,InpRiskPercent=0.50,InpMaxCampaignRiskPercent=0.50),
+            v("RISK_075",InpSizingMode=1,InpRiskPercent=0.75,InpMaxCampaignRiskPercent=0.75),
+            v("RISK_100",InpSizingMode=1,InpRiskPercent=1.00,InpMaxCampaignRiskPercent=1.00),
+            v("RISK_125",InpSizingMode=1,InpRiskPercent=1.25,InpMaxCampaignRiskPercent=1.25),
+            v("DAILY_LOSS_100",InpMaxDailyLossPercent=1.0),
+            v("DAILY_LOSS_150",InpMaxDailyLossPercent=1.5),
+            v("DAILY_LOSS_200",InpMaxDailyLossPercent=2.0),
+            v("DAILY_LOSS_300",InpMaxDailyLossPercent=3.0),
+            v("DAILY_LOSS_500",InpMaxDailyLossPercent=5.0),
+            v("DD_300",InpMaxEquityDDPercent=3.0),
+            v("DD_400",InpMaxEquityDDPercent=4.0),
+            v("DD_600",InpMaxEquityDDPercent=6.0),
+            v("DD_800",InpMaxEquityDDPercent=8.0),
+            v("DD_1000",InpMaxEquityDDPercent=10.0),
+            v("CAMPAIGNS_1",InpMaxDailyCampaigns=1),
+            v("CAMPAIGNS_2",InpMaxDailyCampaigns=2),
+            v("CAMPAIGNS_3",InpMaxDailyCampaigns=3),
+            v("CAMPAIGNS_5",InpMaxDailyCampaigns=5),
+            v("CAMPAIGNS_10",InpMaxDailyCampaigns=10),
+            v("STREAK_1",InpMaxConsecutiveLosses=1),
+            v("STREAK_2",InpMaxConsecutiveLosses=2),
+            v("STREAK_3",InpMaxConsecutiveLosses=3),
+            v("STREAK_5",InpMaxConsecutiveLosses=5),
+        ]
+
+    elif family=="structure":
         x += [
             v("SHORT_ONLY",InpLongEnabled=False),
             v("LONG_ONLY",InpShortEnabled=False),
@@ -348,8 +440,8 @@ def valid_changes(ch):
 def cross_generate(args):
     order,rows=read_set(Path(args.base))
     roots=sorted(Path(args.tops).glob("*/top.json"))
-    if len(roots)<4:
-        raise SystemExit(f"Expected top.json for four families under {args.tops}; found {len(roots)}")
+    if len(roots)<6:
+        raise SystemExit(f"Expected top.json for six signal families under {args.tops}; found {len(roots)}")
     family_map={}
     for p in roots:
         arr=json.loads(p.read_text())
@@ -357,7 +449,7 @@ def cross_generate(args):
         if family.startswith("astra-doe-"):
             family=family[len("astra-doe-"):]
         family_map[family]=arr[:args.per_family]
-    required=["structure","trigger","exit","session"]
+    required=["timeframe","ema","structure","trigger","exit","session"]
     missing=[x for x in required if x not in family_map]
     if missing:
         raise SystemExit(f"Missing family top results: {missing}")
@@ -415,7 +507,7 @@ def main():
     ap=argparse.ArgumentParser()
     sub=ap.add_subparsers(dest="cmd",required=True)
     g=sub.add_parser("generate")
-    g.add_argument("--family",required=True,choices=["structure","trigger","exit","session"])
+    g.add_argument("--family",required=True,choices=["timeframe","ema","structure","trigger","exit","session","risk"])
     g.add_argument("--base",required=True)
     g.add_argument("--out",required=True)
     g.add_argument("--magic-base",type=int,default=26100000)
