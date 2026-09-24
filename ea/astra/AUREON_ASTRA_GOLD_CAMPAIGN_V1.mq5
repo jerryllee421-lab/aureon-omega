@@ -1199,6 +1199,17 @@ void ManageOpenCampaign()
    double price=g_campaign.bullish?bid:ask;
    if(price<=0 || avg<=0) return;
 
+   // Fill synchronization fallback for asynchronous market execution.
+   if(g_campaign.firstEntryPrice<=0)
+   {
+      g_campaign.firstEntryPrice=avg;
+      g_campaign.firstEntryTime=TimeCurrent();
+      g_campaign.initialStop=g_campaign.stop;
+      g_campaign.initialRiskPrice=MathAbs(avg-g_campaign.initialStop);
+      g_campaign.maxMfeR=0.0;
+      g_campaign.maxMaeR=0.0;
+   }
+
    if(g_campaign.bestPrice<=0) g_campaign.bestPrice=price;
    if(g_campaign.bullish) g_campaign.bestPrice=MathMax(g_campaign.bestPrice,price);
    else g_campaign.bestPrice=MathMin(g_campaign.bestPrice,price);
