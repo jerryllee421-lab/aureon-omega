@@ -2,6 +2,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {quantSnapshot,mtfAlignment,emaLatest,rsiLatest,atrLatest,adxLatest} from '../server/quant.ts';
 import {deriveMarketBrain} from '../server/marketBrain.ts';
+import {patternSnapshot} from '../server/patterns.ts';
 import type {CandlePack} from '../server/candles.ts';
 
 function trendPack(direction:1|-1):CandlePack{
@@ -38,4 +39,15 @@ test('Market Brain routes state without granting execution authority',()=>{
  assert.equal(brain.dataAuthority.volumeProfile,'UNAVAILABLE');
  assert.equal(brain.dataAuthority.cvd,'UNAVAILABLE');
  assert.equal(brain.dataAuthority.gex,'UNAVAILABLE');
+});
+
+test('pattern engine detects bullish engulfing without granting execution authority',()=>{
+ const candles=[
+  {time:0,open:100,high:102,low:98,close:99},
+  {time:300000,open:98.8,high:102.5,low:98.5,close:102.2},
+ ];
+ const result=patternSnapshot(candles,2);
+ assert.equal(result.candlestick.name,'BULLISH_ENGULFING');
+ assert.equal(result.candlestick.bias,1);
+ assert.equal(result.executionEligible,false);
 });
