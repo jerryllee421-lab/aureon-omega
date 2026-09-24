@@ -8,6 +8,10 @@ export type MarketBrainFrame={
   structure?:string;
   bias?:string;
   regime?:string;
+  patterns?:{
+    candlestick?:{name?:string;bias?:number;quality?:number};
+    chart?:{name?:string;bias?:number;quality?:number;status?:string};
+  };
 };
 
 export type MarketBrainSessions={
@@ -28,6 +32,11 @@ export function deriveMarketBrain(symbol:string,frames:MarketBrainFrame[],sessio
   const trendUp=usable.filter(f=>f.regime==='TREND_UP').length;
   const trendDown=usable.filter(f=>f.regime==='TREND_DOWN').length;
   const range=usable.filter(f=>f.regime==='RANGE_OR_TRANSITION').length;
+  const candleBull=usable.filter(f=>(f.patterns?.candlestick?.bias||0)>0&&(f.patterns?.candlestick?.quality||0)>=55).length;
+  const candleBear=usable.filter(f=>(f.patterns?.candlestick?.bias||0)<0&&(f.patterns?.candlestick?.quality||0)>=55).length;
+  const chartBreakRetest=usable.filter(f=>String(f.patterns?.chart?.name||'').includes('BREAK_RETEST')).length;
+  const chartLiquidity=usable.filter(f=>['DOUBLE_TOP_LIQUIDITY','DOUBLE_BOTTOM_LIQUIDITY'].includes(String(f.patterns?.chart?.name||''))).length;
+  const chartCompression=usable.filter(f=>['SYMMETRICAL_TRIANGLE','ASCENDING_TRIANGLE','DESCENDING_TRIANGLE'].includes(String(f.patterns?.chart?.name||''))).length;
 
   const directionalState=usable.length<2?'INSUFFICIENT'
     :up>=3&&down===0?'BULLISH_ALIGNMENT'
@@ -56,9 +65,9 @@ export function deriveMarketBrain(symbol:string,frames:MarketBrainFrame[],sessio
      (directionalState==='BEARISH_ALIGNMENT'&&structureState.startsWith('BULL')))
     contradictions.push('DIRECTION_STRUCTURE_CONFLICT');
 
-  const qedge01=(range>=2?2:0)+(structureState.includes('MIXED')?1:0);
-  const qedge02=(directionalState.endsWith('ALIGNMENT')?3:0)+(regimeState.startsWith('TREND_')?2:0);
-  const qedge03=(regimeState==='RANGE_OR_TRANSITION'?2:0)+(usable.some(f=>(f.adx14||0)>=25)?1:0);
+  const qedge01=(range>=2?2:0)+(structureState.includes('MIXED')?1:0)+(chartLiquidity>0?1:0)+((candleBull+candleBear)>0?1:0);
+  const qedge02=(directionalState.endsWith('ALIGNMENT')?3:0)+(regimeState.startsWith('TREND_')?2:0)+((directionalState.startsWith('BULL')&&candleBull>0)||(directionalState.startsWith('BEAR')&&candleBear>0)?1:0);
+  const qedge03=(regimeState==='RANGE_OR_TRANSITION'?2:0)+(usable.some(f=>(f.adx14||0)>=25)?1:0)+(chartBreakRetest>0?2:0)+(chartCompression>0?1:0);
   const london=Boolean(sessions.london?.active||sessions.london?.openWindow);
   const ny=Boolean(sessions.newYork?.active||sessions.newYork?.openWindow);
   const qedge04=london?3:0;
@@ -92,6 +101,18 @@ export function deriveMarketBrain(symbol:string,frames:MarketBrainFrame[],sessio
       session:String(sessions.focusWindow||'UNKNOWN'),
       readyFrames:usable.length,
       contradictions,
+      patternEvidence:{
+        bullishCandles:candleBull,
+        bearishCandles:candleBear,
+        breakRetestFrames:chartBreakRetest,
+        liquidityPatternFrames:chartLiquidity,
+        compressionPatternFrames:chartCompression,
+        frames:usable.map(f=>({
+          timeframe:f.timeframe,
+          candlestick:f.patterns?.candlestick||{name:'NONE',bias:0,quality:0},
+          chart:f.patterns?.chart||{name:'NONE',bias:0,quality:0,status:'NONE'},
+        })),
+      },
     },
     dataAuthority:{
       priceContext:'CLOSED_CANDLE_REFERENCE',
