@@ -1,6 +1,7 @@
 import {acquireCandles,intervalLabel,type Candle,type CandlePack,type SupportedInterval} from './candles.ts';
 import {marketSessions} from './session.ts';
 import {deriveMarketBrain} from './marketBrain.ts';
+import {patternSnapshot} from './patterns.ts';
 
 const round=(v:number|null,d=6)=>v===null?null:Number(v.toFixed(d));
 const sma=(values:number[])=>values.reduce((a,b)=>a+b,0)/values.length;
@@ -66,12 +67,13 @@ export function quantSnapshot(pack:CandlePack){
   const bias=last.close>ema20&&ema20>ema50?'UP':last.close<ema20&&ema20<ema50?'DOWN':'NEUTRAL';
   const regime=adx14>=20&&bias==='UP'?'TREND_UP':adx14>=20&&bias==='DOWN'?'TREND_DOWN':'RANGE_OR_TRANSITION';
   const recent=candles.slice(-20);
+  const patterns=patternSnapshot(candles,atr14);
   return {
     symbol:pack.symbol,timeframe:intervalLabel(pack.intervalMinutes),intervalMinutes:pack.intervalMinutes,
     provider:pack.provider,providerInstrument:pack.providerInstrument,observedAt:new Date(pack.observedAt).toISOString(),
     lastClosedAt:new Date(last.time+pack.intervalMs).toISOString(),sampleCount:candles.length,
     close:round(last.close),ema20:round(ema20),ema50:round(ema50),rsi14:round(rsi14,2),atr14:round(atr14),atrPercent:round(atr14/last.close*100,3),adx14:round(adx14,2),
-    recentHigh:round(Math.max(...recent.map(c=>c.high))),recentLow:round(Math.min(...recent.map(c=>c.low))),structure:structure(candles),bias,regime,
+    recentHigh:round(Math.max(...recent.map(c=>c.high))),recentLow:round(Math.min(...recent.map(c=>c.low))),structure:structure(candles),bias,regime,patterns,
     authority:'CLOSED_CANDLE_REFERENCE',executionEligible:false,
   };
 }
