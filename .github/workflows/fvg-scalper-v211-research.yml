@@ -43,6 +43,7 @@ jobs:
 
       - name: Run FVG Scalper V2.11 logic matrix
         run: |
+          mkdir -p fvg_scalper_results
           python research/fvg_scalper_v211_backtest.py \
             --root research_data \
             --output fvg_scalper_results \
