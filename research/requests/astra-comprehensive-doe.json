@@ -1,7 +1,7 @@
 {
-  "id": "astra-comprehensive-doe-v1-retry-spread-export-fix",
+  "id": "astra-quantum-edge-v2-all-tf-ema-risk",
   "enabled": true,
-  "objective": "Screen all material ASTRA Gold strategy parameters by family, cross-test top parameter deltas, then validate top candidates on an untouched OOS window.",
+  "objective": "Screen every native MT5 timeframe, a dense bounded EMA surface, all material ASTRA structure/trigger/exit/session/risk parameters, cross-test top signal families, then validate on untouched OOS and Monte Carlo stress before any forward-demo promotion.",
   "data": {
     "source": "DUKASCOPY_EXTERNAL_PINNED_MIRROR",
     "from": "2025-08-20",
@@ -9,9 +9,78 @@
     "to": "2026-08-20",
     "mt5_model": "1_MINUTE_OHLC"
   },
-  "families": ["structure", "trigger", "exit", "session"],
+  "families": [
+    "timeframe",
+    "ema",
+    "structure",
+    "trigger",
+    "exit",
+    "session",
+    "risk"
+  ],
   "cross_top_per_family": 2,
   "oos_candidates": 4,
   "live_trading": false,
-  "notes": "External OHLC has no authoritative tick volume. Volume filter stays disabled in this phase. Broker-native real-tick confirmation remains mandatory before forward promotion."
+  "notes": "Staged DOE avoids naive infinite brute-force overfitting. All 21 native MT5 timeframes are screened; dense EMA and material parameter ranges are cross-tested. External OHLC has no authoritative tick volume, so volume filter remains disabled here. Broker-native real-tick confirmation is mandatory before forward promotion. Live trading disabled.",
+  "cross_signal_families": [
+    "timeframe",
+    "ema",
+    "structure",
+    "trigger",
+    "exit",
+    "session"
+  ],
+  "timeframes": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M10",
+    "M12",
+    "M15",
+    "M20",
+    "M30",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H6",
+    "H8",
+    "H12",
+    "D1",
+    "W1",
+    "MN1"
+  ],
+  "ema_search": {
+    "fast": [
+      5,
+      8,
+      9,
+      10,
+      12,
+      13,
+      15,
+      20,
+      21,
+      25,
+      34,
+      50
+    ],
+    "slow": [
+      20,
+      21,
+      26,
+      34,
+      50,
+      55,
+      75,
+      89,
+      100,
+      144,
+      200
+    ],
+    "rule": "fast<slow plus asymmetric MTF EMA cascades"
+  }
 }
