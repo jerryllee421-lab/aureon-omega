@@ -2,7 +2,7 @@ name: AUREON Gold Research
 
 on:
   push:
-    branches: [feature/gold-research-lab]
+    branches: [feature/gold-research-lab, fix/gold-research-run]
     paths:
       - 'research/**'
       - 'ea/**'
