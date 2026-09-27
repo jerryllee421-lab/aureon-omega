@@ -39,15 +39,7 @@ jobs:
       - run:
           name: Resolve research date range
           command: |
-            python - <<'PY' > /tmp/aureon_dates
-            from datetime import date
-            y=int("<< pipeline.parameters.years >>")
-            end=date.today()
-            try: start=end.replace(year=end.year-y)
-            except ValueError: start=end.replace(month=2,day=28,year=end.year-y)
-            print("export AUREON_START="+start.isoformat())
-            print("export AUREON_END="+end.isoformat())
-            PY
+            python -c 'from datetime import date; y=int("<< pipeline.parameters.years >>"); end=date.today(); start=end.replace(year=end.year-y) if not (end.month==2 and end.day==29) else end.replace(month=2,day=28,year=end.year-y); print("export AUREON_START="+start.isoformat()); print("export AUREON_END="+end.isoformat())' > /tmp/aureon_dates
             cat /tmp/aureon_dates >> "$BASH_ENV"
       - run:
           name: Download authentic XAUUSD M1 bid and ask data
