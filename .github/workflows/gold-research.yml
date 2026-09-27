@@ -70,6 +70,12 @@ jobs:
         run: python research/resample_validate.py --root research_data --symbol XAUUSD
       - name: Run FVG V2.11 research
         run: python research/run_research.py --data 'research_data/XAUUSD/canonical/XAUUSD_${{ inputs.timeframe || 'M1' }}.parquet' --max-candidates '${{ inputs.max_candidates || '240' }}'
+      - name: ASTRA NVIDIA quant audit
+        if: success()
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_MODEL: nvidia/nemotron-3.5-lightning-30b-a3b
+        run: python research/nvidia_quant_auditor.py research_results/research_report.json research_results/astra_nvidia_review.json
       - name: Package manifest
         if: always()
         run: |
