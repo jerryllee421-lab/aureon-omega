@@ -42,6 +42,11 @@ jobs:
             python -c 'from datetime import date; y=int("<< pipeline.parameters.years >>"); end=date.today(); start=end.replace(year=end.year-y) if not (end.month==2 and end.day==29) else end.replace(month=2,day=28,year=end.year-y); print("export AUREON_START="+start.isoformat()); print("export AUREON_END="+end.isoformat())' > /tmp/aureon_dates
             cat /tmp/aureon_dates >> "$BASH_ENV"
       - run:
+          name: Publish acquisition start
+          command: |
+            python research/status_event.py --state RUNNING --stage GOLD_BRAIN --task "Populate Gold Brain" --completed 0 --total 4
+            python research/publish_telemetry.py status || true
+      - run:
           name: Populate and integrity-gate Gold Brain
           command: |
             source "$BASH_ENV"
@@ -52,12 +57,26 @@ jobs:
           paths:
             - .cache/dukascopy
       - run:
+          name: Publish research start
+          command: |
+            python research/status_event.py --state RUNNING --stage EVOLUTION_RESEARCH --task "Deterministic FVG research" --completed 2 --total 4
+            python research/publish_telemetry.py status || true
+      - run:
           name: Deterministic FVG research
           command: python research/run_research.py --data "research_data/XAUUSD/canonical/XAUUSD_<< pipeline.parameters.timeframe >>.parquet" --max-candidates "<< pipeline.parameters.max_candidates >>"
           no_output_timeout: 30m
       - run:
+          name: Publish verified research result
+          command: python research/publish_telemetry.py result || true
+      - run:
           name: ASTRA NVIDIA advisory audit
           command: python research/nvidia_quant_auditor.py research_results/research_report.json research_results/astra_nvidia_review.json
+      - run:
+          name: Publish completion heartbeat
+          when: on_success
+          command: |
+            python research/status_event.py --state IDLE --stage COMPLETE --task "Gold research batch complete" --completed 4 --total 4
+            python research/publish_telemetry.py status || true
       - run:
           name: Package evidence
           when: always
