@@ -1,0 +1,45 @@
+version: 1
+project: AUREON_OMEGA_PRIME
+symbol: XAUUSD
+mode: research_only
+production_execution: false
+allocation:
+  exploit_pct: 70
+  explore_pct: 20
+  frontier_pct: 10
+immutable:
+  preserve_dataset_hashes: true
+  preserve_holdout: true
+  preserve_control_results: true
+  historical_control: FVG_Scalper_V2_12_Research_R943K
+promotion:
+  min_trades: 100
+  min_profit_factor: 1.20
+  min_expectancy_r: 0.05
+  max_drawdown_r: 20.0
+  max_oos_degradation_pct: 35.0
+  require_positive_holdout: true
+  require_neighbor_stability: true
+  require_cost_stress: true
+  require_walk_forward: true
+  require_mt5_real_ticks_before_demo_forward: true
+failure_taxonomy:
+  - NO_EDGE
+  - OVERFIT
+  - LONG_SIDE_FAILURE
+  - SHORT_SIDE_FAILURE
+  - REGIME_DEPENDENT
+  - SESSION_DEPENDENT
+  - TAIL_WINNER_DEPENDENT
+  - EXCESSIVE_DD
+  - SPREAD_SENSITIVE
+  - SLIPPAGE_SENSITIVE
+  - REENTRY_PATHOLOGY
+  - PARAMETER_CLIFF
+  - OOS_COLLAPSE
+  - INSUFFICIENT_SAMPLE
+mutation:
+  max_variables_changed: 2
+  require_hypothesis: true
+  require_parent_id: true
+  forbid_holdout_optimization: true
