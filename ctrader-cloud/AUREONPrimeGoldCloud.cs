@@ -31,6 +31,18 @@ namespace cAlgo.Robots
         [Parameter("Max Spread (pips)", DefaultValue = 8.0, MinValue = 0)]
         public double MaxSpreadPips { get; set; }
 
+        [Parameter("Max SL ATR", DefaultValue = 3.0, MinValue = 0.1)]
+        public double MaxSlAtr { get; set; }
+
+        [Parameter("SL ATR Buffer", DefaultValue = 0.15, MinValue = 0)]
+        public double SlAtrBuffer { get; set; }
+
+        [Parameter("Min Projected Margin %", DefaultValue = 150.0, MinValue = 0)]
+        public double MinProjectedMarginPercent { get; set; }
+
+        [Parameter("Max Trade Margin % Equity", DefaultValue = 35.0, MinValue = 0, MaxValue = 100)]
+        public double MaxTradeMarginPercent { get; set; }
+
         [Parameter("Daily Loss %", DefaultValue = 3.0, MinValue = 0)]
         public double DailyLossPercent { get; set; }
 
@@ -165,7 +177,10 @@ namespace cAlgo.Robots
         private void TryEnter(TradeType side, double atr)
         {
             double entry = side == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
-            double stopDistance = Math.Max(atr * 0.15, Symbol.PipSize);
+            double zoneEdge = side == TradeType.Buy ? _zoneLow : _zoneHigh;
+            double slPrice = side == TradeType.Buy ? zoneEdge - atr * SlAtrBuffer : zoneEdge + atr * SlAtrBuffer;
+            double stopDistance = Math.Abs(entry - slPrice);
+            if (stopDistance <= 0 || stopDistance > atr * MaxSlAtr) { Print("RISK_VETO: SL_DISTANCE"); return; }
             double stopPips = stopDistance / Symbol.PipSize;
             double targetPips = stopPips * RewardRisk;
 
@@ -173,6 +188,12 @@ namespace cAlgo.Robots
             double volume = Symbol.VolumeForFixedRisk(riskMoney, stopPips);
             volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
             if (volume < Symbol.VolumeInUnitsMin) return;
+
+            double estimatedMargin = Symbol.GetEstimatedMargin(side, volume);
+            if (estimatedMargin <= 0) { Print("RISK_VETO: MARGIN_ESTIMATE"); return; }
+            if (Account.Equity > 0 && estimatedMargin / Account.Equity * 100.0 > MaxTradeMarginPercent) { Print("RISK_VETO: SINGLE_TRADE_MARGIN"); return; }
+            double projectedMarginLevel = estimatedMargin > 0 ? Account.Equity / (Account.Margin + estimatedMargin) * 100.0 : 0;
+            if (projectedMarginLevel < MinProjectedMarginPercent) { Print("RISK_VETO: PROJECTED_MARGIN_LEVEL"); return; }
 
             var result = ExecuteMarketOrder(side, SymbolName, volume, Label, stopPips, targetPips);
             if (!result.IsSuccessful)
