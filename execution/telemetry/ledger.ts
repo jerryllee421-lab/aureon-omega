@@ -1,0 +1,2 @@
+export type ExecutionEvent={batchId:string;tradeId:string;phase:'QUOTE'|'SUBMIT'|'ACK'|'FILL'|'PROTECT'|'VERIFY'|'CLOSE'|'DEAL'|'ERROR';ts:number;symbol?:string;price?:number;spread?:number;slippage?:number;brokerId?:string;code?:string};
+export class ExecutionLedger{private events:ExecutionEvent[]=[];append(e:ExecutionEvent){this.events.push(Object.freeze({...e}));}snapshot(){return this.events.map(e=>({...e}));}trade(tradeId:string){return this.events.filter(e=>e.tradeId===tradeId);}}
