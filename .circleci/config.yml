@@ -50,8 +50,8 @@ jobs:
           name: Populate and integrity-gate Gold Brain
           command: |
             source "$BASH_ENV"
-            python research/populate_gold_brain.py --start "$AUREON_START" --end "$AUREON_END" --root research_data --workers 12 --brain-tf M1
-          no_output_timeout: 30m
+            python research/populate_gold_brain.py --start "$AUREON_START" --end "$AUREON_END" --root research_data --workers 6 --brain-tf M1
+          no_output_timeout: 60m
       - save_cache:
           key: aureon-duka-xauusd-v1-{{ epoch }}
           paths:
