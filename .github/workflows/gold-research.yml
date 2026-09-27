@@ -1,5 +1,6 @@
 name: AUREON Gold Research
 
+# Public-runner validation trigger: 2026-09-27
 on:
   workflow_dispatch:
     inputs:
