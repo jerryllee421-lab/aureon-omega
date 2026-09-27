@@ -5,9 +5,9 @@ const fmt=(n:number|null)=>n==null?"—":new Intl.NumberFormat().format(n);
 export default function ProjectMonitor(){
  const [s,setS]=useState<ProjectSnapshot|null>(null);const [err,setErr]=useState("");
  useEffect(()=>{let live=true;const load=async()=>{try{const r=await fetch("/api/project-status",{cache:"no-store"});if(!r.ok)throw new Error();const j=await r.json();if(live){setS(j);setErr("")}}catch{if(live)setErr("STATUS FEED UNAVAILABLE")}};load();const id=setInterval(load,10000);return()=>{live=false;clearInterval(id)}},[]);
- if(!s)return <main className="monitor"><h1>AUREON Ω PRIME</h1><p>{err||"Connecting to evidence ledger…"}</p></main>;
+ if(!s)return <main className="project-monitor"><h1>AUREON Ω PRIME</h1><p>{err||"Connecting to evidence ledger…"}</p></main>;
  const p=s.progress?Math.round(100*s.progress.completed/s.progress.total):null;
- return <main className="monitor">
+ return <main className="project-monitor">
   <header><div><small>LIVE PROJECT MONITOR</small><h1>AUREON Ω PRIME</h1></div><strong className={"state "+s.state.toLowerCase()}>{s.state}</strong></header>
   <section className="hero"><small>CURRENT TASK</small><h2>{s.currentTask||"No active task"}</h2><p>{s.stage||"UNKNOWN"}</p>{p!=null&&<><progress max="100" value={p}/><b>{p}% · {s.progress!.completed}/{s.progress!.total} {s.progress!.unit}</b></>}</section>
   <div className="grid">
