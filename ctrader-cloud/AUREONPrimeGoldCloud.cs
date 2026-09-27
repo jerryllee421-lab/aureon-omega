@@ -48,6 +48,10 @@ namespace cAlgo.Robots
         private double _peakEquity;
         private DateTime _day;
         private const string Label = "AUREON_PRIME_GOLD_CLOUD";
+        private bool _zoneValid, _zoneBullish, _zoneTraded;
+        private double _zoneLow, _zoneHigh;
+        private DateTime _zoneFormed;
+        private int _lastScannedBar = -1;
 
         protected override void OnStart()
         {
@@ -68,6 +72,7 @@ namespace cAlgo.Robots
         {
             RefreshRiskState();
             ManagePosition();
+            UpdateZoneOnNewBar();
             if (!RiskGovernorAllowsEntry()) return;
             if (Positions.Find(Label, SymbolName) != null) return;
             EvaluateFvgRetest();
@@ -94,34 +99,67 @@ namespace cAlgo.Robots
             return true;
         }
 
+        private void UpdateZoneOnNewBar()
+        {
+            int closed = Bars.Count - 2;
+            if (closed < 3 || closed == _lastScannedBar) return;
+            _lastScannedBar = closed;
+
+            // Search newest first, matching MT5 V2.12's three-candle FVG scan.
+            int oldest = Math.Max(2, closed - 1000);
+            for (int i = closed; i >= oldest; i--)
+            {
+                int middle = i - 1, old = i - 2;
+                if (old < 0) break;
+                double atr = _atr.Result[i];
+                if (atr <= 0) continue;
+                double body = Math.Abs(Bars.ClosePrices[middle] - Bars.OpenPrices[middle]);
+                double range = Bars.HighPrices[middle] - Bars.LowPrices[middle];
+                if (range <= 0 || body < atr * MinBodyAtr || body / range < MinBodyRatio) continue;
+
+                bool bull = Bars.HighPrices[old] < Bars.LowPrices[i] && Bars.ClosePrices[middle] > Bars.OpenPrices[middle];
+                bool bear = Bars.LowPrices[old] > Bars.HighPrices[i] && Bars.ClosePrices[middle] < Bars.OpenPrices[middle];
+                double gap = bull ? Bars.LowPrices[i] - Bars.HighPrices[old] :
+                             bear ? Bars.LowPrices[old] - Bars.HighPrices[i] : 0;
+                if ((!bull && !bear) || gap < atr * MinFvgAtr) continue;
+
+                _zoneValid = true;
+                _zoneBullish = bull;
+                _zoneLow = bull ? Bars.HighPrices[old] : Bars.HighPrices[i];
+                _zoneHigh = bull ? Bars.LowPrices[i] : Bars.LowPrices[old];
+                _zoneFormed = Bars.OpenTimes[i];
+                _zoneTraded = false;
+                return;
+            }
+        }
+
         private void EvaluateFvgRetest()
         {
-            // Parity-safe first implementation: closed bars only.
-            // MT5 V2.12 exact entry semantics remain the authority until parity tests pass.
-            int i = Bars.Count - 2;
-            if (i < 3) return;
+            if (!_zoneValid) return;
+            double lastClosed = Bars.ClosePrices[Bars.Count - 2];
+            if ((_zoneBullish && lastClosed < _zoneLow) || (!_zoneBullish && lastClosed > _zoneHigh))
+            {
+                _zoneValid = false;
+                return;
+            }
 
-            double atr = _atr.Result[i];
-            if (atr <= 0) return;
+            double price = _zoneBullish ? Symbol.Ask : Symbol.Bid;
+            if (price < _zoneLow || price > _zoneHigh) return;
+            if (!CurrentBarRejection(_zoneBullish)) return;
+            if (_zoneTraded) return; // certification-safe default; report-matched re-entry is enabled only after parity validation.
 
-            double body = Math.Abs(Bars.ClosePrices[i - 1] - Bars.OpenPrices[i - 1]);
-            double range = Bars.HighPrices[i - 1] - Bars.LowPrices[i - 1];
-            if (range <= 0 || body < MinBodyAtr * atr || body / range < MinBodyRatio) return;
+            if (_zoneBullish && AllowLong) { TryEnter(TradeType.Buy, _atr.Result.LastValue); _zoneTraded = true; }
+            if (!_zoneBullish && AllowShort) { TryEnter(TradeType.Sell, _atr.Result.LastValue); _zoneTraded = true; }
+        }
 
-            bool bullish = Bars.LowPrices[i] > Bars.HighPrices[i - 2];
-            bool bearish = Bars.HighPrices[i] < Bars.LowPrices[i - 2];
-            if (!bullish && !bearish) return;
-
-            double gap = bullish ? Bars.LowPrices[i] - Bars.HighPrices[i - 2] : Bars.LowPrices[i - 2] - Bars.HighPrices[i];
-            if (gap < MinFvgAtr * atr) return;
-
-            double zoneLow = bullish ? Bars.HighPrices[i - 2] : Bars.HighPrices[i];
-            double zoneHigh = bullish ? Bars.LowPrices[i] : Bars.LowPrices[i - 2];
-            double price = bullish ? Symbol.Ask : Symbol.Bid;
-            if (price < zoneLow || price > zoneHigh) return;
-
-            if (bullish && AllowLong) TryEnter(TradeType.Buy, atr);
-            if (bearish && AllowShort) TryEnter(TradeType.Sell, atr);
+        private bool CurrentBarRejection(bool bullish)
+        {
+            int i = Bars.Count - 1;
+            double range = Bars.HighPrices[i] - Bars.LowPrices[i];
+            if (range <= 0) return false;
+            double px = bullish ? Symbol.Bid : Symbol.Ask;
+            double closePos = (px - Bars.LowPrices[i]) / range;
+            return bullish ? closePos >= 0.55 : closePos <= 0.45;
         }
 
         private void TryEnter(TradeType side, double atr)
@@ -145,8 +183,38 @@ namespace cAlgo.Robots
 
         private void ManagePosition()
         {
-            // Deliberately minimal until exact V2.12 profit-lock/trailing semantics are ported and parity-tested.
-            // Broker-side SL/TP remain mandatory on every entry.
+            var p = Positions.Find(Label, SymbolName);
+            if (p == null || !p.TakeProfit.HasValue) return;
+            double initialRisk = Math.Abs(p.TakeProfit.Value - p.EntryPrice) / RewardRisk;
+            if (initialRisk <= 0) return;
+            double price = p.TradeType == TradeType.Buy ? Symbol.Bid : Symbol.Ask;
+            double rr = (p.TradeType == TradeType.Buy ? price - p.EntryPrice : p.EntryPrice - price) / initialRisk;
+            if (rr <= 0) return;
+
+            double? candidate = null;
+            if (rr >= 1.0)
+                candidate = p.TradeType == TradeType.Buy ? p.EntryPrice + initialRisk * 0.35 : p.EntryPrice - initialRisk * 0.35;
+            else if (rr >= 0.5)
+                candidate = p.TradeType == TradeType.Buy ? p.EntryPrice + initialRisk * 0.10 : p.EntryPrice - initialRisk * 0.10;
+
+            if (rr >= 1.5)
+            {
+                double trail = _atr.Result.LastValue * 0.10;
+                double t = p.TradeType == TradeType.Buy ? price - trail : price + trail;
+                double floor = p.TradeType == TradeType.Buy ? p.EntryPrice + initialRisk * 0.35 : p.EntryPrice - initialRisk * 0.35;
+                t = p.TradeType == TradeType.Buy ? Math.Max(t, floor) : Math.Min(t, floor);
+                candidate = candidate.HasValue
+                    ? (p.TradeType == TradeType.Buy ? Math.Max(candidate.Value, t) : Math.Min(candidate.Value, t))
+                    : t;
+            }
+
+            if (!candidate.HasValue) return;
+            bool better = !p.StopLoss.HasValue ||
+                          (p.TradeType == TradeType.Buy ? candidate.Value > p.StopLoss.Value : candidate.Value < p.StopLoss.Value);
+            if (!better) return;
+
+            var result = ModifyPosition(p, candidate.Value, p.TakeProfit);
+            if (!result.IsSuccessful) Print("SL_MODIFY_REJECTED: {0}", result.Error);
         }
     }
 }
