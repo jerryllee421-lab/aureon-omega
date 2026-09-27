@@ -15,7 +15,7 @@ jobs:
   gold-research:
     docker:
       - image: cimg/python:3.13
-    resource_class: small
+    resource_class: medium.gen2
     environment:
       PYTHONUNBUFFERED: "1"
       NVIDIA_MODEL: nvidia/nemotron-3.5-lightning-30b-a3b
@@ -76,6 +76,12 @@ jobs:
           when: on_success
           command: |
             python research/status_event.py --state IDLE --stage COMPLETE --task "Gold research batch complete" --completed 4 --total 4
+            python research/publish_telemetry.py status || true
+      - run:
+          name: Publish failure state
+          when: on_fail
+          command: |
+            python research/status_event.py --state FAILED --stage PIPELINE --task "Gold research pipeline failed" --completed 0 --total 4 --blocker "Inspect CI evidence artifact/logs"
             python research/publish_telemetry.py status || true
       - run:
           name: Package evidence
