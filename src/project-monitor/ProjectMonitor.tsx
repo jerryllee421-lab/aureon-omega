@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from "react";
 import type {ProjectSnapshot} from "../../backend/project-monitor/schema";
 
-const fmt=(n:number|null)=>n==null?"—":new Intl.NumberFormat().format(n);
+const fmt=(n:number|null)=>n==null?"—":new Intl.NumberFormat("en-US",{maximumFractionDigits:2}).format(n);
 export default function ProjectMonitor(){
  const [s,setS]=useState<ProjectSnapshot|null>(null);const [err,setErr]=useState("");
  useEffect(()=>{let live=true;const load=async()=>{try{const r=await fetch("/api/project-status",{cache:"no-store"});if(!r.ok)throw new Error();const j=await r.json();if(live){setS(j);setErr("")}}catch{if(live)setErr("STATUS FEED UNAVAILABLE")}};load();const id=setInterval(load,10000);return()=>{live=false;clearInterval(id)}},[]);
