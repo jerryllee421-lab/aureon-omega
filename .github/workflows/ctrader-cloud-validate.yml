@@ -18,35 +18,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Contract validation
-        shell: bash
         run: |
-          set -euo pipefail
-          test -s ctrader-cloud/AUREONPrimeGoldCloud.cs
-          test -s ctrader-cloud/certification.json
-          test -s ctrader-cloud/PARITY.md
           python - <<'PY'
-          import json
+          import json, pathlib
           p=json.load(open("ctrader-cloud/certification.json"))
-          assert p["mode"]=="DEMO_ONLY"
-          assert p["live_locked"] is True
+          assert p["mode"]=="DEMO_ONLY" and p["live_locked"] is True
           assert p["market"]=="XAUUSD"
           assert p["certification"]["controlled_demo_trades"]==10
+          assert p["certification"]["required_reconciliation_rate"]==1.0
           assert p["certification"]["max_orphan_orders"]==0
           assert p["certification"]["max_state_mismatches"]==0
-          print("AUREON cTrader Cloud safety contract: PASS")
+          s=pathlib.Path("ctrader-cloud/AUREONPrimeGoldCloud.cs").read_text()
+          required=["AccessRights.None","XAU","RISK_VETO","RISK_HALT","GetEstimatedMargin","MaxSlAtr","OneTradePerFvg","ModifyPosition","VolumeForFixedRisk"]
+          missing=[x for x in required if x not in s]
+          assert not missing, f"Missing controls: {missing}"
+          assert "HttpClient" not in s and "WebSocket" not in s
+          print("AUREON cTrader Cloud contract/static safety: PASS")
           PY
-      - name: Source safety assertions
-        shell: bash
+      - name: Secret pattern scan
         run: |
-          set -euo pipefail
-          grep -q 'AccessRights = AccessRights.None' ctrader-cloud/AUREONPrimeGoldCloud.cs
-          grep -q 'XAU' ctrader-cloud/AUREONPrimeGoldCloud.cs
-          grep -q 'RISK_VETO' ctrader-cloud/AUREONPrimeGoldCloud.cs
-          grep -q 'GetEstimatedMargin' ctrader-cloud/AUREONPrimeGoldCloud.cs
-          grep -q 'MaxSlAtr' ctrader-cloud/AUREONPrimeGoldCloud.cs
-          ! grep -Eqi '(api[_-]?key|client[_-]?secret|access[_-]?token)[[:space:]]*=[[:space:]]*["'\'''][A-Za-z0-9_-]{12,}' ctrader-cloud/AUREONPrimeGoldCloud.cs
-          echo "Static safety assertions: PASS"
-      - name: Native compiler status
+          if grep -REni '(client_secret|access_token|refresh_token|api_key)[[:space:]]*[:=][[:space:]]*["'\'''][A-Za-z0-9_.-]{12,}' ctrader-cloud; then
+            echo "Potential embedded secret detected"; exit 1
+          fi
+          echo "Secret scan: PASS"
+      - name: Certification boundary
         run: |
-          echo "Static contract checks passed."
-          echo "Native cTrader compilation/backtest remains a separate certification gate."
+          echo "Static validation only. Native cTrader compile/backtest is REQUIRED before demo Cloud certification."
