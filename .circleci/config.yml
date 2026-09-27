@@ -15,7 +15,7 @@ jobs:
   gold-research:
     docker:
       - image: cimg/python:3.13
-    resource_class: medium
+    resource_class: medium+
     environment:
       PYTHONUNBUFFERED: "1"
       NVIDIA_MODEL: nvidia/nemotron-3.5-lightning-30b-a3b
@@ -50,7 +50,7 @@ jobs:
           name: Populate and integrity-gate Gold Brain
           command: |
             source "$BASH_ENV"
-            python research/populate_gold_brain.py --start "$AUREON_START" --end "$AUREON_END" --root research_data --workers 6 --brain-tf M1
+            python research/populate_gold_brain.py --start "$AUREON_START" --end "$AUREON_END" --root research_data --workers 4 --brain-tf M1
           no_output_timeout: 60m
       - save_cache:
           key: aureon-duka-xauusd-v1-{{ epoch }}
