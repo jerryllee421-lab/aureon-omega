@@ -1,0 +1,88 @@
+version: 2.1
+
+parameters:
+  years:
+    type: integer
+    default: 5
+  timeframe:
+    type: string
+    default: M1
+  max_candidates:
+    type: integer
+    default: 240
+
+jobs:
+  gold-research:
+    docker:
+      - image: cimg/python:3.13
+    resource_class: small
+    environment:
+      PYTHONUNBUFFERED: "1"
+      NVIDIA_MODEL: nvidia/nemotron-3.5-lightning-30b-a3b
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - aureon-pip-v2-{{ checksum "research/requirements.txt" }}
+            - aureon-pip-v2-
+      - run:
+          name: Install research dependencies
+          command: |
+            python -m pip install --user -r research/requirements.txt
+      - save_cache:
+          key: aureon-pip-v2-{{ checksum "research/requirements.txt" }}
+          paths:
+            - ~/.cache/pip
+      - restore_cache:
+          keys:
+            - aureon-duka-xauusd-v1-
+      - run:
+          name: Resolve research date range
+          command: |
+            python - <<'PY' > /tmp/aureon_dates
+            from datetime import date
+            y=int("<< pipeline.parameters.years >>")
+            end=date.today()
+            try: start=end.replace(year=end.year-y)
+            except ValueError: start=end.replace(month=2,day=28,year=end.year-y)
+            print("export AUREON_START="+start.isoformat())
+            print("export AUREON_END="+end.isoformat())
+            PY
+            cat /tmp/aureon_dates >> "$BASH_ENV"
+      - run:
+          name: Download authentic XAUUSD M1 bid and ask data
+          command: |
+            source "$BASH_ENV"
+            python research/duka_m1.py --symbol XAUUSD --start "$AUREON_START" --end "$AUREON_END" --workers 12
+          no_output_timeout: 30m
+      - save_cache:
+          key: aureon-duka-xauusd-v1-{{ epoch }}
+          paths:
+            - .cache/dukascopy
+      - run:
+          name: Build and validate 21 timeframes
+          command: python research/resample_validate.py --root research_data --symbol XAUUSD
+      - run:
+          name: Deterministic FVG research
+          command: python research/run_research.py --data "research_data/XAUUSD/canonical/XAUUSD_<< pipeline.parameters.timeframe >>.parquet" --max-candidates "<< pipeline.parameters.max_candidates >>"
+          no_output_timeout: 30m
+      - run:
+          name: ASTRA NVIDIA advisory audit
+          command: python research/nvidia_quant_auditor.py research_results/research_report.json research_results/astra_nvidia_review.json
+      - run:
+          name: Package evidence
+          when: always
+          command: |
+            mkdir -p artifact
+            cp -r research_results artifact/ 2>/dev/null || true
+            cp research_data/XAUUSD/*manifest.json artifact/ 2>/dev/null || true
+            cp research/config/fvg_v211_baseline.yml artifact/ 2>/dev/null || true
+            git rev-parse HEAD > artifact/source_commit.txt
+      - store_artifacts:
+          path: artifact
+          destination: aureon-gold-research
+
+workflows:
+  aureon-gold-research:
+    jobs:
+      - gold-research
