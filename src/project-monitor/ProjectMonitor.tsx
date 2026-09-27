@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from "react";
+import {useEffect,useState} from "react";
 import type {ProjectSnapshot} from "../../backend/project-monitor/schema";
 
 const fmt=(n:number|null)=>n==null?"—":new Intl.NumberFormat("en-US",{maximumFractionDigits:2}).format(n);
