@@ -4,5 +4,6 @@
   "years": 5,
   "timeframe": "M1",
   "max_candidates": 120,
-  "purpose": "full verified 5Y XAUUSD M1 research run after Actions validation"
+  "purpose": "full verified 5Y XAUUSD M1 research run after Actions validation",
+  "retrigger": "actions-confirmed-2105"
 }
