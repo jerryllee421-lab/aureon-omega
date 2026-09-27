@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "mode": "DEMO_ONLY",
+  "purpose": "execution plumbing, not profitability",
+  "trades": 10,
+  "requirements": {
+    "lifecycleSuccess": 10,
+    "orphanPositions": 0,
+    "stateMismatches": 0
+  },
+  "capture": [
+    "signal_timestamp",
+    "submit_timestamp",
+    "ack_timestamp",
+    "fill_timestamp",
+    "close_timestamp",
+    "requested_price",
+    "fill_price",
+    "spread",
+    "slippage",
+    "error_code"
+  ],
+  "sequence": [
+    "authenticate",
+    "resolve_account",
+    "resolve_symbol",
+    "quote",
+    "risk_gate",
+    "submit",
+    "ack",
+    "fill",
+    "protect",
+    "verify_position",
+    "close",
+    "verify_deal",
+    "ledger"
+  ]
+}
