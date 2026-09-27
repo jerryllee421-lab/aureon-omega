@@ -45,6 +45,8 @@ jobs:
           cache: pip
           cache-dependency-path: research/requirements.txt
       - run: pip install -r research/requirements.txt
+      - name: Python research preflight
+        run: python -m compileall -q research
       - name: Resolve UTC date range
         id: dates
         shell: bash
@@ -65,9 +67,9 @@ jobs:
           restore-keys: |
             duka-xauusd-
       - name: Download authentic external XAUUSD M1 bid and ask bars
-        run: python research/duka_m1.py --symbol XAUUSD --start '${{ steps.dates.outputs.start }}' --end '${{ steps.dates.outputs.end }}' --workers 12
+        run: python research/duka_m1.py --symbol XAUUSD --start '${{ steps.dates.outputs.start }}' --end '${{ steps.dates.outputs.end }}' --workers 6
       - name: Build and validate 21 standard timeframes
-        run: python research/resample_validate.py --root research_data --symbol XAUUSD
+        run: python research/resample_validate.py --root research_data --symbol XAUUSD --timeframes '${{ inputs.timeframe || 'M1' }}'
       - name: Run FVG V2.11 research
         run: python research/run_research.py --data 'research_data/XAUUSD/canonical/XAUUSD_${{ inputs.timeframe || 'M1' }}.parquet' --max-candidates '${{ inputs.max_candidates || '240' }}'
       - name: ASTRA NVIDIA quant audit
