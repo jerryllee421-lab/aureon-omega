@@ -95,4 +95,8 @@ jobs:
 workflows:
   aureon-gold-research:
     jobs:
-      - gold-research
+      - gold-research:
+          filters:
+            branches:
+              only:
+                - feature/gold-research-lab
