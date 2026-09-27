@@ -49,6 +49,12 @@ namespace cAlgo.Robots
         [Parameter("Max Drawdown %", DefaultValue = 6.0, MinValue = 0)]
         public double MaxDrawdownPercent { get; set; }
 
+        [Parameter("Max Trades / Day", DefaultValue = 1000, MinValue = 1)]
+        public int MaxTradesPerDay { get; set; }
+
+        [Parameter("Certification One Trade/FVG", DefaultValue = true)]
+        public bool OneTradePerFvg { get; set; }
+
         [Parameter("Allow Long", DefaultValue = true)]
         public bool AllowLong { get; set; }
 
@@ -64,6 +70,12 @@ namespace cAlgo.Robots
         private double _zoneLow, _zoneHigh;
         private DateTime _zoneFormed;
         private int _lastScannedBar = -1;
+        private int _tradesToday;
+        private bool _riskHalt;
+        private double _initialRiskPrice;
+        private double _entryPrice;
+        private double _maxMfeR;
+        private double _maxMaeR;
 
         protected override void OnStart()
         {
@@ -96,16 +108,20 @@ namespace cAlgo.Robots
             {
                 _day = Server.Time.Date;
                 _dayStartEquity = Account.Equity;
+                _tradesToday = 0;
+                _riskHalt = false;
             }
             if (Account.Equity > _peakEquity) _peakEquity = Account.Equity;
         }
 
         private bool RiskGovernorAllowsEntry()
         {
+            if (_riskHalt) return false;
+            if (_tradesToday >= MaxTradesPerDay) return false;
             if (_dayStartEquity > 0 && 100.0 * (_dayStartEquity - Account.Equity) / _dayStartEquity >= DailyLossPercent)
-                return false;
+            { _riskHalt = true; Print("RISK_HALT: DAILY_LOSS"); return false; }
             if (_peakEquity > 0 && 100.0 * (_peakEquity - Account.Equity) / _peakEquity >= MaxDrawdownPercent)
-                return false;
+            { _riskHalt = true; Print("RISK_HALT: DRAWDOWN"); return false; }
             var spreadPips = (Symbol.Ask - Symbol.Bid) / Symbol.PipSize;
             if (spreadPips > MaxSpreadPips) return false;
             return true;
@@ -158,10 +174,10 @@ namespace cAlgo.Robots
             double price = _zoneBullish ? Symbol.Ask : Symbol.Bid;
             if (price < _zoneLow || price > _zoneHigh) return;
             if (!CurrentBarRejection(_zoneBullish)) return;
-            if (_zoneTraded) return; // certification-safe default; report-matched re-entry is enabled only after parity validation.
+            if (OneTradePerFvg && _zoneTraded) return;
 
-            if (_zoneBullish && AllowLong) { TryEnter(TradeType.Buy, _atr.Result.LastValue); _zoneTraded = true; }
-            if (!_zoneBullish && AllowShort) { TryEnter(TradeType.Sell, _atr.Result.LastValue); _zoneTraded = true; }
+            if (_zoneBullish && AllowLong) TryEnter(TradeType.Buy, _atr.Result.LastValue);
+            if (!_zoneBullish && AllowShort) TryEnter(TradeType.Sell, _atr.Result.LastValue);
         }
 
         private bool CurrentBarRejection(bool bullish)
@@ -199,13 +215,29 @@ namespace cAlgo.Robots
             if (!result.IsSuccessful)
                 Print("EXECUTION_REJECTED: {0}", result.Error);
             else
-                Print("ENTRY_ACCEPTED side={0} volume={1} spreadPips={2:F2}", side, volume, (Symbol.Ask-Symbol.Bid)/Symbol.PipSize);
+            {
+                _zoneTraded = true;
+                _tradesToday++;
+                _entryPrice = result.Position != null ? result.Position.EntryPrice : entry;
+                _initialRiskPrice = stopDistance;
+                _maxMfeR = 0;
+                _maxMaeR = 0;
+                Print("ENTRY_ACCEPTED side={0} volume={1} spreadPips={2:F2} riskMoney={3:F2}", side, volume, (Symbol.Ask-Symbol.Bid)/Symbol.PipSize, riskMoney);
+            }
         }
 
         private void ManagePosition()
         {
             var p = Positions.Find(Label, SymbolName);
             if (p == null || !p.TakeProfit.HasValue) return;
+            if (_initialRiskPrice > 0)
+            {
+                double mark = p.TradeType == TradeType.Buy ? Symbol.Bid : Symbol.Ask;
+                double move = p.TradeType == TradeType.Buy ? mark - _entryPrice : _entryPrice - mark;
+                double er = move / _initialRiskPrice;
+                if (er > _maxMfeR) _maxMfeR = er;
+                if (er < 0 && -er > _maxMaeR) _maxMaeR = -er;
+            }
             double initialRisk = Math.Abs(p.TakeProfit.Value - p.EntryPrice) / RewardRisk;
             if (initialRisk <= 0) return;
             double price = p.TradeType == TradeType.Buy ? Symbol.Bid : Symbol.Ask;
