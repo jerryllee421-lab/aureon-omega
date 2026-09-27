@@ -1,0 +1,52 @@
+name: cTrader Cloud Executor Validation
+
+on:
+  push:
+    branches: [feature/ctrader-cloud-cbot]
+    paths:
+      - 'ctrader-cloud/**'
+      - '.github/workflows/ctrader-cloud-validate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contract validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s ctrader-cloud/AUREONPrimeGoldCloud.cs
+          test -s ctrader-cloud/certification.json
+          test -s ctrader-cloud/PARITY.md
+          python - <<'PY'
+          import json
+          p=json.load(open("ctrader-cloud/certification.json"))
+          assert p["mode"]=="DEMO_ONLY"
+          assert p["live_locked"] is True
+          assert p["market"]=="XAUUSD"
+          assert p["certification"]["controlled_demo_trades"]==10
+          assert p["certification"]["max_orphan_orders"]==0
+          assert p["certification"]["max_state_mismatches"]==0
+          print("AUREON cTrader Cloud safety contract: PASS")
+          PY
+      - name: Source safety assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'AccessRights = AccessRights.None' ctrader-cloud/AUREONPrimeGoldCloud.cs
+          grep -q 'XAU' ctrader-cloud/AUREONPrimeGoldCloud.cs
+          grep -q 'RISK_VETO' ctrader-cloud/AUREONPrimeGoldCloud.cs
+          grep -q 'GetEstimatedMargin' ctrader-cloud/AUREONPrimeGoldCloud.cs
+          grep -q 'MaxSlAtr' ctrader-cloud/AUREONPrimeGoldCloud.cs
+          ! grep -Eqi '(api[_-]?key|client[_-]?secret|access[_-]?token)[[:space:]]*=[[:space:]]*["'\'''][A-Za-z0-9_-]{12,}' ctrader-cloud/AUREONPrimeGoldCloud.cs
+          echo "Static safety assertions: PASS"
+      - name: Native compiler status
+        run: |
+          echo "Static contract checks passed."
+          echo "Native cTrader compilation/backtest remains a separate certification gate."
