@@ -65,7 +65,7 @@ def fetch_one(symbol: str, d: date, side: str, cache: Path, retries: int = 6) ->
                 path.write_bytes(r.content)
                 return DayResult(d.isoformat(), side, len(decoded)//REC.size, "downloaded", str(path))
             if r.status_code in (404, 410) or (r.status_code == 200 and not r.content):
-                return DayResult(d.isoformat(), side, 0, f"empty_{r.status_code}")
+                # Dukascopy legitimately has no XAUUSD bars on many weekends/market holidays.\n                return DayResult(d.isoformat(), side, 0, f"empty_{r.status_code}")
             last = f"HTTP {r.status_code}"
         except Exception as e:
             last = f"{type(e).__name__}: {e}"
@@ -155,8 +155,7 @@ def main():
         futs = {ex.submit(fetch_one, symbol, d, side, cache): (d, side) for d, side in tasks}
         for i, fut in enumerate(cf.as_completed(futs), 1):
             r = fut.result()
-            if r.status.startswith("failed"):
-                failures.append(r.__dict__)
+            if r.status.startswith("failed"):\n                failures.append(r.__dict__)
             if i % 100 == 0 or i == len(futs):
                 print(f"fetch {i}/{len(futs)} failures={len(failures)}")
 
