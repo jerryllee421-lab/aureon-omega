@@ -17,7 +17,7 @@ def main():
     a=ap.parse_args()
     root=Path(a.root); xau=root/"XAUUSD"
     run([sys.executable,"research/duka_m1.py","--symbol","XAUUSD","--start",a.start,"--end",a.end,"--workers",str(a.workers),"--output",a.root])
-    run([sys.executable,"research/resample_validate.py","--root",a.root,"--symbol","XAUUSD"])
+    run([sys.executable,"research/resample_validate.py","--root",a.root,"--symbol","XAUUSD","--timeframes",a.brain_tf])
     canonical=xau/"canonical"/f"XAUUSD_{a.brain_tf}.parquet"
     gate=xau/"gold_data_gate.json"
     run([sys.executable,"research/gold_data_gate.py","--input",str(canonical),"--out",str(gate)])
