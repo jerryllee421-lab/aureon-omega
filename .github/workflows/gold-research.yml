@@ -1,6 +1,12 @@
 name: AUREON Gold Research
 
 on:
+  push:
+    branches: [feature/gold-research-lab]
+    paths:
+      - 'research/**'
+      - 'ea/**'
+      - '.github/workflows/gold-research.yml'
   workflow_dispatch:
     inputs:
       years:
@@ -45,7 +51,7 @@ jobs:
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           from datetime import date
-          y=int('${{ inputs.years }}'); end=date.today()
+          raw='${{ inputs.years }}' or '5'; y=int(raw); end=date.today()
           try: start=end.replace(year=end.year-y)
           except ValueError: start=end.replace(month=2,day=28,year=end.year-y)
           print(f"start={start.isoformat()}")
@@ -63,7 +69,7 @@ jobs:
       - name: Build and validate 21 standard timeframes
         run: python research/resample_validate.py --root research_data --symbol XAUUSD
       - name: Run FVG V2.11 research
-        run: python research/run_research.py --data 'research_data/XAUUSD/canonical/XAUUSD_${{ inputs.timeframe }}.parquet' --max-candidates '${{ inputs.max_candidates }}'
+        run: python research/run_research.py --data 'research_data/XAUUSD/canonical/XAUUSD_${{ inputs.timeframe || 'M1' }}.parquet' --max-candidates '${{ inputs.max_candidates || '240' }}'
       - name: Package manifest
         if: always()
         run: |
@@ -76,7 +82,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aureon-gold-${{ inputs.timeframe }}-${{ github.run_id }}
+          name: aureon-gold-${{ inputs.timeframe || 'M1' }}-${{ github.run_id }}
           path: artifact
           retention-days: 30
           if-no-files-found: warn
