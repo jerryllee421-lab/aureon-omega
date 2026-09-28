@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yaml
-from fvg_v211 import Params, run, trades_frame
+from fvg_v211 import Params, run, trades_frame, prepare
 
 
 def load(path:Path):
@@ -36,7 +36,7 @@ def main():
     args=ap.parse_args(); cfg=yaml.safe_load(Path(args.config).read_text()); df=load(Path(args.data)); dev,val,hold=split(df,cfg["splits"]); out=Path(args.out); out.mkdir(parents=True,exist_ok=True)
     base=Params(**{k:v for k,v in cfg["baseline"].items() if k in Params.__dataclass_fields__})
     base_tr,base_m=run(df,base); trades_frame(base_tr).to_csv(out/"baseline_trades.csv",index=False)
-    grid=cfg["grid"]; keys=list(grid); combos=list(itertools.product(*(grid[k] for k in keys)))[:args.max_candidates]
+    grid=cfg["grid"]; keys=list(grid); all_combos=list(itertools.product(*(grid[k] for k in keys)))\n    if args.max_candidates < len(all_combos):\n        pick=np.linspace(0,len(all_combos)-1,num=args.max_candidates,dtype=int)\n        combos=[all_combos[i] for i in dict.fromkeys(pick.tolist())]\n    else:\n        combos=all_combos
     rows=[]
     for idx,vals in enumerate(combos):
         kw=asdict(base); kw.update(dict(zip(keys,vals))); p=Params(**kw); tr,m=run(dev,p); m["score"]=score(m,cfg["research_guardrails"]["min_trades_dev"]); rows.append({"candidate":idx,"params":kw,"dev":m})
