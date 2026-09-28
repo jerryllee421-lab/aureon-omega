@@ -1,0 +1,50 @@
+{
+  "schema": "aureon.gold.baseline.v1",
+  "id": "FVG_V2_12_R943K",
+  "role": "FROZEN_CONTROL",
+  "market": "XAUUSD",
+  "platform": "MetaTrader 5",
+  "expert": "FVG_Scalper_V2_12_Research",
+  "tester": {
+    "period": "M1",
+    "date_from": "2026-09-01",
+    "date_to": "2026-09-24",
+    "model": "Every tick based on real ticks",
+    "history_quality_pct": 100,
+    "initial_deposit": 800,
+    "currency": "ZAR",
+    "leverage": "1:100",
+    "broker_company": "PXBT Trading Ltd",
+    "bars": 23257,
+    "ticks": 9553776
+  },
+  "result": {
+    "net_profit": 942349.65,
+    "gross_profit": 1537576.73,
+    "gross_loss": -595227.08,
+    "profit_factor": 2.58,
+    "expected_payoff": 830.26,
+    "equity_drawdown_relative_pct": 21.55,
+    "equity_drawdown_maximal": 66022.39,
+    "balance_drawdown_relative_pct": 20.3,
+    "balance_drawdown_maximal": 61639.9,
+    "trades": 1135,
+    "win_rate_pct": 64.41,
+    "short_win_rate_pct": 71.46,
+    "long_win_rate_pct": 60.52,
+    "recovery_factor": 14.27
+  },
+  "reproduction": {
+    "source_file": "ea/baseline/FVG_Scalper_V2_12_Research.mq5",
+    "settings_file": "ea/baseline/presets/FVG_V2_12_R943K.set",
+    "report_authority": "ReportTester-1330088 (2).html"
+  },
+  "policy": {
+    "immutable_control": true,
+    "promotion_requires_native_tick_validation": true,
+    "promotion_requires_out_of_sample": true,
+    "promotion_requires_walk_forward": true,
+    "promotion_requires_cost_stress": true,
+    "live_ready": false
+  }
+}

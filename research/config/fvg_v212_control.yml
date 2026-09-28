@@ -1,0 +1,67 @@
+project: AUREON_GOLD_RESEARCH
+strategy: FVG_Scalper_V2_12_R943K_CONTROL
+symbol: XAUUSD
+data_source: DUKASCOPY_EXTERNAL_PINNED_MIRROR
+execution_model: BAR_CLOSE_PROXY
+notes: >-
+  Research approximation aligned to the recorded V2.12 R943K price-path controls.
+  It is not MT5 tick-equivalent and cannot reproduce broker margin, lot rounding,
+  tick sequencing, intrabar rejection, or execution semantics. Native MT5 real-tick
+  verification remains the promotion authority.
+control_context:
+  mt5_report: ReportTester-1330088 (2).html
+  period: M1
+  benchmark_from: 2026-09-01
+  benchmark_to: 2026-09-24
+  initial_deposit_zar: 800
+  leverage: "1:100"
+  recorded_net_profit_zar: 942349.65
+  recorded_profit_factor: 2.58
+  recorded_trades: 1135
+  recorded_equity_dd_pct: 21.55
+  recorded_input_risk_percent: 2.0
+  recorded_hard_effective_risk_cap_pct: 1.25
+baseline:
+  min_fvg_atr: 0.15
+  min_body_atr: 0.50
+  min_body_ratio: 0.60
+  max_fvg_bars: 1000
+  replace_with_new_fvg: true
+  one_trade_per_fvg: false
+  use_bias_filter: false
+  bias_fast_ema: 20
+  bias_slow_ema: 50
+  require_midpoint: false
+  require_rejection: true
+  reward_risk: 30.0
+  max_sl_atr: 3.0
+  atr_period: 14
+  sl_atr_buffer: 0.15
+  use_profit_lock: true
+  lock1_trigger_rr: 0.50
+  lock1_rr: 0.10
+  lock2_trigger_rr: 1.00
+  lock2_rr: 0.35
+  trail_start_rr: 1.50
+  trail_atr: 0.10
+  max_spread_price: 0.80
+  max_trades_day: 1000
+research_guardrails:
+  initial_equity: 10000.0
+  research_risk_percent: 1.0
+  max_candidate_drawdown_pct: 20.0
+  min_trades_dev: 80
+  random_seed: 26081112
+  monte_carlo_paths: 2000
+  monte_carlo_max_ruin_drawdown_pct: 30.0
+splits:
+  development: 0.60
+  validation: 0.20
+  holdout: 0.20
+grid:
+  min_fvg_atr: [0.10, 0.15, 0.20, 0.30]
+  min_body_atr: [0.40, 0.50, 0.70, 0.90]
+  min_body_ratio: [0.55, 0.60, 0.70]
+  sl_atr_buffer: [0.10, 0.15, 0.25]
+  reward_risk: [1.5, 2.0, 2.5, 3.0, 5.0, 10.0, 30.0]
+  use_bias_filter: [false, true]

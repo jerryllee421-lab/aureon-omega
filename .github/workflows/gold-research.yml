@@ -137,9 +137,10 @@ jobs:
           --commit '${{ env.XAU_MIRROR_COMMIT }}'
       - name: Build and validate 21 standard timeframes
         run: python research/resample_validate.py --root research_data --symbol XAUUSD
-      - name: Run FVG V2.11 research
+      - name: Run FVG V2.12 control research
         run: >-
           python research/run_research.py
+          --config 'research/config/fvg_v212_control.yml'
           --data 'research_data/XAUUSD/canonical/XAUUSD_${{ steps.request.outputs.timeframe }}.parquet'
           --max-candidates '${{ steps.request.outputs.max_candidates }}'
       - name: Package manifest
@@ -148,7 +149,7 @@ jobs:
           mkdir -p artifact
           cp -r research_results artifact/ 2>/dev/null || true
           cp research_data/XAUUSD/*manifest.json artifact/ 2>/dev/null || true
-          cp research/config/fvg_v211_baseline.yml artifact/ 2>/dev/null || true
+          cp research/config/fvg_v212_control.yml artifact/ 2>/dev/null || true
           if [ -n '${{ steps.request.outputs.file }}' ] && [ -f '${{ steps.request.outputs.file }}' ]; then
             cp '${{ steps.request.outputs.file }}' artifact/request.json
           fi

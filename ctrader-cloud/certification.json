@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "product": "AUREON_OMEGA_PRIME",
+  "executor": "CTRADER_CLOUD_CBOT",
+  "market": "XAUUSD",
+  "mode": "DEMO_ONLY",
+  "live_locked": true,
+  "control": {
+    "name": "FVG_Scalper_V2_12_Research_R943K",
+    "purpose": "PARITY_REFERENCE",
+    "immutable": true
+  },
+  "risk_governor": {
+    "mandatory_stop_loss": true,
+    "one_position": true,
+    "spread_guard": true,
+    "margin_guard": true,
+    "daily_loss_guard": true,
+    "drawdown_guard": true,
+    "loss_streak_guard": false,
+    "execution_state_guard": false,
+    "persistence_restart_guard": false
+  },
+  "certification": {
+    "canary_trades": 1,
+    "controlled_demo_trades": 10,
+    "required_reconciliation_rate": 1,
+    "max_orphan_orders": 0,
+    "max_state_mismatches": 0,
+    "profit_required_for_execution_certification": false
+  },
+  "live_account_hard_stop": true,
+  "native_compile_verified": false,
+  "native_backtest_verified": false,
+  "demo_reconciliation_verified": false,
+  "notes": [
+    "Static repository validation does not equal native cTrader certification.",
+    "Loss-streak, execution-state reconciliation and restart persistence remain certification requirements.",
+    "Live-account execution is hard blocked by Account.IsLive in OnStart."
+  ]
+}
