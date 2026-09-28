@@ -81,17 +81,23 @@
   ],
   "native_compile": true,
   "native_build": {
-    "run_id": 36461418950,
-    "run_number": 7,
+    "run_id": 36461734290,
+    "run_number": 9,
     "status": "VERIFIED_PASS",
-    "source_commit": "431868996ad2b6004317e2dc5d12074d3bdb030c",
+    "source_commit": "9463116c2590632d606a89b195868c11c4fd8bf7",
     "errors": 0,
-    "warnings": 2,
     "algo_path": "ctrader-cloud/bin/Release/net6.0/aureon-omega.algo",
-    "algo_sha256": "4d1299ae03b4f67d70cdbcf543f4d5c76bb373de804f07e848dbbf04e6e39529",
+    "algo_sha256": "227414c97ec0f08b2d7a443ffa26daff7b2f5cea6eb4ddd39ab00ec846bfa2f7",
     "artifact_name": "AUREON-FVG-V2-17-cTrader-native",
-    "artifact_id": 10988450764,
-    "artifact_zip_sha256": "4eb75e379c55cd0fe302c9d185da83d2761aee8d843a0127be51a25e10a7d381"
+    "artifact_id": 10988496095,
+    "artifact_zip_sha256": "d7f96e16508d1896cfb0ca90e3c386727aeb6a78a471745a76fcf35b1e1b38ef"
   },
-  "canary_verdict": "NOT_YET_TESTED"
+  "canary_verdict": "NOT_YET_TESTED",
+  "execution_candidate": {
+    "status": "DEMO_EXECUTION_READY",
+    "canary_run_id": "V217_CANARY_001",
+    "max_completed_trades": 5,
+    "restart_durable": true,
+    "genuine_strategy_signals_only": true
+  }
 }
