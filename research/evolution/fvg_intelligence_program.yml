@@ -1,0 +1,84 @@
+version: 1
+project: AUREON_OMEGA_PRIME
+symbol: XAUUSD
+program: FVG_SCALPER_INTELLIGENCE
+
+families:
+  aggressive_control:
+    id: FVG_V2_12_R943K
+    role: frozen_historical_control
+    ea: ea/baseline/FVG_Scalper_V2_12_Research.mq5
+    preset: ea/baseline/presets/FVG_V2_12_R943K.set
+    immutable: true
+    note: Historical benchmark evidence; never treated as forward/live proof.
+  controlled_reentry:
+    id: FVG_V2_14_CONTROLLED_REENTRY
+    role: safety_control
+    hypotheses:
+      - cap_attempts_per_fvg
+      - cooldown_between_reentries
+      - require_fresh_rejection
+      - quarantine_exhausted_zone
+  intelligence_challenger:
+    id: ASTRA_PRIME_FVG_CHALLENGER
+    role: experimental
+    parent_required: true
+    max_causal_changes_per_mutation: 2
+
+intelligence_dimensions:
+  setup:
+    - fvg_age
+    - fvg_width_atr
+    - fill_depth
+    - rejection_strength
+    - displacement_strength
+    - mss_confirmation
+    - liquidity_sweep_reclaim
+  context:
+    - direction_asymmetry
+    - session
+    - volatility_regime
+    - ema_state
+    - higher_timeframe_structure
+    - price_location
+  execution:
+    - reentry_count
+    - cooldown
+    - stop_geometry
+    - target_geometry
+    - breakeven
+    - partial_profit
+    - trailing
+    - spread
+    - slippage
+
+ablation:
+  required: true
+  compare_against_parent: true
+  forbid_multi_feature_bundle_without_ablation: true
+  preserve_untouched_holdout: true
+  report_by:
+    - long_short
+    - session
+    - volatility_regime
+    - year
+
+promotion_sequence:
+  - development
+  - validation
+  - untouched_holdout
+  - neighbor_stability
+  - walk_forward
+  - spread_cost_stress
+  - slippage_stress
+  - monte_carlo
+  - mt5_real_ticks
+  - champion_comparison
+  - demo_forward
+
+prohibitions:
+  - optimize_on_holdout
+  - overwrite_historical_control
+  - promote_from_headline_net_profit
+  - infer_live_profitability_from_python_proxy
+  - real_money_authorization
