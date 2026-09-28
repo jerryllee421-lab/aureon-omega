@@ -26,11 +26,13 @@ jobs:
           assert p["mode"]=="DEMO_ONLY" and p["live_locked"] is True and p["live_account_hard_stop"] is True
           assert p["market"]=="XAUUSD"
           assert p["certification"]["controlled_demo_trades"]==10
+          assert p["certification"]["forward_milestones"]==[50,100,250,500]
+          assert p["control"]["name"]=="FVG_V2_17_FORWARD_CERTIFICATION"
           assert p["certification"]["required_reconciliation_rate"]==1.0
           assert p["certification"]["max_orphan_orders"]==0
           assert p["certification"]["max_state_mismatches"]==0
           s=pathlib.Path("ctrader-cloud/AUREONPrimeGoldCloud.cs").read_text()
-          required=["AccessRights.None","Account.IsLive","XAU","RISK_VETO","RISK_HALT","GetEstimatedMargin","MaxSlAtr","OneTradePerFvg","ModifyPosition","VolumeForFixedRisk"]
+          required=["AccessRights.None","Account.IsLive","XAU","RISK_VETO","RISK_HALT","GetEstimatedMargin","MaxSlAtr","OneTradePerFvg","DefaultValue = false","RecoverRuntimeState","STATE_RECOVERY","TELEMETRY|ENTRY","ModifyPosition","VolumeForFixedRisk"]
           missing=[x for x in required if x not in s]
           assert not missing, f"Missing controls: {missing}"
           assert "HttpClient" not in s and "WebSocket" not in s
