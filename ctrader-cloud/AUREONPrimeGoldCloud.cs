@@ -52,7 +52,7 @@ namespace cAlgo.Robots
         [Parameter("Max Trades / Day", DefaultValue = 1000, MinValue = 1)]
         public int MaxTradesPerDay { get; set; }
 
-        [Parameter("Certification One Trade/FVG", DefaultValue = true)]
+        [Parameter("One Trade/FVG", DefaultValue = false)]
         public bool OneTradePerFvg { get; set; }
 
         [Parameter("Allow Long", DefaultValue = true)]
@@ -98,7 +98,23 @@ namespace cAlgo.Robots
             _day = Server.Time.Date;
             _dayStartEquity = Account.Equity;
             _peakEquity = Account.Equity;
-            Print("AUREON PRIME Cloud executor started. DEMO certification build; live-account execution is hard blocked.");
+            RecoverRuntimeState();
+            Print("AUREON PRIME V2.17 forward-certification executor started. DEMO ONLY; live-account execution is hard blocked.");
+        }
+
+        private void RecoverRuntimeState()
+        {
+            // Cloud local files are not a durable state store. Reconstruct critical runtime
+            // state from broker/account state plus current chart history after every restart.
+            var p = Positions.Find(Label, SymbolName);
+            if (p != null)
+            {
+                _entryPrice = p.EntryPrice;
+                if (p.StopLoss.HasValue)
+                    _initialRiskPrice = Math.Abs(p.EntryPrice - p.StopLoss.Value);
+                Print("STATE_RECOVERY positionId={0} entry={1} stop={2}", p.Id, p.EntryPrice, p.StopLoss);
+            }
+            UpdateZoneOnNewBar();
         }
 
         protected override void OnTick()
@@ -231,7 +247,11 @@ namespace cAlgo.Robots
                 _initialRiskPrice = stopDistance;
                 _maxMfeR = 0;
                 _maxMaeR = 0;
-                Print("ENTRY_ACCEPTED side={0} volume={1} spreadPips={2:F2} riskMoney={3:F2}", side, volume, (Symbol.Ask-Symbol.Bid)/Symbol.PipSize, riskMoney);
+                Print("TELEMETRY|ENTRY|time={0:o}|side={1}|volume={2}|requested={3}|actual={4}|sl={5}|tp={6}|spreadPips={7:F2}|riskMoney={8:F2}|zoneFormed={9:o}|zoneLow={10}|zoneHigh={11}",
+                    Server.Time, side, volume, entry, _entryPrice,
+                    result.Position != null ? result.Position.StopLoss : slPrice,
+                    result.Position != null ? result.Position.TakeProfit : (side == TradeType.Buy ? entry + targetPips * Symbol.PipSize : entry - targetPips * Symbol.PipSize),
+                    (Symbol.Ask-Symbol.Bid)/Symbol.PipSize, riskMoney, _zoneFormed, _zoneLow, _zoneHigh);
             }
         }
 
