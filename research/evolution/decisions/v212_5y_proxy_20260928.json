@@ -1,0 +1,33 @@
+{
+  "decision_id": "v212-5y-proxy-20260928",
+  "market": "XAUUSD",
+  "champion": "FVG_Scalper_V2_12_Research_R943K",
+  "champion_status": "FROZEN_UNCHANGED",
+  "evidence_run_id": 36388298772,
+  "evidence_artifact_id": 10955990574,
+  "proxy_period": ["2021-08-20T00:00:00Z", "2026-08-20T23:58:00Z"],
+  "execution_model": "BAR_CLOSE_PROXY",
+  "baseline_proxy": {
+    "trades": 13602,
+    "profit_factor": 0.25687064984502,
+    "expectancy_r": -0.5935419247231071,
+    "net_r": -8073.357260083702,
+    "max_drawdown_r": 8073.357260083573
+  },
+  "candidate_count": 120,
+  "promotion": "REJECT_ALL",
+  "reason": "Baseline and every inspected finalist are materially negative on validation and holdout; Monte Carlo ruin probability is 1.0. Proxy results are not MT5 tick-equivalent and therefore cannot invalidate the frozen broker-native control, but they do reject promotion of this parameter search.",
+  "next_gate": "CONTROL_REPRODUCTION",
+  "next_experiment": {
+    "name": "V2.12 exact-window broker-native reproduction",
+    "required_period": ["2026-09-01", "2026-09-24"],
+    "required_engine": "MT5_REAL_TICKS",
+    "required_broker_context": "PrimeXBT/PXBT demo/read-only research",
+    "parameter_policy": "EXACT_REPORT_MATCHED_INPUTS_ONLY",
+    "mutated_variables": 0,
+    "promotion_authority": "native MT5 real-tick report",
+    "live_execution": false
+  },
+  "blocker": "The pinned external mirror currently ends 2026-08-20, before the R943K benchmark window. Do not optimize around a proxy that cannot reproduce the benchmark period.",
+  "created_at": "2026-09-28T07:33:00Z"
+}
