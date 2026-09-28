@@ -1,0 +1,62 @@
+name: cTrader Cloud Executor Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'ctrader-cloud/**'
+      - '.github/workflows/ctrader-cloud-validate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contract validation
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          p=json.load(open("ctrader-cloud/certification.json"))
+          assert p["mode"]=="DEMO_ONLY" and p["live_locked"] is True and p["live_account_hard_stop"] is True
+          assert p["market"]=="XAUUSD"
+          assert p["certification"]["controlled_demo_trades"]==10
+          assert p["certification"]["required_reconciliation_rate"]==1.0
+          assert p["certification"]["max_orphan_orders"]==0
+          assert p["certification"]["max_state_mismatches"]==0
+          s=pathlib.Path("ctrader-cloud/AUREONPrimeGoldCloud.cs").read_text()
+          required=["AccessRights.None","Account.IsLive","XAU","RISK_VETO","RISK_HALT","GetEstimatedMargin","MaxSlAtr","OneTradePerFvg","ModifyPosition","VolumeForFixedRisk"]
+          missing=[x for x in required if x not in s]
+          assert not missing, f"Missing controls: {missing}"
+          assert "HttpClient" not in s and "WebSocket" not in s
+          print("AUREON cTrader Cloud contract/static safety: PASS")
+          PY
+      - name: Secret pattern scan
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+          root=pathlib.Path("ctrader-cloud")
+          pattern=re.compile(r"""(?i)(client_secret|access_token|refresh_token|api_key)\s*[:=]\s*["'][A-Za-z0-9_.-]{12,}""")
+          hits=[]
+          for p in root.rglob("*"):
+              if not p.is_file():
+                  continue
+              try:
+                  text=p.read_text(errors="ignore")
+              except Exception:
+                  continue
+              if pattern.search(text):
+                  hits.append(str(p))
+          if hits:
+              print("Potential embedded secret detected in:", *hits, sep="\n")
+              sys.exit(1)
+          print("Secret scan: PASS")
+          PY
+      - name: Certification boundary
+        run: |
+          echo "Static validation only. Native cTrader compile/backtest is REQUIRED before demo Cloud certification."
