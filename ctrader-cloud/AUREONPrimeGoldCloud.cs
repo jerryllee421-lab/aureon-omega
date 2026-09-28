@@ -49,6 +49,9 @@ namespace cAlgo.Robots
         [Parameter("Max Drawdown %", DefaultValue = 6.0, MinValue = 0)]
         public double MaxDrawdownPercent { get; set; }
 
+        [Parameter("Canary Run ID", DefaultValue = "V217_CANARY_001")]
+        public string CanaryRunId { get; set; }
+
         [Parameter("Canary Max Completed Trades", DefaultValue = 5, MinValue = 1, MaxValue = 5)]
         public int CanaryMaxCompletedTrades { get; set; }
 
@@ -103,6 +106,7 @@ namespace cAlgo.Robots
             _dayStartEquity = Account.Equity;
             _peakEquity = Account.Equity;
             RecoverRuntimeState();
+            RecoverCanaryState();
             Print("AUREON PRIME V2.17 forward-certification executor started. DEMO ONLY; live-account execution is hard blocked.");
         }
 
@@ -123,6 +127,27 @@ namespace cAlgo.Robots
 
         private int _canaryCompletedTrades;
         private bool _canaryComplete;
+
+        private void RecoverCanaryState()
+        {
+            if (string.IsNullOrWhiteSpace(CanaryRunId))
+            {
+                Print("BLOCKED: Canary Run ID must be non-empty.");
+                _canaryComplete = true;
+                return;
+            }
+
+            _canaryCompletedTrades = 0;
+            foreach (var trade in History.FindAll(Label, SymbolName))
+            {
+                if (string.Equals(trade.Comment, CanaryRunId, StringComparison.Ordinal))
+                    _canaryCompletedTrades++;
+            }
+
+            _canaryComplete = _canaryCompletedTrades >= CanaryMaxCompletedTrades;
+            Print("CERTIFICATION|CANARY_RECOVERY|runId={0}|completed={1}|limit={2}|blocked={3}",
+                CanaryRunId, _canaryCompletedTrades, CanaryMaxCompletedTrades, _canaryComplete);
+        }
 
         private void OnPositionClosed(PositionClosedEventArgs args)
         {
@@ -269,7 +294,7 @@ namespace cAlgo.Robots
             double projectedMarginLevel = estimatedMargin > 0 ? Account.Equity / (Account.Margin + estimatedMargin) * 100.0 : 0;
             if (projectedMarginLevel < MinProjectedMarginPercent) { Print("RISK_VETO: PROJECTED_MARGIN_LEVEL"); return; }
 
-            var result = ExecuteMarketOrder(side, SymbolName, volume, Label, stopPips, targetPips);
+            var result = ExecuteMarketOrder(side, SymbolName, volume, Label, stopPips, targetPips, CanaryRunId);
             if (!result.IsSuccessful)
                 Print("EXECUTION_REJECTED: {0}", result.Error);
             else
@@ -280,8 +305,8 @@ namespace cAlgo.Robots
                 _initialRiskPrice = stopDistance;
                 _maxMfeR = 0;
                 _maxMaeR = 0;
-                Print("TELEMETRY|ENTRY|time={0:o}|side={1}|volume={2}|requested={3}|actual={4}|sl={5}|tp={6}|spreadPips={7:F2}|riskMoney={8:F2}|zoneFormed={9:o}|zoneLow={10}|zoneHigh={11}",
-                    Server.Time, side, volume, entry, _entryPrice,
+                Print("TELEMETRY|ENTRY|time={0:o}|runId={1}|side={2}|volume={3}|requested={4}|actual={5}|sl={6}|tp={7}|spreadPips={8:F2}|riskMoney={9:F2}|zoneFormed={10:o}|zoneLow={11}|zoneHigh={12}",
+                    Server.Time, CanaryRunId, side, volume, entry, _entryPrice,
                     result.Position != null ? result.Position.StopLoss : slPrice,
                     result.Position != null ? result.Position.TakeProfit : (side == TradeType.Buy ? entry + targetPips * Symbol.PipSize : entry - targetPips * Symbol.PipSize),
                     (Symbol.Ask-Symbol.Bid)/Symbol.PipSize, riskMoney, _zoneFormed, _zoneLow, _zoneHigh);
