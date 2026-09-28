@@ -1,0 +1,57 @@
+{
+  "id": "FVG_V2_12_R1_253B_HISTORICAL_BENCHMARK",
+  "status": "HISTORICAL_TESTER_EVIDENCE",
+  "promotion_status": "NOT_FORWARD_VALIDATED",
+  "source_family": "FVG_Scalper_V2_12_Research",
+  "observed_report_files": [
+    "ReportTester-1330088 (5).html",
+    "ReportTester-1330088 (6).html",
+    "ReportTester-1330088 (7).html"
+  ],
+  "tester_evidence": {
+    "total_net_profit": 1253409948.33,
+    "profit_factor": 2.48,
+    "history_quality_pct": 99,
+    "leverage": "1:100",
+    "balance_drawdown_relative_pct": 15.81,
+    "balance_drawdown_amount": 14549.48,
+    "equity_drawdown_relative_pct": 17.74,
+    "equity_drawdown_amount": 16501.03
+  },
+  "contextual_results_from_research_record": {
+    "initial_deposit": 1000,
+    "trades": 18368,
+    "win_rate_pct": 68.06,
+    "sharpe_ratio": 36.36,
+    "average_hold": "1m25s"
+  },
+  "known_configuration": {
+    "entry_tf": "M1",
+    "bias_tf": "M1",
+    "tester_period_displayed_tf": "M5",
+    "bias_filter": false,
+    "midpoint_filter": false,
+    "rejection_required": true,
+    "min_fvg_atr": 0.15,
+    "displacement_body_atr": 0.5,
+    "max_fvg_age_bars": 1000,
+    "one_trade_per_fvg": false,
+    "requested_risk_pct": 2,
+    "effective_risk_cap_pct": 1.25,
+    "auto_compounding": true,
+    "nominal_rr": 30,
+    "lock_1": "0.5R -> +0.1R",
+    "lock_2": "1.0R -> +0.35R",
+    "trailing": "starts 1.5R / 0.10 ATR",
+    "max_trades_per_day": 1000,
+    "cooldown_seconds": 0,
+    "sessions": "24h"
+  },
+  "evidence_rules": [
+    "Preserve as immutable historical benchmark.",
+    "Do not treat headline compounded net profit as live or forward evidence.",
+    "Do not overwrite the separate R943K historical control.",
+    "Require native MT5 real-tick reproduction before demo-forward promotion.",
+    "Use exact source/report artifacts when available for parity verification."
+  ]
+}
