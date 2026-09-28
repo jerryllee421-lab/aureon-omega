@@ -43,3 +43,14 @@ mutation:
   require_hypothesis: true
   require_parent_id: true
   forbid_holdout_optimization: true
+ablation:
+  required: true
+  compare_to_parent: true
+  require_direction_breakdown: true
+  require_session_breakdown: true
+  require_regime_breakdown: true
+fvg_intelligence:
+  program: research/evolution/fvg_intelligence_program.yml
+  frozen_control: FVG_V2_12_R943K
+  controlled_reentry_control: FVG_V2_14_CONTROLLED_REENTRY
+  challenger: ASTRA_PRIME_FVG_CHALLENGER
