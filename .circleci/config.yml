@@ -77,7 +77,7 @@ jobs:
           command: python research/resample_validate.py --root research_data --symbol XAUUSD
       - run:
           name: Run deterministic research
-          command: python research/run_research.py --data "research_data/XAUUSD/canonical/XAUUSD_<< pipeline.parameters.timeframe >>.parquet" --max-candidates "<< pipeline.parameters.max_candidates >>"
+          command: python research/run_research.py --config "research/config/fvg_v212_control.yml" --data "research_data/XAUUSD/canonical/XAUUSD_<< pipeline.parameters.timeframe >>.parquet" --max-candidates "<< pipeline.parameters.max_candidates >>"
           no_output_timeout: 30m
       - run:
           name: Package evidence
