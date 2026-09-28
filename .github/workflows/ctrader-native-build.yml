@@ -1,0 +1,60 @@
+name: cTrader Native Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ctrader-cloud/**'
+      - '.github/workflows/ctrader-native-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Homebrew
+        run: |
+          NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+
+      - name: Install official cTrader CLI
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew tap spotware/tap https://github.com/spotware/homebrew-tap
+          brew install spotware/tap/ctrader-cli
+          ctrader-cli --version
+
+      - name: Native cTrader build
+        run: |
+          ctrader-cli build ctrader-cloud/AUREONPrimeGoldCloud.csproj
+
+      - name: Locate and inspect .algo
+        id: artifact
+        shell: bash
+        run: |
+          ALGO="$(find ctrader-cloud -type f -name '*.algo' | head -n 1)"
+          test -n "$ALGO"
+          echo "algo=$ALGO" >> "$GITHUB_OUTPUT"
+          ctrader-cli metadata "$ALGO"
+          sha256sum "$ALGO" | tee ctrader-cloud/AUREON_FVG_V2_17_Forward.sha256
+
+      - name: Upload native .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUREON-FVG-V2-17-cTrader-native
+          path: |
+            ${{ steps.artifact.outputs.algo }}
+            ctrader-cloud/AUREON_FVG_V2_17_Forward.sha256
+          if-no-files-found: error
+          retention-days: 30
