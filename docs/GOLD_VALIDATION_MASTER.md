@@ -36,9 +36,14 @@ Required sequence:
 
 - **V2.12 frozen control:** source of truth for the R943K benchmark.
 - **Python Gold Research Lab:** deterministic approximation for discovery only; never treated as MT5 tick-equivalent.
-- **ASTRA campaign EA:** experimental challenger lane; no promotion without native tester evidence.
+- **V4 ASTRA Research Accelerator:** primary MT5 challenger; preserved under `ea/challengers/`; no promotion without native tester evidence.
+- **ASTRA campaign EA:** experimental ablation/campaign challenger; preserved under `ea/challengers/astra-campaign-v1/`; no promotion without native tester evidence.
 - **cTrader Cloud:** demo certification/parity lane; live use remains locked until native cTrader validation and reconciliation pass.
 
 ## Non-negotiable interpretation
 
 The R943K result is a historical backtest result, not a forecast and not proof that equivalent compounding will survive other periods, brokers, symbol specifications or live execution.
+
+## Repository authority
+
+The canonical EA lineage is documented in `ea/challengers/README.md`. Divergent historical branches may remain for audit history, but they are not authoritative once their useful assets are preserved on `main`.
