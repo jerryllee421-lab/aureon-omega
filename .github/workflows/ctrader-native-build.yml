@@ -45,7 +45,8 @@ jobs:
 
       - name: Native cTrader build
         run: |
-          ctrader-cli build ctrader-cloud/AUREONPrimeGoldCloud.csproj
+          dotnet restore ctrader-cloud/AUREONPrimeGoldCloud.csproj
+          dotnet build ctrader-cloud/AUREONPrimeGoldCloud.csproj --configuration Release --no-restore -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
 
       - name: Locate and inspect .algo
         id: artifact
