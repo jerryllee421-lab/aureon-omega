@@ -25,7 +25,6 @@ on:
     branches: [main]
     paths:
       - 'research/requests/*.json'
-      - 'research/evolution/**'
 
 permissions:
   contents: read
@@ -143,6 +142,20 @@ jobs:
           --config 'research/config/fvg_v212_control.yml'
           --data 'research_data/XAUUSD/canonical/XAUUSD_${{ steps.request.outputs.timeframe }}.parquet'
           --max-candidates '${{ steps.request.outputs.max_candidates }}'
+      - name: Run PRIME Evolution verdict
+        if: success()
+        shell: bash
+        run: |
+          REPORT="$(find research_results -type f -name '*.json' ! -name 'evolution_verdict.json' | sort | head -n 1)"
+          if [ -z "$REPORT" ]; then
+            echo "No research JSON report found for PRIME Evolution" >&2
+            exit 1
+          fi
+          echo "PRIME Evolution source report: $REPORT"
+          python research/evolution/engine.py \
+            --report "$REPORT" \
+            --policy research/evolution/policy.yml \
+            --commit "$GITHUB_SHA"
       - name: Package manifest
         if: always()
         run: |
