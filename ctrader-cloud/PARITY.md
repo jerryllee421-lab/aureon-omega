@@ -17,10 +17,10 @@ Source authority: FVG_Scalper_V2_12_Research.mq5.
 | 1.0R -> +0.35R lock | ManagePosition | PORTED |
 | 1.5R -> 0.1 ATR trail with +0.35R floor | ManagePosition | PORTED |
 | Exact MT5 volume/risk semantics | cTrader fixed-risk sizing | NEEDS SYMBOL PARITY TEST |
-| Report override OneTradePerFVG=false | certification build currently true | INTENTIONALLY LOCKED |
+| Report/V2.17 OneTradePerFVG=false | default false | PORTED |
 | MT5 margin preflight semantics | Risk Governor scaffold | NEEDS CTRADER PARITY |
-| Persistence/restart restoration | not complete | REQUIRED |
-| Full MFE/MAE/slippage telemetry | not complete | REQUIRED |
+| Persistence/restart restoration | reconstruct position + zone from broker/chart state | PARTIAL - DEMO VERIFY |
+| Structured entry + MFE/MAE runtime telemetry | entry ported; close/reconciliation pending | PARTIAL |
 
 ## Rule
 No item marked NEEDS/REQUIRED may be described as parity-complete. The certification build keeps re-entry disabled until the one-trade behavior matches the control closely enough to isolate platform semantics.
