@@ -1,0 +1,101 @@
+version: 2.1
+
+parameters:
+  full_gold_research:
+    type: boolean
+    default: false
+  years:
+    type: integer
+    default: 5
+  timeframe:
+    type: enum
+    enum: ["M1","M5","M15","H1","H4"]
+    default: "M1"
+  max_candidates:
+    type: integer
+    default: 120
+
+jobs:
+  verify:
+    docker:
+      - image: cimg/node:22.18
+    steps:
+      - checkout
+      - run:
+          name: Install
+          command: npm install --package-lock=false --no-audit --no-fund
+      - run:
+          name: Tests
+          command: npm test
+      - run:
+          name: Build
+          command: npm run build
+      - run:
+          name: Research Python syntax
+          command: python3 -m compileall -q research
+
+  gold-research:
+    docker:
+      - image: cimg/python:3.13
+    resource_class: medium
+    environment:
+      PYTHONUNBUFFERED: "1"
+      XAU_MIRROR_END: "2026-08-20"
+      XAU_MIRROR_COMMIT: "922f83a60cc574e7395fb27397077288055a1ef6"
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - aureon-pip-v3-{{ checksum "research/requirements.txt" }}
+            - aureon-pip-v3-
+      - run:
+          name: Install research dependencies
+          command: python -m pip install --user -r research/requirements.txt
+      - save_cache:
+          key: aureon-pip-v3-{{ checksum "research/requirements.txt" }}
+          paths:
+            - ~/.cache/pip
+      - run:
+          name: Resolve pinned research range
+          command: |
+            python - <<'PY' >> "$BASH_ENV"
+            from datetime import date
+            y=int("<< pipeline.parameters.years >>")
+            end=date.fromisoformat("2026-08-20")
+            try: start=end.replace(year=end.year-y)
+            except ValueError: start=end.replace(month=2,day=28,year=end.year-y)
+            print("export AUREON_START="+start.isoformat())
+            PY
+      - run:
+          name: Import pinned XAUUSD bid/ask M1
+          command: |
+            source "$BASH_ENV"
+            python research/mirror_m1.py --start "$AUREON_START" --end "$XAU_MIRROR_END" --commit "$XAU_MIRROR_COMMIT"
+          no_output_timeout: 30m
+      - run:
+          name: Build and validate 21 timeframes
+          command: python research/resample_validate.py --root research_data --symbol XAUUSD
+      - run:
+          name: Run deterministic research
+          command: python research/run_research.py --data "research_data/XAUUSD/canonical/XAUUSD_<< pipeline.parameters.timeframe >>.parquet" --max-candidates "<< pipeline.parameters.max_candidates >>"
+          no_output_timeout: 30m
+      - run:
+          name: Package evidence
+          when: always
+          command: |
+            mkdir -p artifact
+            cp -r research_results artifact/ 2>/dev/null || true
+            cp research_data/XAUUSD/*manifest.json artifact/ 2>/dev/null || true
+            git rev-parse HEAD > artifact/source_commit.txt
+      - store_artifacts:
+          path: artifact
+          destination: aureon-gold-research
+
+workflows:
+  verify:
+    jobs:
+      - verify
+  full-gold-research:
+    when: << pipeline.parameters.full_gold_research >>
+    jobs:
+      - gold-research
