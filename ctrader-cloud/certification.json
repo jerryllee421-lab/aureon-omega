@@ -40,6 +40,32 @@
       "short_win_rate_pct": 72.86,
       "long_win_rate_pct": 65.26,
       "average_holding_seconds": 85
+    },
+    "canary_completed_trades": 5,
+    "canary_mode": "GENUINE_V2_17_SIGNALS_ONLY",
+    "canary_hard_stop_new_entries": true,
+    "canary_required_telemetry": [
+      "entry",
+      "close",
+      "requested_vs_actual",
+      "spread",
+      "slippage",
+      "sl",
+      "tp",
+      "direction",
+      "fvg_zone",
+      "mfe_r",
+      "mae_r",
+      "holding_seconds",
+      "realized_r",
+      "exit_reason"
+    ],
+    "canary_verdict": "NOT_YET_TESTED",
+    "native_build": {
+      "run_id": 36460182847,
+      "status": "VERIFIED_FAIL",
+      "failure_stage": "Native cTrader build",
+      "interpretation": "TOOLCHAIN_OR_SOURCE_COMPILE_FAILURE_NOT_STRATEGY_RESULT"
     }
   },
   "live_account_hard_stop": true,
