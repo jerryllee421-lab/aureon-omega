@@ -95,6 +95,7 @@ namespace cAlgo.Robots
                 return;
             }
             _atr = Indicators.AverageTrueRange(AtrPeriod, MovingAverageType.Exponential);
+            Positions.Closed += OnPositionClosed;
             _day = Server.Time.Date;
             _dayStartEquity = Account.Equity;
             _peakEquity = Account.Equity;
@@ -115,6 +116,22 @@ namespace cAlgo.Robots
                 Print("STATE_RECOVERY positionId={0} entry={1} stop={2}", p.Id, p.EntryPrice, p.StopLoss);
             }
             UpdateZoneOnNewBar();
+        }
+
+        private void OnPositionClosed(PositionClosedEventArgs args)
+        {
+            var p = args.Position;
+            if (p.Label != Label || p.SymbolName != SymbolName) return;
+            double realizedR = _initialRiskPrice > 0
+                ? (p.TradeType == TradeType.Buy ? p.ClosePrice - _entryPrice : _entryPrice - p.ClosePrice) / _initialRiskPrice
+                : 0;
+            Print("TELEMETRY|CLOSE|time={0:o}|positionId={1}|side={2}|entry={3}|close={4}|gross={5}|net={6}|realizedR={7:F4}|mfeR={8:F4}|maeR={9:F4}|reason={10}",
+                Server.Time, p.Id, p.TradeType, p.EntryPrice, p.ClosePrice, p.GrossProfit, p.NetProfit,
+                realizedR, _maxMfeR, _maxMaeR, args.Reason);
+            _initialRiskPrice = 0;
+            _entryPrice = 0;
+            _maxMfeR = 0;
+            _maxMaeR = 0;
         }
 
         protected override void OnTick()
