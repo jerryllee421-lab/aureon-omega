@@ -78,5 +78,20 @@
     "Restart recovery reconstructs critical state from broker/chart state; local Cloud files are not authoritative.",
     "Static repository validation does not equal native cTrader certification.",
     "Live-account execution remains hard blocked by Account.IsLive in OnStart."
-  ]
+  ],
+  "native_compile": true,
+  "native_build": {
+    "run_id": 36461418950,
+    "run_number": 7,
+    "status": "VERIFIED_PASS",
+    "source_commit": "431868996ad2b6004317e2dc5d12074d3bdb030c",
+    "errors": 0,
+    "warnings": 2,
+    "algo_path": "ctrader-cloud/bin/Release/net6.0/aureon-omega.algo",
+    "algo_sha256": "4d1299ae03b4f67d70cdbcf543f4d5c76bb373de804f07e848dbbf04e6e39529",
+    "artifact_name": "AUREON-FVG-V2-17-cTrader-native",
+    "artifact_id": 10988450764,
+    "artifact_zip_sha256": "4eb75e379c55cd0fe302c9d185da83d2761aee8d843a0127be51a25e10a7d381"
+  },
+  "canary_verdict": "NOT_YET_TESTED"
 }
