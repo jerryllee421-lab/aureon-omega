@@ -1,24 +1,26 @@
-# AUREON Ω deployment status — 2026-09-19
+# AUREON Ω deployment status — 2026-09-28
 
 ## Verified production
 
-- GitHub private repo + CI active.
-- Vercel production deployed at `aureon-omega.vercel.app`.
-- ASTRA OIDC → Vercel AI Gateway verified.
-- Vercel OIDC → Supabase Edge privileged service verified.
-- `/api/health` returns `ready:true` with database ready.
-- Owner-only RLS and private replay/quota schema active.
-- Native MTF quant, Research, Journal, Monitor and Data Truth views deployed.
-- Protected daily Vercel Cron endpoint deployed.
+- GitHub repository: `jerryllee421-lab/aureon-omega`, public, with `main` as production authority.
+- Vercel project `aureon-omega` is deployed and the checked production deployment is `READY`.
+- No Vercel runtime errors were returned for the checked seven-day window.
+- Supabase project `hfjglluombfnrwslfbuw` is `ACTIVE_HEALTHY` in eu-west-1.
+- Supabase `aureon-service` Edge Function is active.
+- Project-monitor evidence tables are RLS-protected and intended for server/service access.
+- Vercel SSO protects the currently checked deployment endpoints; anonymous `/api/health` and `/api/status` probes redirect to authentication and must not be reported as application failures.
 
-## Production environment
+## Runtime boundary
 
-Required: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `OWNER_USER_ID`, `CRON_SECRET`.
+The web application remains an analysis/research system. No browser or web API path is authorized to execute broker trades.
 
-Optional: `TWELVE_DATA_API_KEY` for Gold reference/quant data.
+## Research boundary
 
-Obsolete long-lived Vercel AI/Supabase-admin/pipeline keys are not required by the active OIDC runtime and can be removed after operator verification.
+- V2.12 R943K is the frozen historical control.
+- V4 ASTRA Research Accelerator is the primary MT5 challenger.
+- cTrader Cloud remains `DEMO_ONLY` and the executable hard-stops when `Account.IsLive` is true.
+- Native MT5/cTrader compile, broker-real-tick validation, reconciliation and demo-forward evidence are mandatory before promotion.
 
-## Remaining operator-only action
+## Secrets
 
-Rotate `CRON_SECRET` if any previous value was exposed outside the secret manager. Never paste its replacement into chat.
+Keep all privileged credentials in platform secret stores. Do not commit or paste broker passwords, API keys, service-role secrets or cron secrets into repository source or chat.
