@@ -146,9 +146,9 @@ jobs:
         if: success()
         shell: bash
         run: |
-          REPORT="$(find research_results -type f -name '*.json' ! -name 'evolution_verdict.json' | sort | head -n 1)"
-          if [ -z "$REPORT" ]; then
-            echo "No research JSON report found for PRIME Evolution" >&2
+          REPORT="research_results/research_report.json"
+          if [ ! -s "$REPORT" ]; then
+            echo "Canonical research report missing or empty: $REPORT" >&2
             exit 1
           fi
           echo "PRIME Evolution source report: $REPORT"
