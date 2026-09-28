@@ -6,8 +6,8 @@
   "mode": "DEMO_ONLY",
   "live_locked": true,
   "control": {
-    "name": "FVG_Scalper_V2_12_Research_R943K",
-    "purpose": "PARITY_REFERENCE",
+    "name": "FVG_V2_17_FORWARD_CERTIFICATION",
+    "purpose": "FROZEN_BEHAVIORAL_PARITY_REFERENCE",
     "immutable": true
   },
   "risk_governor": {
@@ -19,7 +19,7 @@
     "drawdown_guard": true,
     "loss_streak_guard": false,
     "execution_state_guard": false,
-    "persistence_restart_guard": false
+    "persistence_restart_guard": true
   },
   "certification": {
     "canary_trades": 1,
@@ -27,15 +27,30 @@
     "required_reconciliation_rate": 1,
     "max_orphan_orders": 0,
     "max_state_mismatches": 0,
-    "profit_required_for_execution_certification": false
+    "profit_required_for_execution_certification": false,
+    "forward_milestones": [
+      50,
+      100,
+      250,
+      500
+    ],
+    "historical_reference": {
+      "profit_factor": 2.48,
+      "win_rate_pct": 68.06,
+      "short_win_rate_pct": 72.86,
+      "long_win_rate_pct": 65.26,
+      "average_holding_seconds": 85
+    }
   },
   "live_account_hard_stop": true,
   "native_compile_verified": false,
   "native_backtest_verified": false,
   "demo_reconciliation_verified": false,
   "notes": [
+    "V2.17 strategy semantics are frozen during forward certification.",
+    "Repeated FVG entry is enabled by default to match the aggressive historical control.",
+    "Restart recovery reconstructs critical state from broker/chart state; local Cloud files are not authoritative.",
     "Static repository validation does not equal native cTrader certification.",
-    "Loss-streak, execution-state reconciliation and restart persistence remain certification requirements.",
-    "Live-account execution is hard blocked by Account.IsLive in OnStart."
+    "Live-account execution remains hard blocked by Account.IsLive in OnStart."
   ]
 }
