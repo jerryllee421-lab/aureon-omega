@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "campaign": "FVG_V2_12_MECHANISM_ATTRIBUTION",
+  "control": "FVG_V2_12_R1_253B_HISTORICAL_BENCHMARK",
+  "secondary_control": "FVG_V2_12_R943K",
+  "status": "READY_FOR_CONTROLLED_EXPERIMENTS",
+  "max_causal_changes": 2,
+  "sequence": [
+    {
+      "id": "A01_REENTRY",
+      "variables": [
+        "InpOneTradePerFVG",
+        "InpCooldownSeconds"
+      ],
+      "priority": 1
+    },
+    {
+      "id": "A02_REJECTION",
+      "variables": [
+        "InpRequireRejection"
+      ],
+      "priority": 2
+    },
+    {
+      "id": "A03_DISPLACEMENT",
+      "variables": [
+        "InpMinFVG_ATR",
+        "InpMinBody_ATR"
+      ],
+      "priority": 3
+    },
+    {
+      "id": "A04_DIRECTION",
+      "variables": [
+        "InpAllowLong",
+        "InpAllowShort"
+      ],
+      "priority": 4
+    },
+    {
+      "id": "A05_EXITS",
+      "variables": [
+        "InpUseProfitLock",
+        "InpUseATRTrail"
+      ],
+      "priority": 5
+    },
+    {
+      "id": "A06_COMPOUNDING",
+      "variables": [
+        "InpAutoCompoundLots"
+      ],
+      "priority": 6
+    },
+    {
+      "id": "A07_EXECUTION_STRESS",
+      "variables": [
+        "spread",
+        "slippage"
+      ],
+      "priority": 7
+    }
+  ],
+  "required_gates": [
+    "validation",
+    "untouched_holdout",
+    "neighbor_stability",
+    "walk_forward",
+    "cost_stress",
+    "monte_carlo",
+    "mt5_real_ticks"
+  ],
+  "promotion_metric": "robust_r_space_edge_not_terminal_currency"
+}
