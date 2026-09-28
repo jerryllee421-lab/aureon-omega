@@ -1,12 +1,13 @@
 {
-  "id": "gold-v212-canonical-5y-m1-120-20260928",
-  "requested_at": "2026-09-28T08:48:00+02:00",
+  "id": "gold-v212-prime-5y-m1-120-20260928-1605",
+  "requested_at": "2026-09-28T16:05:00+02:00",
   "years": 5,
   "timeframe": "M1",
   "max_candidates": 120,
   "strategy": "FVG_Scalper_V2_12_R943K_CONTROL",
-  "purpose": "canonical post-consolidation 5Y XAUUSD M1 V2.12 control research with optimized evaluator and deterministic full-grid coverage",
+  "purpose": "canonical 5Y XAUUSD M1 V2.12 control rerun with integrated PRIME Evolution verdict",
   "baseline": "research/baselines/fvg_v212_r943k.json",
   "config": "research/config/fvg_v212_control.yml",
-  "promotion_authority": "native MT5 real-tick validation"
+  "promotion_authority": "native MT5 real-tick validation",
+  "retrigger": "prime-evolution-integration"
 }
