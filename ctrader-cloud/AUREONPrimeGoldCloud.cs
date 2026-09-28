@@ -118,6 +118,9 @@ namespace cAlgo.Robots
             UpdateZoneOnNewBar();
         }
 
+        private int _canaryCompletedTrades;
+        private bool _canaryComplete;
+
         private void OnPositionClosed(PositionClosedEventArgs args)
         {
             var p = args.Position;
@@ -132,10 +135,18 @@ namespace cAlgo.Robots
             _entryPrice = 0;
             _maxMfeR = 0;
             _maxMaeR = 0;
+            _canaryCompletedTrades++;
+            if (_canaryCompletedTrades >= CanaryMaxCompletedTrades)
+            {
+                _canaryComplete = true;
+                Print("CERTIFICATION|CANARY_COMPLETE|completed={0}|limit={1}|action=BLOCK_NEW_ENTRIES", _canaryCompletedTrades, CanaryMaxCompletedTrades);
+            }
         }
 
         protected override void OnTick()
         {
+            if (_canaryComplete)
+                return;
             RefreshRiskState();
             ManagePosition();
             UpdateZoneOnNewBar();
