@@ -22,7 +22,7 @@
     "persistence_restart_guard": true
   },
   "certification": {
-    "canary_trades": 1,
+    "canary_trades": 5,
     "controlled_demo_trades": 10,
     "required_reconciliation_rate": 1,
     "max_orphan_orders": 0,
@@ -60,23 +60,17 @@
       "realized_r",
       "exit_reason"
     ],
-    "canary_verdict": "NOT_YET_TESTED",
-    "native_build": {
-      "run_id": 36460182847,
-      "status": "VERIFIED_FAIL",
-      "failure_stage": "Native cTrader build",
-      "interpretation": "TOOLCHAIN_OR_SOURCE_COMPILE_FAILURE_NOT_STRATEGY_RESULT"
-    }
+    "canary_verdict": "NOT_YET_TESTED"
   },
   "live_account_hard_stop": true,
-  "native_compile_verified": false,
+  "native_compile_verified": true,
   "native_backtest_verified": false,
   "demo_reconciliation_verified": false,
   "notes": [
     "V2.17 strategy semantics are frozen during forward certification.",
     "Repeated FVG entry is enabled by default to match the aggressive historical control.",
     "Restart recovery reconstructs critical state from broker/chart state; local Cloud files are not authoritative.",
-    "Static repository validation does not equal native cTrader certification.",
+    "Native cTrader compilation is VERIFIED PASS; native historical backtest and demo reconciliation remain separate certification gates.",
     "Live-account execution remains hard blocked by Account.IsLive in OnStart."
   ],
   "native_compile": true,
