@@ -1,0 +1,28 @@
+name: cTrader Open API Executor Validation
+on:
+  push:
+    paths:
+      - 'ctrader-openapi/**'
+      - '.github/workflows/ctrader-openapi-validate.yml'
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m py_compile ctrader-openapi/executor.py
+      - run: |
+          grep -q 'ENV!="demo"' ctrader-openapi/executor.py
+          grep -q 'EXEC_ENABLED' ctrader-openapi/executor.py
+          grep -q 'order submission remains disabled' ctrader-openapi/executor.py
+          ! grep -RInE '(access[_-]?token|client[_-]?secret)[[:space:]]*=[[:space:]]*["'\''"][A-Za-z0-9_-]{16,}' ctrader-openapi --exclude='.env.example'
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r ctrader-openapi/requirements.txt
+          python - <<'PY'
+          import ctrader_open_api
+          print("ctrader-open-api import PASS")
+          PY
