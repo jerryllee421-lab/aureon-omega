@@ -13,7 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m py_compile ctrader-openapi/executor.py
+      - run: python -m py_compile ctrader-openapi/executor.py ctrader-openapi/strategy_v217.py ctrader-openapi/test_strategy_v217.py
+      - run: python ctrader-openapi/test_strategy_v217.py
       - run: |
           grep -q 'ENV!="demo"' ctrader-openapi/executor.py
           grep -q 'EXEC_ENABLED' ctrader-openapi/executor.py
