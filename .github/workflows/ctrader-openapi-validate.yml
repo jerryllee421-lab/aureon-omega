@@ -17,10 +17,36 @@ jobs:
       - run: python ctrader-openapi/test_strategy_v217.py
       - run: python ctrader-openapi/test_risk_state.py
       - run: docker build -t aureon-openapi-test ctrader-openapi
-      - run: |
-          grep -q 'ENV!="demo"' ctrader-openapi/executor.py
-          grep -q 'EXEC_ENABLED' ctrader-openapi/executor.py
-          grep -q 'order submission remains disabled' ctrader-openapi/executor.py
+      - name: Static safety contract
+        run: |
+          python - <<'PY'
+          import pathlib
+          s=pathlib.Path("ctrader-openapi/executor.py").read_text()
+          required=[
+            'ENV != "demo"',
+            'AUREON_EXECUTION_ENABLED',
+            'if EXEC_ENABLED:',
+            'EndPoints.PROTOBUF_DEMO_HOST',
+            'LIVE_ACCOUNT',
+            'BROKER_MISMATCH',
+            'ACCOUNT_NOT_FULL_ACCESS',
+            'XAU_SYMBOL_NOT_UNIQUE_OR_NOT_FOUND',
+            'SYMBOL_TRADING_DISABLED',
+            'STALE_SPOT',
+            'execution_enabled=false',
+          ]
+          missing=[x for x in required if x not in s]
+          assert not missing, f"Missing safety controls: {missing}"
+          forbidden=[
+            "ProtoOANewOrderReq",
+            "ProtoOAAmendOrderReq",
+            "ProtoOAClosePositionReq",
+            "ProtoOACancelOrderReq",
+          ]
+          present=[x for x in forbidden if x in s]
+          assert not present, f"Order-capable message types present in zero-order preflight: {present}"
+          print("zero-order DEMO preflight safety contract: PASS")
+          PY
           ! grep -RInE '(access[_-]?token|client[_-]?secret)[[:space:]]*=[[:space:]]*["'\''"][A-Za-z0-9_-]{16,}' ctrader-openapi --exclude='.env.example'
       - run: |
           python -m pip install --upgrade pip
