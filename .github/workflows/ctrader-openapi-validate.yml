@@ -29,3 +29,75 @@ jobs:
           import ctrader_open_api
           print("ctrader-open-api import PASS")
           PY
+      - name: Secure cTrader credential availability
+        id: creds
+        shell: bash
+        env:
+          CTRADER_CLIENT_ID: ${{ secrets.CTRADER_CLIENT_ID }}
+          CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
+          CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN }}
+          CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in CTRADER_CLIENT_ID CTRADER_CLIENT_SECRET CTRADER_ACCESS_TOKEN CTRADER_ACCOUNT_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "${name}=MISSING"
+              missing+=("${name}")
+            else
+              echo "${name}=PRESENT"
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            printf '{"status":"BLOCKED_MISSING_SECURE_SECRETS","missing":[' > ctrader-openapi/preflight_status.json
+            first=1
+            for name in "${missing[@]}"; do
+              if [ "$first" -eq 0 ]; then printf ',' >> ctrader-openapi/preflight_status.json; fi
+              first=0
+              printf '"%s"' "$name" >> ctrader-openapi/preflight_status.json
+            done
+            printf ']}' >> ctrader-openapi/preflight_status.json
+          fi
+
+      - name: Zero-order Pepperstone DEMO preflight
+        if: steps.creds.outputs.ready == 'true'
+        shell: bash
+        env:
+          CTRADER_ENV: demo
+          CTRADER_CLIENT_ID: ${{ secrets.CTRADER_CLIENT_ID }}
+          CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
+          CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN }}
+          CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
+          AUREON_SYMBOL: XAUUSD
+          AUREON_EXPECTED_BROKER: Pepperstone
+          AUREON_EXECUTION_ENABLED: "false"
+        run: |
+          set -euo pipefail
+          timeout 45s python ctrader-openapi/executor.py | tee ctrader-openapi/preflight.log
+          grep -q '^PREFLIGHT_PASS ' ctrader-openapi/preflight.log
+          python - <<'PY'
+          import json, pathlib
+          log=pathlib.Path("ctrader-openapi/preflight.log").read_text()
+          status="PASS" if "PREFLIGHT_PASS " in log else "FAIL"
+          pathlib.Path("ctrader-openapi/preflight_status.json").write_text(json.dumps({
+              "status": status,
+              "execution_enabled": False,
+              "environment": "demo",
+              "broker": "Pepperstone",
+              "symbol": "XAUUSD"
+          }, indent=2))
+          PY
+
+      - name: Upload zero-order preflight evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctrader-demo-zero-order-preflight-${{ github.run_id }}
+          path: |
+            ctrader-openapi/preflight_status.json
+            ctrader-openapi/preflight.log
+          if-no-files-found: warn
+          retention-days: 14
