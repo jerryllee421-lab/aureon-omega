@@ -2,7 +2,7 @@ name: cTrader Native Build
 
 on:
   push:
-    branches: [main, feature/ctrader-demo-canary-hardening]
+    branches: [main, feature/ctrader-demo-canary-hardening, feature/ctrader-net8-runtime-parity]
     paths:
       - 'ctrader-cloud/**'
       - '.github/workflows/ctrader-native-build.yml'
