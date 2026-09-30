@@ -2,7 +2,7 @@ name: cTrader Cloud Executor Validation
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/ctrader-demo-canary-hardening]
   pull_request:
     paths:
       - 'ctrader-cloud/**'
@@ -32,7 +32,7 @@ jobs:
           assert p["certification"]["max_orphan_orders"]==0
           assert p["certification"]["max_state_mismatches"]==0
           s=pathlib.Path("ctrader-cloud/AUREONPrimeGoldCloud.cs").read_text()
-          required=["AccessRights.None","Account.IsLive","XAU","RISK_VETO","RISK_HALT","GetEstimatedMargin","MaxSlAtr","OneTradePerFvg","DefaultValue = false","RecoverRuntimeState","STATE_RECOVERY","TELEMETRY|ENTRY","TELEMETRY|CLOSE","Positions.Closed","OnPositionClosed","ModifyPosition","VolumeForFixedRisk"]
+          required=["AccessRights.None","Account.IsLive","Environment","demo","Execution Enabled","DefaultValue = false","Expected Broker","Pepperstone","XAU","RISK_VETO","RISK_HALT","GetEstimatedMargin","MaxSlAtr","OneTradePerFvg","RecoverRuntimeState","RECONCILIATION_FAIL","STATE|TRADE_INTENT","STATE|ORDER_SUBMITTED","STATE|ORDER_ACK","STATE|FILLED","TELEMETRY|CLOSE","STATE|RECONCILED","CANARY_LIMIT_REACHED","ExecuteMarketRangeOrder","Max Slippage Points","Max Stale Feed Seconds","Timer.Start(1)","Positions.Closed","OnPositionClosed","ModifyPosition","VolumeForFixedRisk"]
           missing=[x for x in required if x not in s]
           assert not missing, f"Missing controls: {missing}"
           assert "HttpClient" not in s and "WebSocket" not in s
