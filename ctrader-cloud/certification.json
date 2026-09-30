@@ -18,8 +18,12 @@
     "daily_loss_guard": true,
     "drawdown_guard": true,
     "loss_streak_guard": false,
-    "execution_state_guard": false,
-    "persistence_restart_guard": true
+    "execution_state_guard": true,
+    "persistence_restart_guard": true,
+    "stale_data_guard": true,
+    "slippage_guard": true,
+    "broker_mapping_guard": true,
+    "execution_default_off": true
   },
   "certification": {
     "canary_trades": 5,
@@ -63,15 +67,17 @@
     "canary_verdict": "NOT_YET_TESTED"
   },
   "live_account_hard_stop": true,
-  "native_compile_verified": true,
+  "native_compile_verified": false,
   "native_backtest_verified": false,
   "demo_reconciliation_verified": false,
   "notes": [
-    "V2.17 strategy semantics are frozen during forward certification.",
-    "Repeated FVG entry is enabled by default to match the aggressive historical control.",
-    "Restart recovery reconstructs critical state from broker/chart state; local Cloud files are not authoritative.",
-    "Native cTrader compilation is VERIFIED PASS; native historical backtest and demo reconciliation remain separate certification gates.",
-    "Live-account execution remains hard blocked by Account.IsLive in OnStart."
+    "V2.17 strategy semantics remain frozen during forward certification.",
+    "Execution is OFF by default and requires an explicit demo-only enable after a successful preflight.",
+    "Account.IsLive, environment=demo, Pepperstone broker mapping and XAU symbol checks fail closed.",
+    "Entry uses cTrader market-range execution to enforce the configured slippage ceiling.",
+    "Restart recovery reconciles labeled broker positions/pending orders and halts on unresolved disagreement.",
+    "Native compile for this hardened revision is pending CI verification.",
+    "Live-account execution remains hard blocked."
   ],
   "native_compile": true,
   "native_build": {
@@ -88,10 +94,16 @@
   },
   "canary_verdict": "NOT_YET_TESTED",
   "execution_candidate": {
-    "status": "DEMO_EXECUTION_READY",
+    "status": "PRE_EXECUTION_HARDENING_PENDING_BUILD",
     "canary_run_id": "V217_CANARY_001",
     "max_completed_trades": 5,
     "restart_durable": true,
-    "genuine_strategy_signals_only": true
+    "genuine_strategy_signals_only": true,
+    "execution_default_off": true,
+    "expected_broker": "Pepperstone",
+    "environment": "demo",
+    "max_stale_feed_seconds": 3,
+    "max_spread_points": 80,
+    "max_slippage_points": 35
   }
 }
