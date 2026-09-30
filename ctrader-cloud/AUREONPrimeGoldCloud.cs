@@ -50,13 +50,13 @@ namespace cAlgo.Robots
         public double MaxDrawdownPercent { get; set; }
 
         [Parameter("Environment", DefaultValue = "demo")]
-        public string EnvironmentName { get; set; }
+        public string EnvironmentName { get; set; } = "";
 
         [Parameter("Execution Enabled", DefaultValue = false)]
         public bool ExecutionEnabled { get; set; }
 
         [Parameter("Expected Broker", DefaultValue = "Pepperstone")]
-        public string ExpectedBroker { get; set; }
+        public string ExpectedBroker { get; set; } = "";
 
         [Parameter("Max Stale Feed Seconds", DefaultValue = 3.0, MinValue = 1.0, MaxValue = 30.0)]
         public double MaxStaleFeedSeconds { get; set; }
@@ -68,7 +68,7 @@ namespace cAlgo.Robots
         public double MaxSlippagePoints { get; set; }
 
         [Parameter("Canary Run ID", DefaultValue = "V217_CANARY_001")]
-        public string CanaryRunId { get; set; }
+        public string CanaryRunId { get; set; } = "";
 
         [Parameter("Canary Max Completed Trades", DefaultValue = 5, MinValue = 1, MaxValue = 5)]
         public int CanaryMaxCompletedTrades { get; set; }
@@ -85,7 +85,7 @@ namespace cAlgo.Robots
         [Parameter("Allow Short", DefaultValue = true)]
         public bool AllowShort { get; set; }
 
-        private AverageTrueRange _atr;
+        private AverageTrueRange _atr = null!;
         private double _dayStartEquity;
         private double _peakEquity;
         private DateTime _day;
@@ -680,7 +680,7 @@ namespace cAlgo.Robots
                           (p.TradeType == TradeType.Buy ? candidate.Value > p.StopLoss.Value : candidate.Value < p.StopLoss.Value);
             if (!better) return;
 
-            var result = ModifyPosition(p, candidate.Value, p.TakeProfit);
+            var result = p.ModifyStopLossPrice(candidate.Value);
             if (!result.IsSuccessful) Print("SL_MODIFY_REJECTED: {0}", result.Error);
         }
     }
