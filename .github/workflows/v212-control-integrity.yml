@@ -1,0 +1,92 @@
+name: V2.12 Frozen Control Integrity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ea/baseline/FVG_Scalper_V2_12_Research.mq5'
+      - 'ea/baseline/presets/FVG_V2_12_R943K.set'
+      - 'research/baselines/fvg_v212_r943k.json'
+      - 'research/config/fvg_v212_control.yml'
+      - '.github/workflows/v212-control-integrity.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify frozen control identity and safety gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, pathlib, re, sys
+          ea=pathlib.Path("ea/baseline/FVG_Scalper_V2_12_Research.mq5")
+          preset=pathlib.Path("ea/baseline/presets/FVG_V2_12_R943K.set")
+          baseline=json.loads(pathlib.Path("research/baselines/fvg_v212_r943k.json").read_text())
+          cfg=pathlib.Path("research/config/fvg_v212_control.yml").read_text()
+          assert ea.is_file() and ea.stat().st_size>0
+          assert preset.is_file() and preset.stat().st_size>0
+          assert baseline["id"]=="FVG_V2_12_R943K"
+          assert baseline["role"]=="FROZEN_CONTROL"
+          assert baseline["policy"]["immutable_control"] is True
+          assert baseline["policy"]["promotion_requires_native_tick_validation"] is True
+          assert baseline["policy"]["promotion_requires_out_of_sample"] is True
+          assert baseline["policy"]["promotion_requires_walk_forward"] is True
+          assert baseline["policy"]["promotion_requires_cost_stress"] is True
+          assert baseline["policy"]["live_ready"] is False
+          assert baseline["tester"]["model"]=="Every tick based on real ticks"
+          assert baseline["tester"]["date_from"]=="2026-09-01"
+          assert baseline["tester"]["date_to"]=="2026-09-24"
+          assert baseline["tester"]["initial_deposit"]==800
+          assert baseline["tester"]["currency"]=="ZAR"
+          assert baseline["tester"]["leverage"]=="1:100"
+          expected={
+            "InpEntryTF":"1","InpBiasTF":"1","InpUseBiasFilter":"false",
+            "InpRequireMidpoint":"false","InpRequireRejection":"true",
+            "InpMinFVG_ATR":"0.15","InpMinBody_ATR":"0.5","InpMinBodyRatio":"0.6",
+            "InpMaxFVG_Bars":"1000","InpReplaceWithNewFVG":"true",
+            "InpOneTradePerFVG":"false","InpRiskPercent":"2.0",
+            "InpUseHardRiskCap":"true","InpMaxEffectiveRiskPct":"1.25",
+            "InpRewardRisk":"30.0","InpMaxSL_ATR":"3.0","InpATRPeriod":"14",
+            "InpSL_ATR_Buffer":"0.15","InpUseProfitLock":"true",
+            "InpLock1TriggerRR":"0.5","InpLock1RR":"0.1",
+            "InpLock2TriggerRR":"1.0","InpLock2RR":"0.35",
+            "InpUseATRTrail":"true","InpTrailStartRR":"1.5","InpTrail_ATR":"0.1",
+            "InpMaxSpreadPoints":"80","InpMaxTradesDay":"1000",
+            "InpDailyLossPct":"3.0","InpOnePosition":"true",
+            "InpUseMarginGuard":"true","InpMinProjectedMarginLevelPct":"150.0",
+            "InpMaxSingleTradeMarginPct":"35.0","InpMaxEntrySlippagePoints":"0",
+            "InpCooldownSeconds":"0","InpMagic":"26081112","InpDeviationPoints":"30"
+          }
+          actual={}
+          for line in preset.read_text().splitlines():
+            line=line.strip()
+            if line and not line.startswith(";") and "=" in line:
+              k,v=line.split("=",1); actual[k]=v
+          bad={k:(actual.get(k),v) for k,v in expected.items() if actual.get(k)!=v}
+          assert not bad, f"Frozen preset mismatch: {bad}"
+          assert "execution_model: BAR_CLOSE_PROXY" in cfg
+          assert "Native MT5 real-tick" in cfg
+          manifest={
+            "control":"FVG_V2_12_R943K",
+            "ea_sha256":hashlib.sha256(ea.read_bytes()).hexdigest(),
+            "preset_sha256":hashlib.sha256(preset.read_bytes()).hexdigest(),
+            "benchmark":baseline["result"],
+            "native_reproduction_status":"PENDING",
+            "live_ready":False,
+            "real_money_execution":"LOCKED",
+            "btc":"PAUSED"
+          }
+          pathlib.Path("v212_control_integrity.json").write_text(json.dumps(manifest,indent=2))
+          print(json.dumps(manifest,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v212-frozen-control-integrity-${{ github.run_id }}
+          path: v212_control_integrity.json
+          retention-days: 30
