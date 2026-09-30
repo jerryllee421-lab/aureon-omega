@@ -49,8 +49,26 @@ namespace cAlgo.Robots
         [Parameter("Max Drawdown %", DefaultValue = 6.0, MinValue = 0)]
         public double MaxDrawdownPercent { get; set; }
 
+        [Parameter("Environment", DefaultValue = "demo")]
+        public string EnvironmentName { get; set; } = "";
+
+        [Parameter("Execution Enabled", DefaultValue = false)]
+        public bool ExecutionEnabled { get; set; }
+
+        [Parameter("Expected Broker", DefaultValue = "Pepperstone")]
+        public string ExpectedBroker { get; set; } = "";
+
+        [Parameter("Max Stale Feed Seconds", DefaultValue = 3.0, MinValue = 1.0, MaxValue = 30.0)]
+        public double MaxStaleFeedSeconds { get; set; }
+
+        [Parameter("Max Spread Points", DefaultValue = 80.0, MinValue = 0)]
+        public double MaxSpreadPoints { get; set; }
+
+        [Parameter("Max Slippage Points", DefaultValue = 35.0, MinValue = 0)]
+        public double MaxSlippagePoints { get; set; }
+
         [Parameter("Canary Run ID", DefaultValue = "V217_CANARY_001")]
-        public string CanaryRunId { get; set; }
+        public string CanaryRunId { get; set; } = "";
 
         [Parameter("Canary Max Completed Trades", DefaultValue = 5, MinValue = 1, MaxValue = 5)]
         public int CanaryMaxCompletedTrades { get; set; }
@@ -67,7 +85,7 @@ namespace cAlgo.Robots
         [Parameter("Allow Short", DefaultValue = true)]
         public bool AllowShort { get; set; }
 
-        private AverageTrueRange _atr;
+        private AverageTrueRange _atr = null!;
         private double _dayStartEquity;
         private double _peakEquity;
         private DateTime _day;
@@ -82,47 +100,203 @@ namespace cAlgo.Robots
         private double _entryPrice;
         private double _maxMfeR;
         private double _maxMaeR;
+        private DateTime _lastTickSeen = DateTime.MinValue;
+        private bool _staleData = true;
+        private bool _preflightPassed;
+        private bool _reconciliationFailed;
+        private string _activeTradeIntentId = "";
+
+        private sealed class TradeIntent
+        {
+            public string Id { get; }
+            public DateTime Timestamp { get; }
+            public string AccountHash { get; }
+            public TradeType Side { get; }
+            public double EntryReference { get; }
+            public double Bid { get; }
+            public double Ask { get; }
+            public double SpreadPoints { get; }
+            public double ZoneLow { get; }
+            public double ZoneHigh { get; }
+            public double Atr { get; }
+            public double StopLoss { get; }
+            public double TakeProfit { get; }
+            public double RiskPrice { get; }
+            public double RequestedVolume { get; }
+            public double ExpectedRiskMoney { get; }
+            public double MarketDataAgeSeconds { get; }
+            public int CanaryTradeNumber { get; }
+
+            public TradeIntent(string id, DateTime timestamp, string accountHash, TradeType side,
+                double entryReference, double bid, double ask, double spreadPoints, double zoneLow,
+                double zoneHigh, double atr, double stopLoss, double takeProfit, double riskPrice,
+                double requestedVolume, double expectedRiskMoney, double marketDataAgeSeconds,
+                int canaryTradeNumber)
+            {
+                Id = id;
+                Timestamp = timestamp;
+                AccountHash = accountHash;
+                Side = side;
+                EntryReference = entryReference;
+                Bid = bid;
+                Ask = ask;
+                SpreadPoints = spreadPoints;
+                ZoneLow = zoneLow;
+                ZoneHigh = zoneHigh;
+                Atr = atr;
+                StopLoss = stopLoss;
+                TakeProfit = takeProfit;
+                RiskPrice = riskPrice;
+                RequestedVolume = requestedVolume;
+                ExpectedRiskMoney = expectedRiskMoney;
+                MarketDataAgeSeconds = marketDataAgeSeconds;
+                CanaryTradeNumber = canaryTradeNumber;
+            }
+        }
 
         protected override void OnStart()
         {
-            // Certification boundary is enforced in code, not only documentation.
-            // This build must never execute on a live account.
+            Print("STATE|BOOT|strategy=V2.17|executionEnabled={0}", ExecutionEnabled);
+
+            if (!string.Equals(EnvironmentName, "demo", StringComparison.OrdinalIgnoreCase))
+            {
+                Print("STATE|HALTED|reason=ENV_NOT_DEMO");
+                Stop();
+                return;
+            }
+
             if (Account.IsLive)
             {
-                Print("BLOCKED: DEMO-only certification build; live accounts are disabled.");
+                Print("STATE|HALTED|reason=LIVE_ACCOUNT");
+                Stop();
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(ExpectedBroker) ||
+                string.IsNullOrWhiteSpace(Account.BrokerName) ||
+                Account.BrokerName.IndexOf(ExpectedBroker, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                Print("STATE|HALTED|reason=BROKER_MISMATCH|broker={0}|expectedContains={1}", Account.BrokerName, ExpectedBroker);
                 Stop();
                 return;
             }
 
             if (!SymbolName.Contains("XAU", StringComparison.OrdinalIgnoreCase))
             {
-                Print("BLOCKED: XAUUSD-only executor.");
+                Print("STATE|HALTED|reason=NON_XAU_SYMBOL|symbol={0}", SymbolName);
                 Stop();
                 return;
             }
+
             _atr = Indicators.AverageTrueRange(AtrPeriod, MovingAverageType.Exponential);
             Positions.Closed += OnPositionClosed;
+            Timer.Start(1);
             _day = Server.Time.Date;
             _dayStartEquity = Account.Equity;
             _peakEquity = Account.Equity;
+
+            Print("STATE|ACCOUNT_VERIFIED|environment=demo|isLive={0}|broker={1}|accountHash={2}|balance={3:F2}|equity={4:F2}|freeMargin={5:F2}",
+                Account.IsLive, Account.BrokerName, SafeAccountHash(), Account.Balance, Account.Equity, Account.FreeMargin);
+            Print("STATE|SYMBOL_RESOLVED|symbol={0}|digits={1}|pipSize={2}|tickSize={3}|minVolume={4}|maxVolume={5}|stepVolume={6}|bid={7}|ask={8}",
+                SymbolName, Symbol.Digits, Symbol.PipSize, Symbol.TickSize, Symbol.VolumeInUnitsMin,
+                Symbol.VolumeInUnitsMax, Symbol.VolumeInUnitsStep, Symbol.Bid, Symbol.Ask);
+
             RecoverRuntimeState();
             RecoverCanaryState();
-            Print("AUREON PRIME V2.17 forward-certification executor started. DEMO ONLY; live-account execution is hard blocked.");
+
+            if (_reconciliationFailed)
+            {
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=RECONCILIATION_FAIL");
+                return;
+            }
+
+            _preflightPassed = true;
+            Print("STATE|READY|executionEnabled={0}|canaryCompleted={1}|canaryLimit={2}", ExecutionEnabled, _canaryCompletedTrades, CanaryMaxCompletedTrades);
+        }
+
+        protected override void OnTimer()
+        {
+            if (_lastTickSeen == DateTime.MinValue)
+            {
+                _staleData = true;
+                return;
+            }
+
+            _staleData = (Server.Time - _lastTickSeen).TotalSeconds > MaxStaleFeedSeconds;
+        }
+
+        private string SafeAccountHash()
+        {
+            var value = Account.Number.ToString();
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (char c in value)
+                {
+                    hash ^= c;
+                    hash *= 16777619;
+                }
+                return hash.ToString("X8");
+            }
+        }
+
+        private string ExtractTradeIntentId(string comment)
+        {
+            if (string.IsNullOrWhiteSpace(comment)) return "";
+            string prefix = CanaryRunId + "|";
+            return comment.StartsWith(prefix, StringComparison.Ordinal) ? comment.Substring(prefix.Length) : "";
+        }
+
+        private int CountTaggedPendingOrders()
+        {
+            int count = 0;
+            foreach (var order in PendingOrders)
+            {
+                if (order.Label == Label && order.SymbolName == SymbolName)
+                    count++;
+            }
+            return count;
         }
 
         private void RecoverRuntimeState()
         {
-            // Cloud local files are not a durable state store. Reconstruct critical runtime
-            // state from broker/account state plus current chart history after every restart.
-            var p = Positions.Find(Label, SymbolName);
-            if (p != null)
+            var positions = Positions.FindAll(Label, SymbolName);
+            int pending = CountTaggedPendingOrders();
+
+            if (positions.Length > 1 || pending > 0)
             {
-                _entryPrice = p.EntryPrice;
-                if (p.StopLoss.HasValue)
-                    _initialRiskPrice = Math.Abs(p.EntryPrice - p.StopLoss.Value);
-                Print("STATE_RECOVERY positionId={0} entry={1} stop={2}", p.Id, p.EntryPrice, p.StopLoss);
+                _reconciliationFailed = true;
+                Print("STATE|RECONCILIATION_FAIL|reason=UNEXPECTED_BROKER_STATE|positions={0}|pendingOrders={1}", positions.Length, pending);
+                return;
             }
+
+            if (positions.Length == 1)
+            {
+                var p = positions[0];
+                if (!p.StopLoss.HasValue || !p.TakeProfit.HasValue)
+                {
+                    _reconciliationFailed = true;
+                    Print("STATE|RECONCILIATION_FAIL|reason=PROTECTION_MISSING|positionId={0}", p.Id);
+                    return;
+                }
+
+                _entryPrice = p.EntryPrice;
+                _initialRiskPrice = Math.Abs(p.TakeProfit.Value - p.EntryPrice) / RewardRisk;
+                _activeTradeIntentId = ExtractTradeIntentId(p.Comment);
+                if (string.IsNullOrWhiteSpace(_activeTradeIntentId))
+                {
+                    _reconciliationFailed = true;
+                    Print("STATE|RECONCILIATION_FAIL|reason=TRADE_INTENT_MISSING|positionId={0}", p.Id);
+                    return;
+                }
+
+                Print("STATE|SYNCING|positionId={0}|tradeIntentId={1}|entry={2}|stop={3}|takeProfit={4}",
+                    p.Id, _activeTradeIntentId, p.EntryPrice, p.StopLoss, p.TakeProfit);
+            }
+
             UpdateZoneOnNewBar();
+            Print("STATE|RECONCILED|positions={0}|pendingOrders={1}", positions.Length, pending);
         }
 
         private int _canaryCompletedTrades;
@@ -140,46 +314,78 @@ namespace cAlgo.Robots
             _canaryCompletedTrades = 0;
             foreach (var trade in History.FindAll(Label, SymbolName))
             {
-                if (string.Equals(trade.Comment, CanaryRunId, StringComparison.Ordinal))
+                string comment = trade.Comment ?? "";
+                if (string.Equals(comment, CanaryRunId, StringComparison.Ordinal) ||
+                    comment.StartsWith(CanaryRunId + "|", StringComparison.Ordinal))
                     _canaryCompletedTrades++;
             }
 
             _canaryComplete = _canaryCompletedTrades >= CanaryMaxCompletedTrades;
             Print("CERTIFICATION|CANARY_RECOVERY|runId={0}|completed={1}|limit={2}|blocked={3}",
                 CanaryRunId, _canaryCompletedTrades, CanaryMaxCompletedTrades, _canaryComplete);
+            if (_canaryComplete)
+                Print("STATE|HALTED|reason=CANARY_LIMIT_REACHED|completed={0}", _canaryCompletedTrades);
         }
 
         private void OnPositionClosed(PositionClosedEventArgs args)
         {
             var p = args.Position;
             if (p.Label != Label || p.SymbolName != SymbolName) return;
+
             double signedPriceMove = p.Pips * Symbol.PipSize;
             double closePrice = p.TradeType == TradeType.Buy
                 ? p.EntryPrice + signedPriceMove
                 : p.EntryPrice - signedPriceMove;
             double realizedR = _initialRiskPrice > 0 ? signedPriceMove / _initialRiskPrice : 0;
-            Print("TELEMETRY|CLOSE|time={0:o}|positionId={1}|side={2}|entry={3}|closeDerived={4}|pips={5}|gross={6}|net={7}|realizedR={8:F4}|mfeR={9:F4}|maeR={10:F4}|reason={11}",
-                Server.Time, p.Id, p.TradeType, p.EntryPrice, closePrice, p.Pips, p.GrossProfit, p.NetProfit,
-                realizedR, _maxMfeR, _maxMaeR, args.Reason);
+            double holdingSeconds = Math.Max(0, (Server.Time - p.EntryTime).TotalSeconds);
+
+            var history = History.FindByPositionId(p.Id);
+            bool reconciled = history != null && history.Length > 0;
+            string tradeIntentId = string.IsNullOrWhiteSpace(_activeTradeIntentId)
+                ? ExtractTradeIntentId(p.Comment)
+                : _activeTradeIntentId;
+
+            Print("TELEMETRY|CLOSE|time={0:o}|tradeIntentId={1}|positionId={2}|side={3}|entry={4}|closeDerived={5}|pips={6}|gross={7}|net={8}|realizedR={9:F4}|mfeR={10:F4}|maeR={11:F4}|holdingSeconds={12:F1}|reason={13}",
+                Server.Time, tradeIntentId, p.Id, p.TradeType, p.EntryPrice, closePrice, p.Pips,
+                p.GrossProfit, p.NetProfit, realizedR, _maxMfeR, _maxMaeR, holdingSeconds, args.Reason);
+
+            _canaryCompletedTrades++;
+            Print("STATE|RECONCILED|tradeIntentId={0}|positionId={1}|result={2}|completed={3}",
+                tradeIntentId, p.Id, reconciled ? "PASS" : "FAIL", _canaryCompletedTrades);
+
+            if (!reconciled)
+            {
+                _reconciliationFailed = true;
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=RECONCILIATION_FAIL|positionId={0}", p.Id);
+            }
+
             _initialRiskPrice = 0;
             _entryPrice = 0;
             _maxMfeR = 0;
             _maxMaeR = 0;
-            _canaryCompletedTrades++;
+            _activeTradeIntentId = "";
+
             if (_canaryCompletedTrades >= CanaryMaxCompletedTrades)
             {
                 _canaryComplete = true;
-                Print("CERTIFICATION|CANARY_COMPLETE|completed={0}|limit={1}|action=BLOCK_NEW_ENTRIES", _canaryCompletedTrades, CanaryMaxCompletedTrades);
+                _riskHalt = true;
+                Print("CERTIFICATION|CANARY_COMPLETE|completed={0}|limit={1}|halt_reason=CANARY_LIMIT_REACHED|action=BLOCK_NEW_ENTRIES",
+                    _canaryCompletedTrades, CanaryMaxCompletedTrades);
             }
         }
 
         protected override void OnTick()
         {
-            if (_canaryComplete)
-                return;
+            _lastTickSeen = Server.Time;
+            _staleData = false;
+
             RefreshRiskState();
             ManagePosition();
             UpdateZoneOnNewBar();
+
+            if (!ExecutionEnabled) return;
+            if (!_preflightPassed || _canaryComplete) return;
             if (!RiskGovernorAllowsEntry()) return;
             if (Positions.Find(Label, SymbolName) != null) return;
             EvaluateFvgRetest();
@@ -199,14 +405,62 @@ namespace cAlgo.Robots
 
         private bool RiskGovernorAllowsEntry()
         {
-            if (_riskHalt) return false;
+            if (!_preflightPassed || _riskHalt || _reconciliationFailed || _canaryComplete) return false;
+
+            if (!string.Equals(EnvironmentName, "demo", StringComparison.OrdinalIgnoreCase) || Account.IsLive)
+            {
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=DEMO_BOUNDARY_BREACH");
+                return false;
+            }
+
+            if (Account.BrokerName.IndexOf(ExpectedBroker, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=BROKER_MISMATCH");
+                return false;
+            }
+
+            if (_staleData || _lastTickSeen == DateTime.MinValue ||
+                (Server.Time - _lastTickSeen).TotalSeconds > MaxStaleFeedSeconds)
+            {
+                Print("RISK_VETO: STALE_DATA");
+                return false;
+            }
+
+            if (!Symbol.MarketHours.IsOpened())
+                return false;
+
+            if (CountTaggedPendingOrders() > 0)
+            {
+                _reconciliationFailed = true;
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=UNEXPECTED_PENDING_ORDER");
+                return false;
+            }
+
             if (_tradesToday >= MaxTradesPerDay) return false;
             if (_dayStartEquity > 0 && 100.0 * (_dayStartEquity - Account.Equity) / _dayStartEquity >= DailyLossPercent)
             { _riskHalt = true; Print("RISK_HALT: DAILY_LOSS"); return false; }
             if (_peakEquity > 0 && 100.0 * (_peakEquity - Account.Equity) / _peakEquity >= MaxDrawdownPercent)
             { _riskHalt = true; Print("RISK_HALT: DRAWDOWN"); return false; }
+
             var spreadPips = (Symbol.Ask - Symbol.Bid) / Symbol.PipSize;
-            if (spreadPips > MaxSpreadPips) return false;
+            var spreadPoints = (Symbol.Ask - Symbol.Bid) / Symbol.TickSize;
+            if (spreadPips > MaxSpreadPips || spreadPoints > MaxSpreadPoints)
+            {
+                Print("RISK_VETO: SPREAD|pips={0:F2}|points={1:F2}", spreadPips, spreadPoints);
+                return false;
+            }
+
+            if (_canaryCompletedTrades >= CanaryMaxCompletedTrades)
+            {
+                _canaryComplete = true;
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=CANARY_LIMIT_REACHED|completed={0}", _canaryCompletedTrades);
+                return false;
+            }
+
             return true;
         }
 
@@ -275,41 +529,114 @@ namespace cAlgo.Robots
 
         private void TryEnter(TradeType side, double atr)
         {
+            if (!RiskGovernorAllowsEntry()) return;
+
             double entry = side == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
             double zoneEdge = side == TradeType.Buy ? _zoneLow : _zoneHigh;
             double slPrice = side == TradeType.Buy ? zoneEdge - atr * SlAtrBuffer : zoneEdge + atr * SlAtrBuffer;
             double stopDistance = Math.Abs(entry - slPrice);
-            if (stopDistance <= 0 || stopDistance > atr * MaxSlAtr) { Print("RISK_VETO: SL_DISTANCE"); return; }
+            if (stopDistance <= 0 || stopDistance > atr * MaxSlAtr)
+            {
+                Print("RISK_VETO: SL_DISTANCE");
+                return;
+            }
+
             double stopPips = stopDistance / Symbol.PipSize;
             double targetPips = stopPips * RewardRisk;
+            double tpPrice = side == TradeType.Buy
+                ? entry + targetPips * Symbol.PipSize
+                : entry - targetPips * Symbol.PipSize;
 
             double riskMoney = Account.Equity * Math.Min(RiskPercent, HardRiskPercent) / 100.0;
             double volume = Symbol.VolumeForFixedRisk(riskMoney, stopPips);
             volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
-            if (volume < Symbol.VolumeInUnitsMin) return;
+            if (volume < Symbol.VolumeInUnitsMin || volume > Symbol.VolumeInUnitsMax)
+            {
+                Print("RISK_VETO: VOLUME|volume={0}|min={1}|max={2}", volume, Symbol.VolumeInUnitsMin, Symbol.VolumeInUnitsMax);
+                return;
+            }
 
             double estimatedMargin = Symbol.GetEstimatedMargin(side, volume);
-            if (estimatedMargin <= 0) { Print("RISK_VETO: MARGIN_ESTIMATE"); return; }
-            if (Account.Equity > 0 && estimatedMargin / Account.Equity * 100.0 > MaxTradeMarginPercent) { Print("RISK_VETO: SINGLE_TRADE_MARGIN"); return; }
-            double projectedMarginLevel = estimatedMargin > 0 ? Account.Equity / (Account.Margin + estimatedMargin) * 100.0 : 0;
-            if (projectedMarginLevel < MinProjectedMarginPercent) { Print("RISK_VETO: PROJECTED_MARGIN_LEVEL"); return; }
-
-            var result = ExecuteMarketOrder(side, SymbolName, volume, Label, stopPips, targetPips, CanaryRunId);
-            if (!result.IsSuccessful)
-                Print("EXECUTION_REJECTED: {0}", result.Error);
-            else
+            if (estimatedMargin <= 0 || estimatedMargin > Account.FreeMargin)
             {
-                _zoneTraded = true;
-                _tradesToday++;
-                _entryPrice = result.Position != null ? result.Position.EntryPrice : entry;
-                _initialRiskPrice = stopDistance;
-                _maxMfeR = 0;
-                _maxMaeR = 0;
-                Print("TELEMETRY|ENTRY|time={0:o}|runId={1}|side={2}|volume={3}|requested={4}|actual={5}|sl={6}|tp={7}|spreadPips={8:F2}|riskMoney={9:F2}|zoneFormed={10:o}|zoneLow={11}|zoneHigh={12}",
-                    Server.Time, CanaryRunId, side, volume, entry, _entryPrice,
-                    result.Position != null ? result.Position.StopLoss : slPrice,
-                    result.Position != null ? result.Position.TakeProfit : (side == TradeType.Buy ? entry + targetPips * Symbol.PipSize : entry - targetPips * Symbol.PipSize),
-                    (Symbol.Ask-Symbol.Bid)/Symbol.PipSize, riskMoney, _zoneFormed, _zoneLow, _zoneHigh);
+                Print("RISK_VETO: MARGIN_ESTIMATE|estimated={0}|free={1}", estimatedMargin, Account.FreeMargin);
+                return;
+            }
+            if (Account.Equity > 0 && estimatedMargin / Account.Equity * 100.0 > MaxTradeMarginPercent)
+            {
+                Print("RISK_VETO: SINGLE_TRADE_MARGIN");
+                return;
+            }
+            double projectedMarginLevel = estimatedMargin > 0
+                ? Account.Equity / (Account.Margin + estimatedMargin) * 100.0
+                : 0;
+            if (projectedMarginLevel < MinProjectedMarginPercent)
+            {
+                Print("RISK_VETO: PROJECTED_MARGIN_LEVEL");
+                return;
+            }
+
+            double dataAgeSeconds = _lastTickSeen == DateTime.MinValue
+                ? double.PositiveInfinity
+                : Math.Max(0, (Server.Time - _lastTickSeen).TotalSeconds);
+            string intentId = CanaryRunId + "-" + (_canaryCompletedTrades + 1).ToString("D2") + "-" + Guid.NewGuid().ToString("N");
+            var intent = new TradeIntent(
+                intentId, Server.Time, SafeAccountHash(), side, entry, Symbol.Bid, Symbol.Ask,
+                (Symbol.Ask - Symbol.Bid) / Symbol.TickSize, _zoneLow, _zoneHigh, atr, slPrice,
+                tpPrice, stopDistance, volume, riskMoney, dataAgeSeconds, _canaryCompletedTrades + 1);
+
+            Print("STATE|TRADE_INTENT|trade_intent_id={0}|strategy=V2.17|time={1:o}|accountHash={2}|symbol={3}|direction={4}|entryReference={5}|bid={6}|ask={7}|spreadPoints={8:F2}|fvgLow={9}|fvgHigh={10}|atr={11}|sl={12}|tp={13}|riskPrice={14}|riskR=1.0|requestedVolume={15}|expectedRiskMoney={16:F2}|marketDataAgeSeconds={17:F3}|canaryTradeNumber={18}",
+                intent.Id, intent.Timestamp, intent.AccountHash, SymbolName, intent.Side, intent.EntryReference,
+                intent.Bid, intent.Ask, intent.SpreadPoints, intent.ZoneLow, intent.ZoneHigh, intent.Atr,
+                intent.StopLoss, intent.TakeProfit, intent.RiskPrice, intent.RequestedVolume,
+                intent.ExpectedRiskMoney, intent.MarketDataAgeSeconds, intent.CanaryTradeNumber);
+
+            double marketRangePips = MaxSlippagePoints * Symbol.TickSize / Symbol.PipSize;
+            string comment = CanaryRunId + "|" + intent.Id;
+            Print("STATE|ORDER_SUBMITTED|tradeIntentId={0}|basePrice={1}|marketRangePips={2:F4}|maxSlippagePoints={3:F2}",
+                intent.Id, entry, marketRangePips, MaxSlippagePoints);
+
+            var result = ExecuteMarketRangeOrder(side, SymbolName, volume, marketRangePips, entry, Label, stopPips, targetPips, comment);
+            if (!result.IsSuccessful)
+            {
+                Print("STATE|ORDER_REJECTED|tradeIntentId={0}|error={1}", intent.Id, result.Error);
+                return;
+            }
+
+            var position = result.Position;
+            if (position == null)
+            {
+                _reconciliationFailed = true;
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=ACK_WITHOUT_POSITION|tradeIntentId={0}", intent.Id);
+                return;
+            }
+
+            double actual = position.EntryPrice;
+            double slippagePoints = Math.Abs(actual - entry) / Symbol.TickSize;
+            string orderId = position.Deals.Count > 0
+                ? position.Deals[position.Deals.Count - 1].OrderId.ToString()
+                : "NA";
+
+            _zoneTraded = true;
+            _tradesToday++;
+            _entryPrice = actual;
+            _initialRiskPrice = stopDistance;
+            _maxMfeR = 0;
+            _maxMaeR = 0;
+            _activeTradeIntentId = intent.Id;
+
+            Print("STATE|ORDER_ACK|tradeIntentId={0}|positionId={1}|orderId={2}", intent.Id, position.Id, orderId);
+            Print("STATE|FILLED|tradeIntentId={0}|positionId={1}|orderId={2}|requestedPrice={3}|actualFill={4}|requestedVolume={5}|actualVolume={6}|spreadPoints={7:F2}|slippagePoints={8:F2}|sl={9}|tp={10}|direction={11}|fvgLow={12}|fvgHigh={13}",
+                intent.Id, position.Id, orderId, entry, actual, volume, position.VolumeInUnits,
+                intent.SpreadPoints, slippagePoints, position.StopLoss, position.TakeProfit, side, _zoneLow, _zoneHigh);
+
+            if (slippagePoints > MaxSlippagePoints + 0.0001)
+            {
+                _reconciliationFailed = true;
+                _riskHalt = true;
+                Print("STATE|HALTED|reason=SLIPPAGE_BREACH|tradeIntentId={0}|observedPoints={1:F2}|limitPoints={2:F2}",
+                    intent.Id, slippagePoints, MaxSlippagePoints);
             }
         }
 
@@ -353,7 +680,7 @@ namespace cAlgo.Robots
                           (p.TradeType == TradeType.Buy ? candidate.Value > p.StopLoss.Value : candidate.Value < p.StopLoss.Value);
             if (!better) return;
 
-            var result = ModifyPosition(p, candidate.Value, p.TakeProfit);
+            var result = p.ModifyStopLossPrice(candidate.Value);
             if (!result.IsSuccessful) Print("SL_MODIFY_REJECTED: {0}", result.Error);
         }
     }

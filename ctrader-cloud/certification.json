@@ -18,8 +18,12 @@
     "daily_loss_guard": true,
     "drawdown_guard": true,
     "loss_streak_guard": false,
-    "execution_state_guard": false,
-    "persistence_restart_guard": true
+    "execution_state_guard": true,
+    "persistence_restart_guard": true,
+    "stale_data_guard": true,
+    "slippage_guard": true,
+    "broker_mapping_guard": true,
+    "execution_default_off": true
   },
   "certification": {
     "canary_trades": 5,
@@ -41,7 +45,7 @@
       "long_win_rate_pct": 65.26,
       "average_holding_seconds": 85
     },
-    "canary_completed_trades": 5,
+    "canary_completed_trades": 0,
     "canary_mode": "GENUINE_V2_17_SIGNALS_ONLY",
     "canary_hard_stop_new_entries": true,
     "canary_required_telemetry": [
@@ -67,31 +71,49 @@
   "native_backtest_verified": false,
   "demo_reconciliation_verified": false,
   "notes": [
-    "V2.17 strategy semantics are frozen during forward certification.",
-    "Repeated FVG entry is enabled by default to match the aggressive historical control.",
-    "Restart recovery reconstructs critical state from broker/chart state; local Cloud files are not authoritative.",
-    "Native cTrader compilation is VERIFIED PASS; native historical backtest and demo reconciliation remain separate certification gates.",
-    "Live-account execution remains hard blocked by Account.IsLive in OnStart."
+    "V2.17 strategy thresholds remain frozen during forward execution certification.",
+    "Hardened native cTrader build is VERIFIED PASS with 0 errors and 0 warnings.",
+    "Execution is OFF by default and cannot place orders until explicitly enabled after runtime preflight.",
+    "Account.IsLive, environment=demo, Pepperstone broker mapping and XAU symbol checks fail closed.",
+    "Entry uses market-range execution to enforce the configured slippage ceiling.",
+    "Restart recovery reconciles labeled broker positions/pending orders and halts on unresolved disagreement.",
+    "No Pepperstone DEMO order, fill, close, or reconciliation has yet been claimed for this hardened build.",
+    "Live-account execution remains hard blocked."
   ],
   "native_compile": true,
   "native_build": {
-    "run_id": 36461734290,
-    "run_number": 9,
+    "run_id": 36745257927,
+    "run_number": 14,
     "status": "VERIFIED_PASS",
-    "source_commit": "9463116c2590632d606a89b195868c11c4fd8bf7",
+    "source_commit": "49fb5d820935a7bdcfc69cab2be69f12c406669d",
     "errors": 0,
+    "warnings": 0,
     "algo_path": "ctrader-cloud/bin/Release/net6.0/aureon-omega.algo",
-    "algo_sha256": "227414c97ec0f08b2d7a443ffa26daff7b2f5cea6eb4ddd39ab00ec846bfa2f7",
+    "algo_sha256": "f4b5dcedf9def7743538e2cd831db2f1bee33479938fcd8617271565a36270f7",
     "artifact_name": "AUREON-FVG-V2-17-cTrader-native",
-    "artifact_id": 10988496095,
-    "artifact_zip_sha256": "d7f96e16508d1896cfb0ca90e3c386727aeb6a78a471745a76fcf35b1e1b38ef"
+    "artifact_id": 11112700544,
+    "artifact_zip_sha256": "b487c79bafe305c7171922ecc8a537fdd24829883472a17a32a98ab478df633c"
   },
   "canary_verdict": "NOT_YET_TESTED",
   "execution_candidate": {
-    "status": "DEMO_EXECUTION_READY",
+    "status": "BUILD_VERIFIED_PREFLIGHT_REQUIRED",
     "canary_run_id": "V217_CANARY_001",
     "max_completed_trades": 5,
     "restart_durable": true,
-    "genuine_strategy_signals_only": true
+    "genuine_strategy_signals_only": true,
+    "execution_default_off": true,
+    "expected_broker": "Pepperstone",
+    "environment": "demo",
+    "max_stale_feed_seconds": 3,
+    "max_spread_points": 80,
+    "max_slippage_points": 35,
+    "preflight_verified": false,
+    "cloud_instance_started": false,
+    "broker_runtime_verified": false,
+    "market_data_verified": false,
+    "orders_verified": 0,
+    "fills_verified": 0,
+    "reconciled_trades": 0,
+    "halted_after_trade_5": false
   }
 }
