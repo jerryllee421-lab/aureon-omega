@@ -1,14 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <AlgoBuild>true</AlgoBuild>
-    <AlgoPublish>false</AlgoPublish>
-    <AlgoName>AUREON_FVG_V2_17_Forward</AlgoName>
-    <IncludeSource>true</IncludeSource>
-    <IncludeSymbols>false</IncludeSymbols>
   </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="cTrader.Automate" Version="1.*-*" />
   </ItemGroup>
