@@ -69,9 +69,11 @@ jobs:
           cp ctrader-cloud/AUREONPrimeGoldCloud.csproj "$STAGE/AUREONPrimeGoldCloud.csproj"
           ctrader-cli build "$STAGE/AUREONPrimeGoldCloud.csproj" | tee /tmp/aureon-build.json
           python - <<'PY'
-          import json
-          with open("/tmp/aureon-build.json", "r", encoding="utf-8") as f:
-              build=json.load(f)
+          import json, pathlib
+          raw=pathlib.Path("/tmp/aureon-build.json").read_text(encoding="utf-8")
+          start=raw.find("{")
+          assert start >= 0, raw
+          build=json.loads(raw[start:])
           assert build.get("success") is True, build
           assert build.get("errors") in ([], None), build
           assert build.get("warnings") in ([], None), build
