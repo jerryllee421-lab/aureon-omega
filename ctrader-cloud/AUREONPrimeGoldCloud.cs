@@ -52,7 +52,7 @@ namespace cAlgo.Robots
         [Parameter("Environment", DefaultValue = "demo")]
         public string EnvironmentName { get; set; } = "";
 
-        [Parameter("Execution Enabled", DefaultValue = false)]
+        [Parameter("Execution Enabled", DefaultValue = true)]
         public bool ExecutionEnabled { get; set; }
 
         [Parameter("Expected Broker", DefaultValue = "Pepperstone")]
@@ -67,7 +67,7 @@ namespace cAlgo.Robots
         [Parameter("Max Slippage Points", DefaultValue = 35.0, MinValue = 0)]
         public double MaxSlippagePoints { get; set; }
 
-        [Parameter("Canary Run ID", DefaultValue = "V217_CANARY_001")]
+        [Parameter("Canary Run ID", DefaultValue = "V217_CANARY_20261001_ARMED")]
         public string CanaryRunId { get; set; } = "";
 
         [Parameter("Canary Max Completed Trades", DefaultValue = 5, MinValue = 1, MaxValue = 5)]
@@ -168,6 +168,13 @@ namespace cAlgo.Robots
             if (Account.IsLive)
             {
                 Print("STATE|HALTED|reason=LIVE_ACCOUNT");
+                Stop();
+                return;
+            }
+
+            if (CanaryMaxCompletedTrades != 5)
+            {
+                Print("STATE|HALTED|reason=CANARY_LIMIT_MUST_EQUAL_5|configured={0}", CanaryMaxCompletedTrades);
                 Stop();
                 return;
             }
