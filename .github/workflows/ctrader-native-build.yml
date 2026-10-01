@@ -43,6 +43,20 @@ jobs:
           brew install spotware/tap/ctrader-cli
           ctrader-cli --version
 
+      - name: cTrader CLI cBot metadata sanity probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ctrader-probe
+          mkdir -p /tmp/ctrader-probe
+          cd /tmp/ctrader-probe
+          ctrader-cli create cbot ProbeBot csharp
+          ctrader-cli build ProbeBot
+          PROBE_ALGO="$(find ProbeBot -type f -name '*.algo' | head -n 1)"
+          test -n "$PROBE_ALGO"
+          echo "=== OFFICIAL CLI-GENERATED CBOT METADATA ==="
+          ctrader-cli metadata "$PROBE_ALGO"
+
       - name: Native cTrader build
         run: |
           dotnet restore ctrader-cloud/AUREONPrimeGoldCloud.csproj
