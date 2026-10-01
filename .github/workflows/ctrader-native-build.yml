@@ -67,17 +67,29 @@ jobs:
           mkdir -p "$STAGE"
           cp ctrader-cloud/AUREONPrimeGoldCloud.cs "$STAGE/AUREONPrimeGoldCloud.cs"
           cp ctrader-cloud/AUREONPrimeGoldCloud.csproj "$STAGE/AUREONPrimeGoldCloud.csproj"
-          dotnet restore "$STAGE/AUREONPrimeGoldCloud.csproj"
-          dotnet build "$STAGE/AUREONPrimeGoldCloud.csproj" --configuration Release --no-restore -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          ctrader-cli build "$STAGE/AUREONPrimeGoldCloud.csproj" | tee /tmp/aureon-build.json
+          python - <<'PY'
+          import json
+          with open("/tmp/aureon-build.json", "r", encoding="utf-8") as f:
+              build=json.load(f)
+          assert build.get("success") is True, build
+          assert build.get("errors") in ([], None), build
+          assert build.get("warnings") in ([], None), build
+          print("AUREON official cTrader CLI build: PASS")
+          PY
 
       - name: Locate, assert cBot, and inspect .algo
         id: artifact
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$HOME/cAlgo/Sources/Robots/AUREONPrimeGoldCloud"
-          ALGO="$(find "$ROOT" -type f -name '*.algo' | head -n 1)"
+          ALGO="$HOME/cAlgo/Sources/Robots/AUREONPrimeGoldCloud.algo"
+          if [ ! -f "$ALGO" ]; then
+            ROOT="$HOME/cAlgo/Sources/Robots/AUREONPrimeGoldCloud"
+            ALGO="$(find "$ROOT" -type f -name '*.algo' | head -n 1)"
+          fi
           test -n "$ALGO"
+          test -f "$ALGO"
           echo "algo=$ALGO" >> "$GITHUB_OUTPUT"
           ctrader-cli metadata "$ALGO" | tee /tmp/aureon-metadata.json
           python - <<'PY'
