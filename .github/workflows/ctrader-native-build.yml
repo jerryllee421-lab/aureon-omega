@@ -51,8 +51,9 @@ jobs:
           mkdir -p /tmp/ctrader-probe
           cd /tmp/ctrader-probe
           ctrader-cli create cbot ProbeBot csharp
-          ctrader-cli build ProbeBot
-          PROBE_ALGO="$(find ProbeBot -type f -name '*.algo' | head -n 1)"
+          PROBE_PROJECT="$HOME/cAlgo/Sources/Robots/ProbeBot/ProbeBot/ProbeBot.csproj"
+          ctrader-cli build "$PROBE_PROJECT"
+          PROBE_ALGO="$HOME/cAlgo/Sources/Robots/ProbeBot.algo"
           test -n "$PROBE_ALGO"
           echo "=== OFFICIAL CLI-GENERATED CBOT METADATA ==="
           ctrader-cli metadata "$PROBE_ALGO"
