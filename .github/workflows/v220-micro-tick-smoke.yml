@@ -1,0 +1,40 @@
+name: V2.20 Ultimate Micro Tick Smoke
+
+on:
+  push:
+    branches:
+      - research/v220-micro-smoke-20261001
+    paths:
+      - 'research/v220_micro_tick_smoke.py'
+      - '.github/workflows/v220-micro-tick-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run XAUUSD tick-level smoke backtest
+        run: |
+          python research/v220_micro_tick_smoke.py             --start 2026-08-10             --end 2026-08-14             --workers 2
+
+      - name: Print summary
+        if: always()
+        run: |
+          if [ -f research_results/v220_micro_tick/summary.json ]; then
+            cat research_results/v220_micro_tick/summary.json
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v220-ultimate-micro-tick-smoke-${{ github.run_id }}
+          path: research_results/v220_micro_tick
+          retention-days: 30
+          if-no-files-found: warn
