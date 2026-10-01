@@ -58,20 +58,42 @@ jobs:
           echo "=== OFFICIAL CLI-GENERATED CBOT METADATA ==="
           ctrader-cli metadata "$PROBE_ALGO"
 
-      - name: Native cTrader build
+      - name: Native cTrader cBot build
+        shell: bash
         run: |
-          dotnet restore ctrader-cloud/AUREONPrimeGoldCloud.csproj
-          dotnet build ctrader-cloud/AUREONPrimeGoldCloud.csproj --configuration Release --no-restore -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          set -euo pipefail
+          STAGE="$HOME/cAlgo/Sources/Robots/AUREONPrimeGoldCloud/AUREONPrimeGoldCloud"
+          rm -rf "$HOME/cAlgo/Sources/Robots/AUREONPrimeGoldCloud"
+          mkdir -p "$STAGE"
+          cp ctrader-cloud/AUREONPrimeGoldCloud.cs "$STAGE/AUREONPrimeGoldCloud.cs"
+          cp ctrader-cloud/AUREONPrimeGoldCloud.csproj "$STAGE/AUREONPrimeGoldCloud.csproj"
+          dotnet restore "$STAGE/AUREONPrimeGoldCloud.csproj"
+          dotnet build "$STAGE/AUREONPrimeGoldCloud.csproj" --configuration Release --no-restore -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
 
-      - name: Locate and inspect .algo
+      - name: Locate, assert cBot, and inspect .algo
         id: artifact
         shell: bash
         run: |
-          ALGO="$(find ctrader-cloud -type f -name '*.algo' | head -n 1)"
+          set -euo pipefail
+          ROOT="$HOME/cAlgo/Sources/Robots/AUREONPrimeGoldCloud"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' | head -n 1)"
           test -n "$ALGO"
           echo "algo=$ALGO" >> "$GITHUB_OUTPUT"
-          ctrader-cli metadata "$ALGO"
-          sha256sum "$ALGO" | tee ctrader-cloud/AUREON_FVG_V2_17_Forward.sha256
+          ctrader-cli metadata "$ALGO" | tee /tmp/aureon-metadata.json
+          python - <<'PY'
+          import json
+          with open("/tmp/aureon-metadata.json", "r", encoding="utf-8") as f:
+              metadata=json.load(f)
+          assert metadata.get("Type") == "cBot", f"Expected cBot artifact, got {metadata.get('Type')!r}"
+          params={p["PropertyName"]: p for p in metadata.get("Parameters", [])}
+          assert params["ExecutionEnabled"]["DefaultValue"] is True
+          assert params["EnvironmentName"]["DefaultValue"].lower() == "demo"
+          assert params["ExpectedBroker"]["DefaultValue"] == "Pepperstone"
+          assert params["CanaryMaxCompletedTrades"]["DefaultValue"] == 5
+          assert params["OneTradePerFvg"]["DefaultValue"] is False
+          print("AUREON armed cBot metadata contract: PASS")
+          PY
+          sha256sum "$ALGO" | tee ctrader-cloud/AUREON_FVG_V2_17_Forward_ARMED.sha256
 
       - name: Upload native .algo
         uses: actions/upload-artifact@v4
@@ -79,6 +101,6 @@ jobs:
           name: AUREON-FVG-V2-17-cTrader-native
           path: |
             ${{ steps.artifact.outputs.algo }}
-            ctrader-cloud/AUREON_FVG_V2_17_Forward.sha256
+            ctrader-cloud/AUREON_FVG_V2_17_Forward_ARMED.sha256
           if-no-files-found: error
           retention-days: 30
