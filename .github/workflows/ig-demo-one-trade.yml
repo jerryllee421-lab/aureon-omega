@@ -1,0 +1,104 @@
+name: AUREON IG DEMO One-Trade Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Arm this run for DEMO execution if a V7 Gold signal qualifies
+        required: true
+        default: false
+        type: boolean
+  schedule:
+    - cron: '*/5 * * * 1-5'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aureon-ig-demo-one-trade-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: github.event_name == 'workflow_dispatch' || vars.IG_DEMO_CANARY_ARMED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      IG_DEMO_API_KEY: ${{ secrets.IG_DEMO_API_KEY }}
+      IG_DEMO_IDENTIFIER: ${{ secrets.IG_DEMO_IDENTIFIER }}
+      IG_DEMO_PASSWORD: ${{ secrets.IG_DEMO_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate IG DEMO secrets
+        shell: bash
+        run: |
+          missing=0
+          for name in IG_DEMO_API_KEY IG_DEMO_IDENTIFIER IG_DEMO_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 2
+          fi
+
+      - name: Determine execution mode
+        id: mode
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          MANUAL_EXECUTE: ${{ inputs.execute }}
+          SCHEDULE_ARMED: ${{ vars.IG_DEMO_CANARY_ARMED }}
+        run: |
+          execute=false
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$MANUAL_EXECUTE" = "true" ]; then
+            execute=true
+          fi
+          if [ "$EVENT" = "schedule" ] && [ "$SCHEDULE_ARMED" = "true" ]; then
+            execute=true
+          fi
+          echo "execute=$execute" >> "$GITHUB_OUTPUT"
+          echo "IG DEMO execution armed: $execute"
+
+      - name: Run AUREON Gold canary check
+        shell: bash
+        run: |
+          rm -rf ig-api/runtime
+          if [ "${{ steps.mode.outputs.execute }}" = "true" ]; then
+            python ig-api/ig_demo_canary.py --execute
+          else
+            python ig-api/ig_demo_canary.py
+          fi
+
+      - name: Persist one-trade canary state and accepted evidence
+        if: always()
+        shell: bash
+        run: |
+          if git diff --quiet -- ig-api/state ig-api/evidence; then
+            echo "No persistent canary state change."
+            exit 0
+          fi
+
+          git config user.name "AUREON Cloud Canary"
+          git config user.email "aureon-canary@users.noreply.github.com"
+          git add ig-api/state ig-api/evidence
+          git commit -m "Record IG DEMO one-trade canary result"
+          git push origin HEAD:main
+
+      - name: Upload sanitized canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-ig-demo-canary-${{ github.run_id }}
+          path: |
+            ig-api/runtime
+            ig-api/state/one_trade_canary.json
+            ig-api/evidence/one_trade_canary.json
+          if-no-files-found: warn
+          retention-days: 30
