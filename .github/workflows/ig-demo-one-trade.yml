@@ -1,6 +1,11 @@
 name: AUREON IG DEMO One-Trade Canary
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'ig-api/**'
+      - '.github/workflows/ig-demo-one-trade.yml'
   workflow_dispatch:
     inputs:
       execute:
@@ -19,6 +24,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax and safety invariants
+        shell: bash
+        run: |
+          python -m py_compile ig-api/ig_demo_canary.py
+          python - <<'PY'
+          from pathlib import Path
+          s = Path("ig-api/ig_demo_canary.py").read_text(encoding="utf-8")
+          assert 'https://demo-api.ig.com/gateway/deal' in s
+          assert 'https://api.ig.com/gateway/deal' not in s
+          assert 'CANARY_REFERENCE = "AUREON_IG_CANARY_001"' in s
+          assert 'ONE_TRADE_CANARY_ALREADY_COMPLETED' in s
+          assert 'EXISTING_GOLD_EXPOSURE' in s
+          assert 'DEMO_ONLY' in s
+          print("IG DEMO one-trade static safety: PASS")
+          PY
+
   canary:
     if: github.event_name == 'workflow_dispatch' || vars.IG_DEMO_CANARY_ARMED == 'true'
     runs-on: ubuntu-latest
