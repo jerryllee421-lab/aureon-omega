@@ -22,6 +22,7 @@ on:
     branches: [main]
     paths:
       - 'research/v8_superfast_cloud.py'
+      - 'research/v8_subset_miner.py'
       - '.github/workflows/aureon-v8-superfast-cloud.yml'
 
 permissions:
@@ -106,12 +107,19 @@ jobs:
           --out v8_cloud_results
           --min-score '${{ steps.p.outputs.score }}'
 
+      - name: Run V8.3 chronological subset miner
+        run: >-
+          python research/v8_subset_miner.py
+          --trades v8_cloud_results/v8_all_engine_trades.csv
+          --out v8_subset_results
+
       - name: Package provenance
         if: always()
         shell: bash
         run: |
           mkdir -p artifact
           cp -r v8_cloud_results artifact/ 2>/dev/null || true
+          cp -r v8_subset_results artifact/ 2>/dev/null || true
           cp research_data/XAUUSD/download_manifest.json artifact/ 2>/dev/null || true
           cp research/v8_superfast_cloud.py artifact/ 2>/dev/null || true
           git rev-parse HEAD > artifact/source_commit.txt
