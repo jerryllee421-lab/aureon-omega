@@ -23,6 +23,7 @@ on:
     paths:
       - 'research/v8_superfast_cloud.py'
       - 'research/v8_subset_miner.py'
+      - 'research/v8_4_context_research.py'
       - '.github/workflows/aureon-v8-superfast-cloud.yml'
 
 permissions:
@@ -113,6 +114,12 @@ jobs:
           --trades v8_cloud_results/v8_all_engine_trades.csv
           --out v8_subset_results
 
+      - name: Run V8.4 validated-context M1 research
+        run: >-
+          python research/v8_4_context_research.py
+          --root research_data
+          --out v8_4_context_results
+
       - name: Package provenance
         if: always()
         shell: bash
@@ -120,6 +127,7 @@ jobs:
           mkdir -p artifact
           cp -r v8_cloud_results artifact/ 2>/dev/null || true
           cp -r v8_subset_results artifact/ 2>/dev/null || true
+          cp -r v8_4_context_results artifact/ 2>/dev/null || true
           cp research_data/XAUUSD/download_manifest.json artifact/ 2>/dev/null || true
           cp research/v8_superfast_cloud.py artifact/ 2>/dev/null || true
           git rev-parse HEAD > artifact/source_commit.txt
