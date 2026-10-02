@@ -1,0 +1,129 @@
+name: AUREON V8.2 Superfast Cloud Research
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: Start date
+        required: true
+        default: '2026-01-01'
+        type: string
+      end:
+        description: End date
+        required: true
+        default: '2026-08-20'
+        type: string
+      min_score:
+        description: Minimum candidate score
+        required: true
+        default: '66'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'research/v8_superfast_cloud.py'
+      - '.github/workflows/aureon-v8-superfast-cloud.yml'
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+  XAU_MIRROR_COMMIT: '922f83a60cc574e7395fb27397077288055a1ef6'
+  DEFAULT_START: '2026-01-01'
+  DEFAULT_END: '2026-08-20'
+  DEFAULT_MIN_SCORE: '66'
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+
+      - name: Install research dependencies
+        run: pip install -r research/requirements.txt
+
+      - name: Resolve run inputs
+        id: p
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_START: ${{ inputs.start }}
+          INPUT_END: ${{ inputs.end }}
+          INPUT_SCORE: ${{ inputs.min_score }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            START="$INPUT_START"
+            END="$INPUT_END"
+            SCORE="$INPUT_SCORE"
+          else
+            START="$DEFAULT_START"
+            END="$DEFAULT_END"
+            SCORE="$DEFAULT_MIN_SCORE"
+          fi
+          python - <<'PY' "$START" "$END" "$SCORE" >> "$GITHUB_OUTPUT"
+          import sys
+          from datetime import date
+          start,end,score=sys.argv[1:4]
+          s=date.fromisoformat(start); e=date.fromisoformat(end)
+          if s>e:
+              raise SystemExit("start must be <= end")
+          if e>date(2026,8,20):
+              raise SystemExit("Pinned mirror is verified only through 2026-08-20")
+          x=float(score)
+          if not 50 <= x <= 100:
+              raise SystemExit("min_score must be 50..100")
+          print(f"start={start}")
+          print(f"end={end}")
+          print(f"score={x}")
+          PY
+
+      - name: Restore XAUUSD M1 cache
+        uses: actions/cache@v4
+        with:
+          path: research_data/XAUUSD/M1
+          key: aureon-v8-m1-${{ env.XAU_MIRROR_COMMIT }}-${{ steps.p.outputs.start }}-${{ steps.p.outputs.end }}-v1
+
+      - name: Import pinned XAUUSD M1 bid and ask
+        run: >-
+          python research/mirror_m1.py
+          --start '${{ steps.p.outputs.start }}'
+          --end '${{ steps.p.outputs.end }}'
+          --commit '${{ env.XAU_MIRROR_COMMIT }}'
+
+      - name: Run V8.2 superfast raw-edge audit
+        run: >-
+          python research/v8_superfast_cloud.py
+          --root research_data
+          --out v8_cloud_results
+          --min-score '${{ steps.p.outputs.score }}'
+
+      - name: Package provenance
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifact
+          cp -r v8_cloud_results artifact/ 2>/dev/null || true
+          cp research_data/XAUUSD/download_manifest.json artifact/ 2>/dev/null || true
+          cp research/v8_superfast_cloud.py artifact/ 2>/dev/null || true
+          git rev-parse HEAD > artifact/source_commit.txt
+          printf '%s\n' '${{ steps.p.outputs.start }}' > artifact/start.txt
+          printf '%s\n' '${{ steps.p.outputs.end }}' > artifact/end.txt
+          printf '%s\n' '${{ steps.p.outputs.score }}' > artifact/min_score.txt
+
+      - name: Upload V8.2 research pack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-v8-superfast-${{ github.run_id }}
+          path: artifact
+          retention-days: 30
+          if-no-files-found: warn
