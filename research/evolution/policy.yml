@@ -12,6 +12,9 @@ immutable:
   preserve_holdout: true
   preserve_control_results: true
   historical_control: FVG_Scalper_V2_12_Research_R943K
+  forensics_control: AUREON_V7_M5_EXHAUSTION_LIQUIDITY
+  require_evidence_hash_manifest: true
+  require_validation_only_selection: true
 promotion:
   min_trades: 100
   min_profit_factor: 1.20
@@ -23,6 +26,8 @@ promotion:
   require_cost_stress: true
   require_walk_forward: true
   require_mt5_real_ticks_before_demo_forward: true
+  require_halfyear_stability: true
+  min_positive_halfyear_ratio: 0.65
 failure_taxonomy:
   - NO_EDGE
   - OVERFIT
