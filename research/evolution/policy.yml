@@ -43,6 +43,9 @@ failure_taxonomy:
   - PARAMETER_CLIFF
   - OOS_COLLAPSE
   - INSUFFICIENT_SAMPLE
+  - TEMPORAL_INSTABILITY
+  - HOLDOUT_LEAKAGE_RISK
+  - EVIDENCE_LINEAGE_MISSING
 mutation:
   max_variables_changed: 2
   require_hypothesis: true
