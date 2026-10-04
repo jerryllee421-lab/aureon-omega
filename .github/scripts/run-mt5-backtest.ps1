@@ -34,13 +34,6 @@ function Compile-Mql([string]$Source, [string]$MetaEditor) {
   return $ex5
 }
 
-$required = @("PXBT_LOGIN","PXBT_PASSWORD","PXBT_SERVER")
-$missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
-if ($missing.Count -gt 0) {
-  Write-Info "Credential gate not ready. Missing repository secrets: $($missing -join ', '). No broker connection attempted."
-  exit 0
-}
-
 $workspace = $env:GITHUB_WORKSPACE
 $out = Join-Path $workspace "artifacts"
 New-Item -ItemType Directory -Path $out -Force | Out-Null
@@ -169,6 +162,17 @@ void OnStart()
   $eaEx5 = Compile-Mql $eaDst $metaeditor.FullName
   $probeEx5 = Compile-Mql $probe $metaeditor.FullName
   Write-Info "EA and connectivity probe compiled."
+
+  $required = @("PXBT_LOGIN","PXBT_PASSWORD","PXBT_SERVER")
+  $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+  if ($missing.Count -gt 0) {
+    Write-Info "Native compile PASS. Broker credential gate not ready: $($missing -join ', '). No broker connection attempted."
+    Copy-Item $eaEx5 (Join-Path $out "$eaBase.ex5") -Force
+    $compileLog = [IO.Path]::ChangeExtension($eaDst, ".log")
+    if (Test-Path $compileLog) { Copy-Item $compileLog (Join-Path $out "AUREON_V10_2_COMPILE.log") -Force }
+    "NATIVE_COMPILE_PASS=1" | Set-Content -Path (Join-Path $out "COMPILE_STATUS.txt") -Encoding UTF8
+    exit 0
+  }
 
   $preflightFile = Join-Path $root "MQL5\Files\AUREON_PREFLIGHT.txt"
   if (Test-Path $preflightFile) { Remove-Item $preflightFile -Force }
