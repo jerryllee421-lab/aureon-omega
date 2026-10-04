@@ -37,6 +37,13 @@ def classify(report, policy):
     exp = metric(hold, "expectancy_r", "expectancy", default=metric(base, "expectancy_r", "expectancy", default=0))
     dd = metric(hold, "max_drawdown_r", "drawdown_r", default=metric(base, "max_drawdown_r", "drawdown_r", default=999))
     degradation = metric(report, "oos_degradation_pct", default=0)
+    manifest = report.get("input_manifest") or {}
+    manifest_ok = bool(manifest) and all(
+        isinstance(v, dict) and isinstance(v.get("sha256"), str) and len(v["sha256"]) == 64
+        for v in manifest.values()
+    )
+    validation_only = "FOLD_VALIDATION" in str(report.get("selection_rule") or "") and "HOLDOUT" in str(report.get("selection_rule") or "")
+    halfyear_ratio = report.get("positive_halfyear_ratio")
     gates = {
         "sample": finite(trades) and float(trades) >= p["min_trades"],
         "profit_factor": finite(pf) and float(pf) >= p["min_profit_factor"],
@@ -44,12 +51,18 @@ def classify(report, policy):
         "drawdown": finite(dd) and float(dd) <= p["max_drawdown_r"],
         "oos_degradation": finite(degradation) and float(degradation) <= p["max_oos_degradation_pct"],
         "holdout_positive": (not p["require_positive_holdout"]) or (finite(exp) and float(exp) > 0),
+        "evidence_manifest": (not policy["immutable"].get("require_evidence_hash_manifest", False)) or manifest_ok,
+        "validation_only_selection": (not policy["immutable"].get("require_validation_only_selection", False)) or validation_only,
+        "halfyear_stability": (not p.get("require_halfyear_stability", False)) or (finite(halfyear_ratio) and float(halfyear_ratio) >= p.get("min_positive_halfyear_ratio", 0.0)),
     }
     failures = []
     if not gates["sample"]: failures.append("INSUFFICIENT_SAMPLE")
     if not gates["profit_factor"] or not gates["expectancy"]: failures.append("NO_EDGE")
     if not gates["drawdown"]: failures.append("EXCESSIVE_DD")
     if not gates["oos_degradation"] or not gates["holdout_positive"]: failures.append("OOS_COLLAPSE")
+    if not gates["evidence_manifest"]: failures.append("EVIDENCE_LINEAGE_MISSING")
+    if not gates["validation_only_selection"]: failures.append("HOLDOUT_LEAKAGE_RISK")
+    if not gates["halfyear_stability"]: failures.append("TEMPORAL_INSTABILITY")
     for flag, code in [
         ("parameter_cliff", "PARAMETER_CLIFF"),
         ("tail_winner_dependent", "TAIL_WINNER_DEPENDENT"),

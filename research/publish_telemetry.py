@@ -28,10 +28,20 @@ def publish_research_report(path="research_results/research_report.json"):
  d=json.loads(p.read_text()); best=d.get("best") or d.get("best_candidate") or ((d.get("finalists") or [None])[0]) or {}
  if not best:return False
  run=d.get("run_id") or d.get("dataset_sha256") or os.getenv("CIRCLE_WORKFLOW_ID") or os.getenv("CIRCLE_SHA1") or "unknown"
- row={"run_id":str(run),"candidate":str(best.get("name") or ("candidate_"+str(best.get("candidate"))) if best.get("candidate") is not None else "unknown"),
+ candidate=best.get("name")
+ if not candidate and best.get("candidate") is not None:candidate="candidate_"+str(best.get("candidate"))
+ validation=best.get("validation") or {}
+ def first_not_none(*values):
+  for value in values:
+   if value is not None:return value
+  return None
+ row={"run_id":str(run),"candidate":str(candidate or "unknown"),
       "verdict":str(best.get("verdict") or d.get("verdict") or "RESEARCH"),
-      "net":best.get("net") or best.get("net_profit"),"profit_factor":best.get("profit_factor") or (best.get("validation") or {}).get("profit_factor"),
-      "drawdown_pct":best.get("drawdown_pct"),"trades":best.get("trades") or (best.get("validation") or {}).get("trades"),"expectancy_r":best.get("expectancy_r") or (best.get("validation") or {}).get("expectancy_r"),
+      "net":first_not_none(best.get("net"),best.get("net_profit")),
+      "profit_factor":first_not_none(best.get("profit_factor"),validation.get("profit_factor")),
+      "drawdown_pct":best.get("drawdown_pct"),
+      "trades":first_not_none(best.get("trades"),validation.get("trades")),
+      "expectancy_r":first_not_none(best.get("expectancy_r"),validation.get("expectancy_r")),
       "oos_status":best.get("oos_status"),"holdout_status":best.get("holdout_status"),
       "dataset_sha256":d.get("dataset_sha256"),"source_commit":os.getenv("CIRCLE_SHA1") or os.getenv("GITHUB_SHA"),
       "artifact":path,"metrics":best}

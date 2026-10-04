@@ -1,0 +1,11 @@
+{
+  "strategy":"AUREON_OMEGA_V9_3_MARKET_RELATIONSHIP_FORENSICS",
+  "research_only":true,
+  "status":"CHAT_ARTIFACT_PENDING_REPO_SOURCE_AND_METAEDITOR_COMPILE",
+  "artifacts":{
+    "AUREON_OMEGA_V9_3_MARKET_RELATIONSHIP_FORENSICS.mq5":"022a7648c46e15201b18be83614e2098261c9f6e965fbf527ffe0691ead65bc6",
+    "AUREON_V9_3_TEST_PROTOCOL.txt":"93c191d1f8f6395983df04e9443c8958e2d7c15616e4b4a31f5430e1f5ad8551",
+    "AUREON_V9_3_STATIC_QA.txt":"849b075bce0b078951bb7b09ee09cad28217089958c40f6ff81d748f0912375f"
+  },
+  "note":"Hashes identify the chat-built research artifacts. They are not MetaEditor, real-tick, DEMO, or profitability certification."
+}

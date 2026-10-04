@@ -1,0 +1,22 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://aureon.local/contracts/research_evidence.schema.json",
+  "title":"AUREON Research Evidence","type":"object",
+  "required":["schema","run_id","strategy","strategy_version","control","selected_candidate","validation","holdout","verdict","input_manifest"],
+  "properties":{
+    "schema":{"const":"aureon.research_evidence.v2"},"run_id":{"type":"string","minLength":1},
+    "strategy":{"type":"string","minLength":1},"strategy_version":{"type":"string","minLength":1},
+    "dataset_sha256":{"type":["string","null"],"pattern":"^[0-9a-f]{64}$"},
+    "source_commit":{"type":["string","null"]},"selected_candidate":{"type":"string","minLength":1},
+    "candidate_id":{"type":"integer","minimum":0},"oos_status":{"enum":["PASS","FAIL"]},
+    "holdout_status":{"enum":["PASS","FAIL"]},"verdict":{"enum":["RESEARCH_CANDIDATE","REJECT_OR_REPAIR"]},
+    "positive_halfyear_ratio":{"type":["number","null"],"minimum":0,"maximum":1},
+    "oos_degradation_pct":{"type":"number","minimum":0},
+    "control":{"$ref":"#/$defs/metrics"},"baseline":{"$ref":"#/$defs/metrics"},
+    "validation":{"$ref":"#/$defs/metrics"},"holdout":{"$ref":"#/$defs/metrics"},
+    "input_manifest":{"type":"object","minProperties":2}
+  },
+  "$defs":{"metrics":{"type":"object","required":["trades","profit_factor","expectancy_r","net_r","max_drawdown_r"],
+    "properties":{"trades":{"type":"integer","minimum":0},"profit_factor":{"type":"number","minimum":0},
+      "expectancy_r":{"type":"number"},"net_r":{"type":"number"},"max_drawdown_r":{"type":"number","minimum":0}}}}
+}

@@ -1,0 +1,30 @@
+name: Research Evidence Contract
+on:
+  pull_request:
+    paths: ['research/**','contracts/**','.github/workflows/research-evidence-contract.yml']
+  push:
+    branches: [main]
+    paths: ['research/**','contracts/**']
+permissions:
+  contents: read
+jobs:
+  evidence-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run evidence unit tests
+        run: python -m unittest research/test_import_mt5_forensics.py -v
+      - name: Static execution-free gate
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('research/import_mt5_forensics.py').read_text(encoding='utf-8').lower()
+          forbidden=['ordersend(', 'trade.buy(', 'trade.sell(', 'create_position(', '/positions/otc']
+          found=[x for x in forbidden if x in text]
+          if found:
+              raise SystemExit('research tooling contains broker-order APIs: '+','.join(found))
+          print('research evidence tooling is execution-free')
+          PY
