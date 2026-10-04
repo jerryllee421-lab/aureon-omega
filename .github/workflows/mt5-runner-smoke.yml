@@ -1,0 +1,16 @@
+name: MT5 Runner Smoke
+on:
+  push:
+    branches:
+      - backtest/mt5-v10-mobile
+    paths:
+      - ".github/workflows/mt5-runner-smoke.yml"
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Verify Windows runner
+        shell: pwsh
+        run: |
+          Write-Host "AUREON Windows runner online"
+          Get-ComputerInfo | Select-Object WindowsProductName,OsArchitecture
