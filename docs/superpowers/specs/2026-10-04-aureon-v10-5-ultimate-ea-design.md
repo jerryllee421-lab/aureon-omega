@@ -148,6 +148,10 @@ Classes:
 
 A valid reversal sweep requires penetration plus reclaim, not merely a touch.
 
+### 6.2 Equal-high/equal-low clusters
+
+A cluster requires at least two confirmed pivots whose prices fall inside an ATR-normalized tolerance band. The tolerance, minimum touch count and lookback are explicit compile-time research parameters and are frozen before each parity run. The cluster becomes invalid after decisive acceptance through the level; a one-tick coincidence does not create a liquidity pool.
+
 ## 7. AMD / Power-of-Three engine
 
 AMD is implemented as a state machine, not a visual label.
@@ -167,6 +171,8 @@ Optional supporting evidence:
 - contracting realized range
 - balanced inferred delta
 - POC/value stability
+
+AMD range timeframe, minimum age, maximum age and width/ATR threshold are explicit research parameters. Their initial values are frozen before the first comparison and may only be changed through documented DEV-only sweeps.
 
 ### 7.2 MANIPULATION
 
@@ -214,7 +220,7 @@ V10.5 extends the zone metadata:
 - whether aligned with VWAP/value context
 - lifecycle state: `FRESH`, `PARTIAL`, `MITIGATED`, `INVALIDATED`, `INVERTED`, `EXPIRED`
 
-No same-zone unlimited rapid-fire re-entry is permitted.
+No same-zone unlimited rapid-fire re-entry is permitted. Zone attempt count and re-entry spacing are telemetry fields and ablation parameters; the global 6-second anti-churn floor remains the minimum safety boundary.
 
 ## 9. IFVG engine
 
@@ -314,14 +320,15 @@ When broker ticks contain sufficient trade-side information:
 
 ### 12.2 Inferred tick delta
 
-When aggressor side is not supplied, infer direction using a deterministic hierarchy such as:
+When aggressor side is not supplied, infer direction using a deterministic hierarchy:
 
-1. trade/last price versus bid/ask where available
-2. uptick/downtick rule
-3. midpoint movement
-4. unchanged-tick carry rule with capped persistence
+1. native side flags when valid
+2. usable trade/last price versus contemporaneous bid/ask where available
+3. uptick/downtick rule
+4. midpoint movement
+5. unchanged-tick carry rule with explicitly capped persistence
 
-Telemetry identifies all inferred observations.
+Every inferred observation is marked as inferred. Quote-tick counts are never labelled traded volume.
 
 ### 12.3 Flow windows
 
@@ -344,6 +351,14 @@ Metrics:
 - directional efficiency
 - delta/price divergence
 
+### 12.4 Flow-confirmation fallback policy
+
+The historical/backtestable V10.5 path may use `FLOW_QUOTE_INFERRED`, `FLOW_TRADE_INFERRED` or `FLOW_TRADE_NATIVE`, but thresholds are source-tier-specific and reported separately.
+
+If a real-tick test cannot produce at least `FLOW_QUOTE_INFERRED`, the flow module returns `UNAVAILABLE`; that run may measure the structural strategy but cannot be used to claim order-flow improvement.
+
+`FLOW_CONFIRMED` therefore means "confirmed by the best backtestable flow source that actually exists for this run", never "DOM was assumed".
+
 ## 13. DOM engine
 
 DOM is an optional real-time confirmer.
@@ -360,7 +375,11 @@ If available:
 
 If unavailable, set `DOM_UNAVAILABLE` and continue with the appropriate lower-quality path. Never synthesize DOM.
 
-DOM-dependent performance is evaluated in DEMO forward testing separately from historical Strategy Tester performance.
+### 13.1 V10.5 DOM activation policy
+
+DOM is SHADOW-ONLY in the first V10.5 certification release. It is logged and evaluated but cannot trigger, veto, resize or close a trade.
+
+Historical Strategy Tester performance and DEMO forward performance therefore remain comparable on the decisive path. Activating DOM as a real execution gate requires a later explicit design change supported by paired forward evidence; it is not silently enabled inside V10.5.
 
 ## 14. Absorption, exhaustion and divergence
 
@@ -431,7 +450,7 @@ Each category returns:
 
 Hard gates are limited to conditions that truly invalidate execution, such as stale data, invalid symbol specification, unresolved reconciliation, unacceptable spread/slippage, missing protective stop, or explicit strategy invalidation.
 
-Optional data such as DOM may improve a decision but cannot silently make historical and forward logic incomparable.
+Optional data such as DOM may improve telemetry but cannot silently make historical and forward logic incomparable.
 
 ## 17. Entry state machine
 
@@ -448,6 +467,8 @@ Canonical reversal candidate lifecycle:
 -> `FLOW_CONFIRMED`
 -> `MICRO_ARMED`
 -> `TRIGGERED`
+
+`FLOW_CONFIRMED` follows the source-tier policy in section 12.4. `DOM_UNAVAILABLE` is not an automatic failure because DOM is shadow-only in the first certification release.
 
 Terminal states:
 
@@ -583,6 +604,8 @@ For reliability and testability, implementation should be modular during develop
 
 The user-facing release remains a single MQ5 EA. A deterministic build step may inline/assemble the reviewed modules into one release file so there are no manual runtime dependencies.
 
+The generated single-file release must be reproducible from the reviewed modules, receive its own content hash, and pass native MetaEditor compilation independently.
+
 No external AI/API call is required for the deterministic execution loop.
 
 ## 23. Test-first development requirements
@@ -631,6 +654,7 @@ Required test groups:
 - imbalance/microprice calculation
 - unavailable DOM fallback
 - warm-up behavior
+- verify DOM cannot change first-release trade decisions
 
 ### Execution
 - hard LIVE block
@@ -658,7 +682,7 @@ F. + backtestable inferred order flow only
 G. full backtestable V10.5 stack
 H. full stack minus each major module, one at a time
 
-DOM is not folded into historical claims unless historical depth evidence exists. DOM gets a separate DEMO-forward comparison.
+DOM is not folded into historical claims. DOM gets a separate shadow telemetry comparison in DEMO forward testing.
 
 Required evaluation:
 
@@ -688,8 +712,8 @@ A V10.5 candidate should not advance unless evidence supports all of the followi
 - positive OOS expectancy after costs
 - OOS PF target >= 1.50; >= 2.00 preferred
 - drawdown materially controlled; target <= 15%, reject/reevaluate near or above 20%
-- remains positive under materially worse execution costs
-- no single month/session/direction explains most of the edge
+- remains positive under +50% execution-cost stress
+- no single month, session or direction contributes more than 50% of total positive net R without a documented structural explanation and separate robustness test
 - no pathological same-zone rapid-fire loop
 - no material lookahead or bar-order ambiguity
 - state/reconciliation tests pass
@@ -711,7 +735,20 @@ Only after this stage should a separate LIVE-candidate design be discussed.
 - no automatic LIVE enablement
 - no risk increase because historical compounding looks spectacular
 
-## 27. Final definition of “ultimate” for this project
+## 27. Initial certification-mode behavior
+
+V10.5 is introduced in stages so every improvement can be attributed correctly:
+
+1. new modules compile and run in telemetry/shadow mode against V10.4 decisions
+2. each backtestable module is activated alone for ablation
+3. combinations are tested only after the individual effect is known
+4. the best evidence-backed backtestable combination becomes the V10.5 certification candidate
+5. DOM remains shadow-only throughout this release
+6. DEMO canary validates the exact certification candidate before any future live design
+
+This prevents sophisticated-looking modules from being bundled together so tightly that their real contribution cannot be measured.
+
+## 28. Final definition of “ultimate” for this project
 
 “Ultimate” means the most thoroughly validated, broker-aware and fail-closed AUREON candidate we can support with evidence. It does not mean guaranteed profitability, maximum trade count, or maximum backtest balance.
 
