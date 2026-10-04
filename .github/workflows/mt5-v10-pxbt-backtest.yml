@@ -1,0 +1,372 @@
+name: AUREON V10 MT5 PXBT 1Y Backtest
+
+on:
+  push:
+    branches:
+      - backtest/mt5-v10-mobile
+    paths:
+      - "mt5/**"
+      - ".github/workflows/mt5-v10-pxbt-backtest.yml"
+      - ".github/mt5-backtest-trigger.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      PXBT_LOGIN: ${{ secrets.PXBT_MT5_LOGIN }}
+      PXBT_PASSWORD: ${{ secrets.PXBT_MT5_INVESTOR_PASSWORD }}
+      PXBT_SERVER: ${{ secrets.PXBT_MT5_SERVER }}
+      EA_BASENAME: AUREON_OMEGA_V10_AUTONOMOUS_HYPER_SCALPER
+      TEST_FROM: "2025.10.04"
+      TEST_TO: "2026.10.04"
+
+    steps:
+      - name: Secret gate
+        id: gate
+        shell: pwsh
+        run: |
+          $ready = -not (
+            [string]::IsNullOrWhiteSpace($env:PXBT_LOGIN) -or
+            [string]::IsNullOrWhiteSpace($env:PXBT_PASSWORD) -or
+            [string]::IsNullOrWhiteSpace($env:PXBT_SERVER)
+          )
+          "ready=$($ready.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($ready) {
+            Write-Host "PXBT credential gate: READY (values remain masked)."
+          } else {
+            Write-Host "PXBT credential gate: NOT READY. Add PXBT_MT5_LOGIN, PXBT_MT5_INVESTOR_PASSWORD and PXBT_MT5_SERVER repository secrets. No MT5 connection attempted."
+          }
+
+      - name: Checkout
+        if: steps.gate.outputs.ready == 'true'
+        uses: actions/checkout@v4
+
+      - name: Install official MetaTrader 5
+        if: steps.gate.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "AUREON_MT5"
+          $setup = Join-Path $env:RUNNER_TEMP "mt5setup.exe"
+          if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile $setup
+          $p = Start-Process -FilePath $setup -ArgumentList @("/auto", "/path:`"$root`"") -PassThru
+          $p.WaitForExit()
+
+          $deadline = (Get-Date).AddMinutes(5)
+          do {
+            $terminal = Get-ChildItem -Path $root -Filter "terminal64.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($terminal) { break }
+            Start-Sleep -Seconds 5
+          } while ((Get-Date) -lt $deadline)
+
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+          if (-not $terminal) { throw "MT5 terminal64.exe not found after automatic installation." }
+          $metaeditor = Get-ChildItem -Path $root -Filter "metaeditor64.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $metaeditor) { throw "MetaEditor64.exe not found after installation." }
+
+          "MT5_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MT5_TERMINAL=$($terminal.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MT5_METAEDITOR=$($metaeditor.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          Write-Host "Official MT5 installed successfully."
+
+      - name: Compile AUREON V10 and preflight probe
+        if: steps.gate.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $experts = Join-Path $env:MT5_ROOT "MQL5\Experts\AUREON"
+          $scripts = Join-Path $env:MT5_ROOT "MQL5\Scripts\AUREON"
+          New-Item -ItemType Directory -Path $experts -Force | Out-Null
+          New-Item -ItemType Directory -Path $scripts -Force | Out-Null
+
+          $eaSrc = Join-Path $env:GITHUB_WORKSPACE "mt5\$($env:EA_BASENAME).mq5"
+          if (-not (Test-Path $eaSrc)) { throw "EA source missing: $eaSrc" }
+          $eaDst = Join-Path $experts "$($env:EA_BASENAME).mq5"
+          Copy-Item $eaSrc $eaDst -Force
+
+          $probe = Join-Path $scripts "AUREON_PREFLIGHT.mq5"
+          @'
+#property strict
+
+string FindGoldSymbol()
+  {
+   string exact="";
+   string xau="";
+   string anygold="";
+   int total=SymbolsTotal(false);
+   for(int i=0;i<total;i++)
+     {
+      string s=SymbolName(i,false);
+      string u=s;
+      StringToUpper(u);
+      if(u=="XAUUSD") return s;
+      if(xau=="" && StringFind(u,"XAUUSD")>=0) xau=s;
+      if(anygold=="" && (StringFind(u,"XAU")>=0 || StringFind(u,"GOLD")>=0)) anygold=s;
+     }
+   if(xau!="") return xau;
+   return anygold;
+  }
+
+void OnStart()
+  {
+   bool connected=false;
+   for(int i=0;i<60;i++)
+     {
+      if((bool)TerminalInfoInteger(TERMINAL_CONNECTED))
+        {
+         connected=true;
+         break;
+        }
+      Sleep(1000);
+     }
+
+   string gold="";
+   bool selected=false;
+   bool tick_ok=false;
+   MqlTick tick={};
+
+   if(connected)
+     {
+      gold=FindGoldSymbol();
+      if(gold!="")
+        {
+         selected=SymbolSelect(gold,true);
+         if(selected)
+           {
+            for(int i=0;i<30;i++)
+              {
+               if(SymbolInfoTick(gold,tick) && tick.time_msc>0 && tick.bid>0.0 && tick.ask>0.0)
+                 {
+                  tick_ok=true;
+                  break;
+                 }
+               Sleep(1000);
+              }
+           }
+        }
+     }
+
+   int h=FileOpen("AUREON_PREFLIGHT.txt",FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(h!=INVALID_HANDLE)
+     {
+      FileWriteString(h,"CONNECTED="+(connected?"1":"0")+"\r\n");
+      FileWriteString(h,"GOLD_SYMBOL="+gold+"\r\n");
+      FileWriteString(h,"SYMBOL_SELECTED="+(selected?"1":"0")+"\r\n");
+      FileWriteString(h,"TICK_OK="+(tick_ok?"1":"0")+"\r\n");
+      FileWriteString(h,"SERVER="+AccountInfoString(ACCOUNT_SERVER)+"\r\n");
+      FileClose(h);
+     }
+
+   PrintFormat("[AUREON PREFLIGHT] connected=%d gold=%s selected=%d tick=%d",
+               (connected?1:0),gold,(selected?1:0),(tick_ok?1:0));
+   TerminalClose((connected && selected && tick_ok)?0:77);
+  }
+'@ | Set-Content -Path $probe -Encoding ASCII
+
+          function Compile-Mql([string]$Source) {
+            $args = @("/compile:`"$Source`"", "/log")
+            $p = Start-Process -FilePath $env:MT5_METAEDITOR -ArgumentList $args -PassThru
+            if (-not $p.WaitForExit(180000)) {
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw "MetaEditor compile timed out: $Source"
+            }
+            $log = [System.IO.Path]::ChangeExtension($Source, ".log")
+            if (Test-Path $log) {
+              Get-Content $log | ForEach-Object { Write-Host $_ }
+            }
+            $ex5 = [System.IO.Path]::ChangeExtension($Source, ".ex5")
+            if (-not (Test-Path $ex5)) { throw "Compile failed; EX5 not produced: $Source" }
+            return $ex5
+          }
+
+          $eaEx5 = Compile-Mql $eaDst
+          $probeEx5 = Compile-Mql $probe
+
+          "EA_EX5=$eaEx5" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROBE_EX5=$probeEx5" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "EA and connectivity probe compiled."
+
+      - name: PXBT read-only connectivity and Gold-symbol preflight
+        if: steps.gate.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cfg = Join-Path $env:MT5_ROOT "aureon-preflight.ini"
+          $preflightFile = Join-Path $env:MT5_ROOT "MQL5\Files\AUREON_PREFLIGHT.txt"
+          if (Test-Path $preflightFile) { Remove-Item $preflightFile -Force }
+
+          @"
+[Common]
+Login=$env:PXBT_LOGIN
+Server=$env:PXBT_SERVER
+Password=$env:PXBT_PASSWORD
+KeepPrivate=0
+NewsEnable=0
+
+[Experts]
+Enabled=1
+AllowLiveTrading=0
+AllowDllImport=0
+
+[StartUp]
+Script=AUREON\AUREON_PREFLIGHT.ex5
+Symbol=EURUSD
+Period=M1
+ShutdownTerminal=1
+"@ | Set-Content -Path $cfg -Encoding ASCII
+
+          $p = Start-Process -FilePath $env:MT5_TERMINAL -ArgumentList @("/portable", "/config:`"$cfg`"") -PassThru
+          if (-not $p.WaitForExit(180000)) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "PXBT preflight timed out."
+          }
+
+          if (-not (Test-Path $preflightFile)) {
+            throw "PXBT preflight produced no status file. Login/server resolution likely failed before the probe started."
+          }
+
+          $kv = @{}
+          Get-Content $preflightFile | ForEach-Object {
+            if ($_ -match "^([^=]+)=(.*)$") { $kv[$matches[1]]=$matches[2] }
+          }
+
+          if ($kv["CONNECTED"] -ne "1") { throw "PXBT preflight: terminal did not connect." }
+          if ($kv["SYMBOL_SELECTED"] -ne "1") { throw "PXBT preflight: broker Gold symbol could not be selected." }
+          if ($kv["TICK_OK"] -ne "1") { throw "PXBT preflight: no valid Gold tick received." }
+          $gold = $kv["GOLD_SYMBOL"]
+          if ([string]::IsNullOrWhiteSpace($gold)) { throw "PXBT preflight: Gold symbol is empty." }
+
+          "PXBT_GOLD_SYMBOL=$gold" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "PXBT preflight passed. Gold symbol discovered: $gold"
+
+          Remove-Item $cfg -Force -ErrorAction SilentlyContinue
+
+      - name: Run exact one-year MT5 real-tick backtest
+        if: steps.gate.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $reports = Join-Path $env:MT5_ROOT "reports"
+          New-Item -ItemType Directory -Path $reports -Force | Out-Null
+          $cfg = Join-Path $env:MT5_ROOT "aureon-v10-1y.ini"
+
+          @"
+[Common]
+Login=$env:PXBT_LOGIN
+Server=$env:PXBT_SERVER
+Password=$env:PXBT_PASSWORD
+KeepPrivate=0
+NewsEnable=0
+
+[Experts]
+Enabled=1
+AllowLiveTrading=0
+AllowDllImport=0
+
+[Tester]
+Expert=AUREON\$($env:EA_BASENAME).ex5
+Symbol=$env:PXBT_GOLD_SYMBOL
+Period=M5
+Login=$env:PXBT_LOGIN
+Model=4
+ExecutionMode=0
+Optimization=0
+FromDate=$env:TEST_FROM
+ToDate=$env:TEST_TO
+ForwardMode=0
+Report=reports\AUREON_V10_PXBT_1Y
+ReplaceReport=1
+ShutdownTerminal=1
+Deposit=10000
+Currency=USD
+Leverage=1:100
+UseLocal=1
+UseRemote=0
+UseCloud=0
+Visual=0
+"@ | Set-Content -Path $cfg -Encoding ASCII
+
+          Write-Host "Starting MT5 Strategy Tester: $env:PXBT_GOLD_SYMBOL M5, real ticks, $env:TEST_FROM -> $env:TEST_TO, deposit 10000 USD, leverage 1:100."
+          $p = Start-Process -FilePath $env:MT5_TERMINAL -ArgumentList @("/portable", "/config:`"$cfg`"") -PassThru
+          if (-not $p.WaitForExit(6600000)) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "MT5 one-year backtest exceeded 110 minutes."
+          }
+
+          $report = Get-ChildItem -Path $reports -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "AUREON_V10_PXBT_1Y*" -and $_.Extension -in ".htm",".html" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+          if (-not $report) {
+            throw "MT5 exited without producing the requested Strategy Tester report."
+          }
+
+          $out = Join-Path $env:GITHUB_WORKSPACE "artifacts"
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          Copy-Item $report.FullName (Join-Path $out $report.Name) -Force
+
+          $compileLog = [System.IO.Path]::ChangeExtension((Join-Path $env:MT5_ROOT "MQL5\Experts\AUREON\$($env:EA_BASENAME).mq5"), ".log")
+          if (Test-Path $compileLog) { Copy-Item $compileLog (Join-Path $out "AUREON_V10_COMPILE.log") -Force }
+
+          @"
+AUREON OMEGA V10 — MT5 NATIVE BACKTEST
+Broker server: configured through encrypted GitHub secret
+Gold symbol: $env:PXBT_GOLD_SYMBOL
+Timeframe: M5
+Model: Every tick based on real ticks (Model=4)
+Optimization: OFF
+Period: $env:TEST_FROM to $env:TEST_TO
+Deposit: USD 10,000
+Leverage: 1:100
+Execution: Strategy Tester only
+Credential used: investor/read-only password
+Report source: MetaTrader 5 Strategy Tester
+"@ | Set-Content -Path (Join-Path $out "RUN_MANIFEST.txt") -Encoding UTF8
+
+          Remove-Item $cfg -Force -ErrorAction SilentlyContinue
+          Write-Host "MT5 report produced: $($report.Name)"
+
+      - name: Collect sanitized diagnostics
+        if: always() && steps.gate.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE "artifacts"
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+
+          $diag = Join-Path $out "SANITIZED_DIAGNOSTICS.txt"
+          "AUREON MT5 RUN DIAGNOSTICS" | Set-Content $diag -Encoding UTF8
+          "Workflow status may be checked against the MT5 report artifact." | Add-Content $diag
+
+          $logs = Get-ChildItem -Path $env:MT5_ROOT -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 8
+          foreach ($log in $logs) {
+            "----- $($log.Name) -----" | Add-Content $diag
+            Get-Content $log.FullName -ErrorAction SilentlyContinue | Select-Object -Last 250 | ForEach-Object {
+              $line = $_
+              if ($env:PXBT_LOGIN) { $line = $line.Replace($env:PXBT_LOGIN,"***LOGIN***") }
+              if ($env:PXBT_PASSWORD) { $line = $line.Replace($env:PXBT_PASSWORD,"***PASSWORD***") }
+              if ($env:PXBT_SERVER) { $line = $line.Replace($env:PXBT_SERVER,"***SERVER***") }
+              $line | Add-Content $diag
+            }
+          }
+
+      - name: Upload MT5 evidence
+        if: always() && steps.gate.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUREON-V10-PXBT-1Y-MT5
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7
