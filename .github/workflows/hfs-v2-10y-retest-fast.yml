@@ -1,0 +1,87 @@
+name: HFS V2 10Y Retest Fast
+
+on:
+  push:
+    branches: [research/hfs-v2-retest-20261010]
+    paths:
+      - 'research/requests/hfs_v2_fast_*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  retest-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATA_COMMIT: '922f83a60cc574e7395fb27397077288055a1ef6'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check --quiet numpy pandas requests
+      - name: Download pinned XAUUSD M1 bid/ask 2016-2025
+        shell: bash
+        run: |
+          python - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from pathlib import Path
+          import os, requests
+          commit=os.environ['DATA_COMMIT']; root=Path('research_data'); jobs=[]
+          for side in ('bid','ask'):
+              d=root/'xauusd'/side/'m1'; d.mkdir(parents=True,exist_ok=True)
+              for year in range(2016,2026):
+                  for month in range(1,13):
+                      name=f'xauusd_{side}_m1_{year}_{month:02d}.csv'
+                      url=f'https://raw.githubusercontent.com/kevingtlin/Market-Data-Lab/{commit}/xauusd/{side}/m1/{name}'
+                      jobs.append((url,d/name))
+          def fetch(job):
+              url,path=job
+              with requests.get(url,timeout=120,stream=True) as r:
+                  r.raise_for_status()
+                  with path.open('wb') as f:
+                      for chunk in r.iter_content(1024*1024):
+                          if chunk: f.write(chunk)
+              if path.stat().st_size < 500: raise RuntimeError(f'too small: {path}')
+              return path.stat().st_size
+          total=0
+          with ThreadPoolExecutor(max_workers=16) as ex:
+              futs=[ex.submit(fetch,j) for j in jobs]
+              for n,f in enumerate(as_completed(futs),1):
+                  total+=f.result()
+                  if n%30==0 or n==len(futs): print(f'downloaded {n}/{len(futs)} | {total/1e6:.1f} MB')
+          print('DATASET_DOWNLOAD_PASS')
+          PY
+      - name: Apply verified fast-iteration patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('research/hfs_v2_barapprox_backtest.py')
+          s=p.read_text(encoding='utf-8')
+          old="    for i in range(warm,len(df)):\n        r=df.iloc[i]\n"
+          new="    for i,r in enumerate(df.itertuples(index=False), start=0):\n        if i < warm:\n            continue\n"
+          if old not in s: raise SystemExit('expected slow-loop pattern missing')
+          p.write_text(s.replace(old,new),encoding='utf-8')
+          compile(p.read_text(encoding='utf-8'),str(p),'exec')
+          print('FAST_ITERATION_PATCH_PASS')
+          PY
+      - name: Run HFS V2 decade retest
+        run: python research/hfs_v2_barapprox_backtest.py --data-root research_data --out hfs_v2_results | tee hfs_v2_results.log
+      - name: Add provenance
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p hfs_v2_results
+          printf '%s\n' "$DATA_COMMIT" > hfs_v2_results/data_commit.txt
+          git rev-parse HEAD > hfs_v2_results/code_commit.txt
+          cp hfs_v2_results.log hfs_v2_results/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AUREON-HFS-V2-10Y-RETEST-FAST
+          path: hfs_v2_results
+          retention-days: 30
+          if-no-files-found: error
