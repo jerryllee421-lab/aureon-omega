@@ -1,0 +1,10 @@
+{
+  "strategy": "AUREON_OMEGA_HFS_PROFIT_HARVESTER_V2",
+  "period_start": "2016-01-01",
+  "period_end": "2025-12-31",
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "data_fidelity": "BAR_APPROX_BID_ASK_M1_NO_TICK_VOLUME",
+  "dataset_commit": "922f83a60cc574e7395fb27397077288055a1ef6",
+  "requested_at": "2026-10-10"
+}
