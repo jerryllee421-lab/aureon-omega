@@ -1,0 +1,9 @@
+{
+  "strategy": "AUREON_OMEGA_HFS_PROFIT_HARVESTER_V2_1_RESEARCH",
+  "development": "2016-2022",
+  "holdout": "2023-2025",
+  "variants": ["baseline","momentum","structure","mom_structure","failure_v2","combined"],
+  "dataset_commit": "922f83a60cc574e7395fb27397077288055a1ef6",
+  "selection_rule": "highest development PF; holdout excluded from selection",
+  "requested_at": "2026-10-10"
+}
