@@ -1,0 +1,134 @@
+name: HFS V2.1 Policy Tournament
+
+on:
+  push:
+    branches: [research/hfs-v2-retest-20261010]
+    paths:
+      - 'research/requests/hfs_v21_tournament_*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  tournament:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATA_COMMIT: '922f83a60cc574e7395fb27397077288055a1ef6'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check --quiet numpy pandas requests
+      - name: Download pinned XAUUSD M1 bid/ask 2016-2025
+        shell: bash
+        run: |
+          python - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from pathlib import Path
+          import os, requests
+          commit=os.environ['DATA_COMMIT']; root=Path('research_data'); jobs=[]
+          for side in ('bid','ask'):
+              d=root/'xauusd'/side/'m1'; d.mkdir(parents=True,exist_ok=True)
+              for year in range(2016,2026):
+                  for month in range(1,13):
+                      name=f'xauusd_{side}_m1_{year}_{month:02d}.csv'
+                      url=f'https://raw.githubusercontent.com/kevingtlin/Market-Data-Lab/{commit}/xauusd/{side}/m1/{name}'
+                      jobs.append((url,d/name))
+          def fetch(job):
+              url,path=job
+              with requests.get(url,timeout=120,stream=True) as r:
+                  r.raise_for_status()
+                  with path.open('wb') as f:
+                      for chunk in r.iter_content(1024*1024):
+                          if chunk: f.write(chunk)
+              if path.stat().st_size < 500: raise RuntimeError(f'too small: {path}')
+              return path.stat().st_size
+          with ThreadPoolExecutor(max_workers=16) as ex:
+              futs=[ex.submit(fetch,j) for j in jobs]
+              for n,f in enumerate(as_completed(futs),1):
+                  f.result()
+                  if n%30==0 or n==len(futs): print(f'downloaded {n}/{len(futs)}')
+          PY
+      - name: Build causal variant scripts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          base=Path('research/hfs_v2_barapprox_backtest.py').read_text(encoding='utf-8')
+          replacements={
+            "    for i in range(warm,len(df)):\n        r=df.iloc[i]\n":"    for i,r in enumerate(df.itertuples(index=False), start=0):\n        if i < warm:\n            continue\n",
+            "x[f'ema{n}']=c.ewm(span=n,adjust=False,min_periods=n).mean()":"x[f'ema{n}']=c.ewm(span=n,adjust=False,min_periods=n).mean().shift(1)",
+            "x['atr']=tr.ewm(alpha=1/14,adjust=False,min_periods=14).mean()":"x['atr']=tr.ewm(alpha=1/14,adjust=False,min_periods=14).mean().shift(1)",
+          }
+          for old,new in replacements.items():
+              if old not in base: raise SystemExit(f'base patch pattern missing: {old[:50]}')
+              base=base.replace(old,new)
+
+          marker="        spread_points=r.spread_open/POINT\n"
+          momentum="""        momentum_ok=(r.body_eff>=0.60 and ((direction>0 and r.close1>r.open1) or (direction<0 and r.close1<r.open1)))\n        if not momentum_ok:\n            blocks['score']+=1; continue\n"""
+          structure="""        structure_ok=((direction>0 and (r.low1>r.high3 or r.close1>r.breakout_high or (r.low1<r.recent_low and r.close1>r.recent_low))) or (direction<0 and (r.high1<r.low3 or r.close1<r.breakout_low or (r.high1>r.recent_high and r.close1<r.recent_high))))\n        if not structure_ok:\n            blocks['score']+=1; continue\n"""
+          old_fail="if held>=1 and gross_float<0 and opp>=70 and opp-side>=15: reason='FAILURE'"
+          new_fail="if held>=2 and gross_float<0 and opp>=74 and opp-side>=18: reason='FAILURE'"
+          old_stall="elif held>=STALL_BARS and gross_float<floor*0.25 and side<threshold: reason='FAILURE'"
+          new_stall="elif held>=3 and gross_float<floor*0.25 and side<threshold: reason='FAILURE'"
+
+          variants={
+            'baseline':base,
+            'momentum':base.replace(marker,momentum+marker),
+            'structure':base.replace(marker,structure+marker),
+            'mom_structure':base.replace(marker,momentum+structure+marker),
+            'failure_v2':base.replace(old_fail,new_fail).replace(old_stall,new_stall),
+            'combined':base.replace(marker,momentum+structure+marker).replace(old_fail,new_fail).replace(old_stall,new_stall),
+          }
+          out=Path('variant_scripts'); out.mkdir(exist_ok=True)
+          for name,s in variants.items():
+              compile(s,name,'exec')
+              (out/f'{name}.py').write_text(s,encoding='utf-8')
+          print('VARIANT_BUILD_PASS',','.join(variants))
+          PY
+      - name: Run policy tournament
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tournament_results
+          for v in baseline momentum structure mom_structure failure_v2 combined; do
+            echo "=== $v ==="
+            python "variant_scripts/$v.py" --data-root research_data --out "tournament_results/$v" > "tournament_results/$v.log" 2>&1
+            cat "tournament_results/$v/summary.json"
+          done
+      - name: Compare development and holdout
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd, json
+          rows=[]
+          for d in sorted(Path('tournament_results').iterdir()):
+              if not d.is_dir() or not (d/'trades.csv').exists(): continue
+              t=pd.read_csv(d/'trades.csv')
+              for label,mask in [('DEV_2016_2022',t.year<=2022),('HOLDOUT_2023_2025',t.year>=2023),('FULL_2016_2025',t.year>=2016)]:
+                  x=t[mask]
+                  gp=x.loc[x.pnl>0,'pnl'].sum(); gl=-x.loc[x.pnl<0,'pnl'].sum()
+                  rows.append({'variant':d.name,'segment':label,'trades':len(x),'net':x.pnl.sum(),'wr':100*(x.pnl>0).mean() if len(x) else None,'pf':gp/gl if gl>0 else None})
+          r=pd.DataFrame(rows)
+          r.to_csv('tournament_results/comparison.csv',index=False)
+          print(r.to_string(index=False))
+          dev=r[r.segment=='DEV_2016_2022'].sort_values(['pf','net'],ascending=False)
+          winner=dev.iloc[0].to_dict() if len(dev) else {}
+          Path('tournament_results/selection.json').write_text(json.dumps({'selection_rule':'highest development PF; holdout not used for selection','development_winner':winner},indent=2),encoding='utf-8')
+          PY
+      - name: Add provenance
+        if: always()
+        run: |
+          printf '%s\n' "$DATA_COMMIT" > tournament_results/data_commit.txt
+          git rev-parse HEAD > tournament_results/code_commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AUREON-HFS-V21-POLICY-TOURNAMENT
+          path: tournament_results
+          retention-days: 30
+          if-no-files-found: error
