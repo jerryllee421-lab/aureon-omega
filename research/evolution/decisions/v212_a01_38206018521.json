@@ -1,15 +1,24 @@
 {
-  "decision_id": "v212-a01-38206018521",
+  "decision_id": "v212-a01-final-38206881055",
   "campaign": "FVG_V2_12_MECHANISM_ATTRIBUTION",
   "experiment": "A01_REENTRY",
   "status": "A01_ENGINE_PARITY_INSUFFICIENT",
   "decision_date": "2026-10-12",
   "source_branch": "research/v212-edge-recovery-20261011",
-  "source_commit": "92577e40f7f6cbf34f914716875d581186e8c7f5",
-  "workflow_run_id": 38206018521,
-  "artifact_id": 11727462707,
-  "artifact_name": "AUREON-V212-A01-EDGE-RECOVERY-38206018521",
-  "artifact_sha256": "a602c28f06fde4379a0fe4e9e1025b11478762209ff4bd9bc566dc4f2b22cac8",
+  "source_commit": "cc74ec07408a6c0227f9582b8397bda0af8ff0e5",
+  "workflow_run_id": 38206881055,
+  "artifact_id": 11727269542,
+  "artifact_name": "AUREON-V212-A01-EDGE-RECOVERY-38206881055",
+  "artifact_sha256": "601eea054f9b641da1c6dc3c1366e8fc6705066e1aa1894a8dd4271a31aac6d9",
+  "verification": {
+    "application_tests": "PASS",
+    "application_build": "PASS",
+    "research_tests": "28_PASS_1_WARNING",
+    "frozen_control_integrity": "PASS",
+    "dataset_provenance": "PASS",
+    "duplicate_run_agreement": "EXACT",
+    "fail_closed_labels": "PASS"
+  },
   "fidelity": "M1_BAR_APPROX_CAUSAL_NEXT_BAR_ENTRY",
   "data_role": "historical_diagnostic",
   "fast_lane_models": {
@@ -35,7 +44,7 @@
     "status": "EXACT",
     "runs": 2,
     "comparison_sha256": "e42c9a61d3464da8b0f2a7e0748b3faf10930853ab42d57f95f0a161c2a3f9a6",
-    "attribution_sha256": "48f4815c4ae7e2021967ff09720f6096038067a534cc2b4fa4ff2bdee842011c"
+    "attribution_sha256": "ac2fbbb00b1b85710b3bc658b8d2f1ba1c9de37a1b77c3688225662af3335eb3"
   },
   "frozen_control_integrity": {
     "control": "FVG_V2_12_R943K",
