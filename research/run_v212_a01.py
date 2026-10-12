@@ -134,6 +134,16 @@ def run_a01_frame(
         'source_commit':source_commit,
         'simulator_sha256':_sha256_file(sim_path) if sim_path.exists() else None,
         'configuration_sha256':_hash_json({k:asdict(v) for k,v in A01_POLICIES.items()}),
+        'symbol':'XAUUSD',
+        'timeframe':'M1',
+        'bid_ask_model':'PINNED_SOURCE_BID_ASK_OHLC_SIDE_CORRECT_EXECUTION',
+        'spread_model':'SOURCE_BID_ASK_SPREAD_EMBEDDED_ONCE',
+        'commission_model':'NONE_IN_FAST_LANE',
+        'slippage_model':'NONE_IN_FAST_LANE',
+        'entry_timing':'NEXT_BAR_OPEN_AFTER_CLOSED_REJECTION',
+        'ambiguous_bar_exit_order':'SL_FIRST_CONSERVATIVE',
+        'position_sizing':'FIXED_R_NORMALIZED_NO_COMPOUNDING',
+        'symbol_assumptions':'NORMALIZED_R_SPACE; NO BROKER LOT, MARGIN, TICK_VALUE, STOP_OR_FREEZE_LEVEL EMULATION',
         'manifest':manifest,
     }
     (out/'provenance.json').write_text(json.dumps(provenance,indent=2,default=str),encoding='utf-8')
