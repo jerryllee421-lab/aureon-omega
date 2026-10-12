@@ -1,0 +1,21 @@
+{
+  "id": "v212-a01-edge-recovery-20261012",
+  "campaign": "FVG_V2_12_MECHANISM_ATTRIBUTION",
+  "experiment": "A01_REENTRY",
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "data_role": "historical_diagnostic",
+  "research_start": "2025-08-21",
+  "research_end": "2026-08-20",
+  "mirror_commit": "922f83a60cc574e7395fb27397077288055a1ef6",
+  "variants": [
+    "A01_CONTROL",
+    "A01_ONE_TRADE",
+    "A01_COOLDOWN_1BAR",
+    "A01_MAX3"
+  ],
+  "compounding": false,
+  "promotion_authority": "MT5_REAL_TICKS_PLUS_EXTERNAL_2026_HOLDOUT",
+  "live_execution": false,
+  "purpose": "Causal fixed-R attribution of V2.12 FVG zone recycling before A02 rejection testing"
+}
