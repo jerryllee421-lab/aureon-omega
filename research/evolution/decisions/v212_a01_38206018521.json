@@ -1,0 +1,118 @@
+{
+  "decision_id": "v212-a01-38206018521",
+  "campaign": "FVG_V2_12_MECHANISM_ATTRIBUTION",
+  "experiment": "A01_REENTRY",
+  "status": "A01_ENGINE_PARITY_INSUFFICIENT",
+  "decision_date": "2026-10-12",
+  "source_branch": "research/v212-edge-recovery-20261011",
+  "source_commit": "92577e40f7f6cbf34f914716875d581186e8c7f5",
+  "workflow_run_id": 38206018521,
+  "artifact_id": 11727462707,
+  "artifact_name": "AUREON-V212-A01-EDGE-RECOVERY-38206018521",
+  "artifact_sha256": "a602c28f06fde4379a0fe4e9e1025b11478762209ff4bd9bc566dc4f2b22cac8",
+  "fidelity": "M1_BAR_APPROX_CAUSAL_NEXT_BAR_ENTRY",
+  "data_role": "historical_diagnostic",
+  "dataset": {
+    "mirror_commit": "922f83a60cc574e7395fb27397077288055a1ef6",
+    "period_start": "2025-08-21T00:00:00+00:00",
+    "period_end": "2026-08-20T23:58:00+00:00",
+    "m1_rows": 507293,
+    "dataset_sha256": "b72c599b94a6235f30bee925e48d3706f84f61eaae956d5e81a9392c4c71d826"
+  },
+  "determinism": {
+    "status": "EXACT",
+    "runs": 2,
+    "comparison_sha256": "e42c9a61d3464da8b0f2a7e0748b3faf10930853ab42d57f95f0a161c2a3f9a6",
+    "attribution_sha256": "48f4815c4ae7e2021967ff09720f6096038067a534cc2b4fa4ff2bdee842011c"
+  },
+  "frozen_control_integrity": {
+    "control": "FVG_V2_12_R943K",
+    "ea_sha256": "59ce85626c86af828206e900fda713eb573ca9c313d6e3c48d641276d36d68ce",
+    "preset_sha256": "71ad35333c429aabce44c5199f4640816f058899cbf3b145d9d6b2630bb585a5",
+    "r943k_sha256": "a37a904701f28e789a053b29db729ccf04851c67333eec583a773ee96b84bda8",
+    "r1_253b_sha256": "37f9e8fef835768e6bc9d138671e7d7bbb1e5afa95272b0a8b440011f5469943",
+    "native_reproduction_status": "PENDING"
+  },
+  "historical_reference": {
+    "r943k_profit_factor": 2.58,
+    "r943k_trades": 1135,
+    "r943k_win_rate_pct": 64.41,
+    "r1_253b_profit_factor": 2.48,
+    "r1_253b_trades": 18368,
+    "r1_253b_win_rate_pct": 68.06
+  },
+  "variants": {
+    "A01_CONTROL": {
+      "trades": 2287,
+      "win_rate": 0.3003935286401399,
+      "profit_factor": 0.45941895011484263,
+      "expectancy_r": -0.37819400079416343,
+      "net_r": -864.9296798162518,
+      "max_drawdown_r": 867.4427493753715,
+      "max_loss_streak": 18
+    },
+    "A01_ONE_TRADE": {
+      "trades": 1903,
+      "win_rate": 0.31213872832369943,
+      "profit_factor": 0.4808914340360998,
+      "expectancy_r": -0.3570746783219891,
+      "net_r": -679.5131128467452,
+      "max_drawdown_r": 680.4924107569723,
+      "max_loss_streak": 22
+    },
+    "A01_COOLDOWN_1BAR": {
+      "trades": 2161,
+      "win_rate": 0.3077279037482647,
+      "profit_factor": 0.4760084609345298,
+      "expectancy_r": -0.36274472116702616,
+      "net_r": -783.8913424419435,
+      "max_drawdown_r": 786.4044120010635,
+      "max_loss_streak": 16
+    },
+    "A01_MAX3": {
+      "trades": 2270,
+      "win_rate": 0.3004405286343612,
+      "profit_factor": 0.4591703338479155,
+      "expectancy_r": -0.3783425153522072,
+      "net_r": -858.8375098495103,
+      "max_drawdown_r": 861.35057940863,
+      "max_loss_streak": 17
+    }
+  },
+  "attempt_attribution": {
+    "control_attempt_1": {
+      "trades": 1902,
+      "profit_factor": 0.4812590880376565,
+      "expectancy_r": -0.3567366523905075,
+      "net_r": -678.5131128467452
+    },
+    "control_attempts_2_plus": {
+      "trades": 385,
+      "expectancy_r": -0.4841988752454715,
+      "net_r": -186.41656696950653
+    },
+    "interpretation": "In this causal bar proxy, repeated attempts 2+ are incrementally destructive. One-trade-per-FVG reduces losses relative to unlimited recycling, but first attempts are already materially negative, so this cannot be promoted as a strategy improvement."
+  },
+  "evidence_interpretation": {
+    "all_variants_materially_negative": true,
+    "native_historical_controls_materially_positive": true,
+    "parity_gap_material": true,
+    "primary_parity_gap": "The frozen MT5 EA evaluates rejection from the live/forming M1 candle at the decision tick and can enter intrabar. The causal bar proxy intentionally evaluates rejection on the previous completed candle and enters no earlier than the next bar open. M1 bars cannot reconstruct that tick-event ordering.",
+    "secondary_parity_gaps": [
+      "No native tick sequence inside M1 bars.",
+      "No same-bar re-entry after an intrabar exit because event order is unknowable from OHLC bars.",
+      "Conservative SL-first resolution when SL and target are both touched in one bar.",
+      "No broker-native stop/freeze, lot-rounding, margin, or tick-value semantics."
+    ]
+  },
+  "decision": {
+    "promote_variant": null,
+    "advance_to_A02": false,
+    "reason": "The A01 fast lane is deterministic but cannot reproduce the sign or magnitude of the historical V2.12 edge. Per the predeclared stop rule, parameter tuning or A02 attribution on this engine would optimize around a fidelity failure.",
+    "next_action": "NATIVE_CONTROL_REPRODUCTION_AND_TICK_SEMANTICS_PARITY",
+    "required_next_gate": "Reproduce the exact frozen V2.12 control under PXBT/MT5 Every tick based on real ticks for 2026-09-01 through 2026-09-24, or build a tick-event-equivalent replay from broker-native history. Only after parity is established should A01 be rerun and A02 considered."
+  },
+  "promotion_status": "BLOCKED_PARITY",
+  "live_ready": false,
+  "real_money_execution": "LOCKED"
+}
