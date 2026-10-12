@@ -15,7 +15,7 @@
       "priority": 1,
       "status": "A01_ENGINE_PARITY_INSUFFICIENT",
       "decision": "research/evolution/decisions/v212_a01_38206018521.json",
-      "workflow_run_id": 38206018521
+      "workflow_run_id": 38206881055
     },
     {
       "id": "A02_REJECTION",
@@ -81,10 +81,15 @@
   ],
   "promotion_metric": "robust_r_space_edge_not_terminal_currency",
   "last_evidence": {
-    "run_id": 38206018521,
-    "artifact_id": 11727462707,
+    "run_id": 38206881055,
+    "artifact_id": 11727269542,
+    "artifact_sha256": "601eea054f9b641da1c6dc3c1366e8fc6705066e1aa1894a8dd4271a31aac6d9",
+    "source_commit": "cc74ec07408a6c0227f9582b8397bda0af8ff0e5",
     "dataset_sha256": "b72c599b94a6235f30bee925e48d3706f84f61eaae956d5e81a9392c4c71d826",
     "determinism": "EXACT",
+    "application_tests": "PASS",
+    "application_build": "PASS",
+    "research_tests": "28_PASS_1_WARNING",
     "fidelity": "M1_BAR_APPROX_CAUSAL_NEXT_BAR_ENTRY",
     "best_diagnostic_variant": "A01_ONE_TRADE",
     "best_diagnostic_profit_factor": 0.4808914340360998,
