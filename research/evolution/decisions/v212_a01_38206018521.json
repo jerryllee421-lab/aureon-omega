@@ -12,6 +12,18 @@
   "artifact_sha256": "a602c28f06fde4379a0fe4e9e1025b11478762209ff4bd9bc566dc4f2b22cac8",
   "fidelity": "M1_BAR_APPROX_CAUSAL_NEXT_BAR_ENTRY",
   "data_role": "historical_diagnostic",
+  "fast_lane_models": {
+    "symbol": "XAUUSD",
+    "timeframe": "M1",
+    "bid_ask_model": "PINNED_SOURCE_BID_ASK_OHLC_SIDE_CORRECT_EXECUTION",
+    "spread_model": "SOURCE_BID_ASK_SPREAD_EMBEDDED_ONCE",
+    "commission_model": "NONE_IN_FAST_LANE",
+    "slippage_model": "NONE_IN_FAST_LANE",
+    "entry_timing": "NEXT_BAR_OPEN_AFTER_CLOSED_REJECTION",
+    "ambiguous_bar_exit_order": "SL_FIRST_CONSERVATIVE",
+    "position_sizing": "FIXED_R_NORMALIZED_NO_COMPOUNDING",
+    "symbol_assumptions": "NORMALIZED_R_SPACE; NO BROKER LOT, MARGIN, TICK_VALUE, STOP_OR_FREEZE_LEVEL EMULATION"
+  },
   "dataset": {
     "mirror_commit": "922f83a60cc574e7395fb27397077288055a1ef6",
     "period_start": "2025-08-21T00:00:00+00:00",
@@ -102,7 +114,7 @@
       "No native tick sequence inside M1 bars.",
       "No same-bar re-entry after an intrabar exit because event order is unknowable from OHLC bars.",
       "Conservative SL-first resolution when SL and target are both touched in one bar.",
-      "No broker-native stop/freeze, lot-rounding, margin, or tick-value semantics."
+      "No broker-native stop/freeze, lot-rounding, margin, commission, slippage, or tick-value semantics."
     ]
   },
   "decision": {
