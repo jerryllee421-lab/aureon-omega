@@ -59,3 +59,18 @@ def test_policy_classifier_cannot_promote_without_native_and_external_holdout(tm
     assert result['promotion_status'] == 'RESEARCH_ONLY'
     assert result['native_parity_status'] == 'PENDING'
     assert result['external_holdout_status'] == 'PENDING'
+
+
+def test_provenance_explicitly_states_execution_models(tmp_path):
+    manifest={'dataset_sha256':'abc','mirror_commit':'pin'}
+    result=run_a01_frame(sample_frame(), manifest, tmp_path, source_commit='sha')
+    p=result['provenance']
+    assert p['symbol']=='XAUUSD'
+    assert p['timeframe']=='M1'
+    assert p['bid_ask_model']=='PINNED_SOURCE_BID_ASK_OHLC_SIDE_CORRECT_EXECUTION'
+    assert p['spread_model']=='SOURCE_BID_ASK_SPREAD_EMBEDDED_ONCE'
+    assert p['commission_model']=='NONE_IN_FAST_LANE'
+    assert p['slippage_model']=='NONE_IN_FAST_LANE'
+    assert p['entry_timing']=='NEXT_BAR_OPEN_AFTER_CLOSED_REJECTION'
+    assert p['ambiguous_bar_exit_order']=='SL_FIRST_CONSERVATIVE'
+    assert p['position_sizing']=='FIXED_R_NORMALIZED_NO_COMPOUNDING'
