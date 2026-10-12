@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "campaign": "FVG_V2_12_MECHANISM_ATTRIBUTION",
   "control": "FVG_V2_12_R1_253B_HISTORICAL_BENCHMARK",
   "secondary_control": "FVG_V2_12_R943K",
-  "status": "READY_FOR_CONTROLLED_EXPERIMENTS",
+  "status": "A01_BLOCKED_PARITY",
   "max_causal_changes": 2,
   "sequence": [
     {
@@ -12,14 +12,18 @@
         "InpOneTradePerFVG",
         "InpCooldownSeconds"
       ],
-      "priority": 1
+      "priority": 1,
+      "status": "A01_ENGINE_PARITY_INSUFFICIENT",
+      "decision": "research/evolution/decisions/v212_a01_38206018521.json",
+      "workflow_run_id": 38206018521
     },
     {
       "id": "A02_REJECTION",
       "variables": [
         "InpRequireRejection"
       ],
-      "priority": 2
+      "priority": 2,
+      "status": "BLOCKED_PENDING_A01_PARITY"
     },
     {
       "id": "A03_DISPLACEMENT",
@@ -27,7 +31,8 @@
         "InpMinFVG_ATR",
         "InpMinBody_ATR"
       ],
-      "priority": 3
+      "priority": 3,
+      "status": "PENDING"
     },
     {
       "id": "A04_DIRECTION",
@@ -35,7 +40,8 @@
         "InpAllowLong",
         "InpAllowShort"
       ],
-      "priority": 4
+      "priority": 4,
+      "status": "PENDING"
     },
     {
       "id": "A05_EXITS",
@@ -43,14 +49,16 @@
         "InpUseProfitLock",
         "InpUseATRTrail"
       ],
-      "priority": 5
+      "priority": 5,
+      "status": "PENDING"
     },
     {
       "id": "A06_COMPOUNDING",
       "variables": [
         "InpAutoCompoundLots"
       ],
-      "priority": 6
+      "priority": 6,
+      "status": "PENDING"
     },
     {
       "id": "A07_EXECUTION_STRESS",
@@ -58,7 +66,8 @@
         "spread",
         "slippage"
       ],
-      "priority": 7
+      "priority": 7,
+      "status": "PENDING"
     }
   ],
   "required_gates": [
@@ -70,5 +79,26 @@
     "monte_carlo",
     "mt5_real_ticks"
   ],
-  "promotion_metric": "robust_r_space_edge_not_terminal_currency"
+  "promotion_metric": "robust_r_space_edge_not_terminal_currency",
+  "last_evidence": {
+    "run_id": 38206018521,
+    "artifact_id": 11727462707,
+    "dataset_sha256": "b72c599b94a6235f30bee925e48d3706f84f61eaae956d5e81a9392c4c71d826",
+    "determinism": "EXACT",
+    "fidelity": "M1_BAR_APPROX_CAUSAL_NEXT_BAR_ENTRY",
+    "best_diagnostic_variant": "A01_ONE_TRADE",
+    "best_diagnostic_profit_factor": 0.4808914340360998,
+    "best_diagnostic_expectancy_r": -0.3570746783219891,
+    "promotion_status": "BLOCKED_PARITY"
+  },
+  "next_gate": {
+    "id": "NATIVE_CONTROL_REPRODUCTION_AND_TICK_SEMANTICS_PARITY",
+    "authority": "PXBT MT5 Every tick based on real ticks",
+    "control_period": [
+      "2026-09-01",
+      "2026-09-24"
+    ],
+    "mutated_variables": 0,
+    "a02_allowed_before_pass": false
+  }
 }
