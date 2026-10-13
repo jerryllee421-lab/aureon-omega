@@ -60,13 +60,19 @@ def file_hash(path: Path) -> str:
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--root",default="research_data")
-    ap.add_argument("--symbol",default="XAUUSD")\n    ap.add_argument("--timeframes",default="ALL",help="Comma-separated TFs or ALL")
+    ap.add_argument("--symbol",default="XAUUSD")
+    ap.add_argument("--timeframes",default="ALL",help="Comma-separated TFs or ALL")
     args=ap.parse_args()
+    selected = list(RULES) if args.timeframes.strip().upper() == "ALL" else [x.strip().upper() for x in args.timeframes.split(",") if x.strip()]
+    unknown = sorted(set(selected) - set(RULES))
+    if unknown:
+        raise SystemExit(f"Unsupported timeframe(s): {unknown}; choose from {list(RULES)}")
     root=Path(args.root); symbol=args.symbol.upper()
     m1=read_m1(root,symbol)
     reports={}
     outroot=root/symbol/"canonical"; outroot.mkdir(parents=True,exist_ok=True)
-    for tf in selected:\n        rule=RULES[tf]
+    for tf in selected:
+        rule=RULES[tf]
         if tf=="M1": df=m1.copy()
         else:
             df=m1.resample(rule,label="left",closed="left").agg(agg_dict()).dropna(subset=["bid_open","ask_open"])
