@@ -1,0 +1,55 @@
+name: MQL5 native compile validation
+
+on:
+  pull_request:
+    paths:
+      - 'qa/mql5/**'
+      - '.github/workflows/mql5-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MetaTrader 5 terminal and MetaEditor
+        shell: powershell
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer
+          $process = Start-Process -FilePath $installer -ArgumentList @('/auto', '/path:C:\MT5') -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "MetaTrader installer failed with exit code $($process.ExitCode)" }
+          if (!(Test-Path 'C:\MT5\metaeditor64.exe')) { throw 'MetaEditor was not installed at C:\MT5\metaeditor64.exe' }
+          if (!(Test-Path 'C:\MT5\MQL5\Include\Trade\Trade.mqh')) { throw 'Standard MQL5 Trade include is missing' }
+      - name: Compile control and challengers
+        shell: powershell
+        run: |
+          $metaeditor = 'C:\MT5\metaeditor64.exe'
+          $include = 'C:\MT5\MQL5\Include'
+          $logDir = Join-Path $env:RUNNER_TEMP 'mql5-compile-logs'
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          $sources = Get-ChildItem 'qa/mql5' -Filter '*.mq5' | Sort-Object Name
+          if ($sources.Count -ne 4) { throw "Expected four MQL5 sources; found $($sources.Count)" }
+          foreach ($source in $sources) {
+            $log = Join-Path $logDir ($source.BaseName + '.log')
+            & $metaeditor "/compile:$($source.FullName)" "/log:$log" "/inc:$include"
+            Start-Sleep -Seconds 2
+            if (!(Test-Path $log)) { throw "Compiler log missing for $($source.Name)" }
+            $text = Get-Content $log -Raw
+            Write-Host "===== $($source.Name) ====="
+            Write-Host $text
+            if ($text -notmatch '0 errors') { throw "Compile errors reported for $($source.Name)" }
+            $ex5 = [System.IO.Path]::ChangeExtension($source.FullName, '.ex5')
+            if (!(Test-Path $ex5)) { throw "Compiled EX5 missing for $($source.Name)" }
+          }
+      - name: Upload compiler logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mql5-compile-logs
+          path: ${{ runner.temp }}\mql5-compile-logs\*.log
+          if-no-files-found: warn
