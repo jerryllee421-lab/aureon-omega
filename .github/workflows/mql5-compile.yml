@@ -62,7 +62,7 @@ jobs:
             while ((Get-Date) -lt $deadline) {
               if (Test-Path $log) {
                 $text = Get-Content $log -Raw
-                if ($text -match '\\d+ errors?') { break }
+                if ($text -match '\d+ errors?') { break }
               }
               Start-Sleep -Seconds 2
             }
