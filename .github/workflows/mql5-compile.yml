@@ -21,12 +21,12 @@ jobs:
         run: |
           $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
           Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer -TimeoutSec 120
-          $process = Start-Process -FilePath $installer -ArgumentList '/auto' -PassThru -Wait
+          $process = Start-Process -FilePath $installer -ArgumentList @('/auto', '/path:C:\MT5') -PassThru -Wait
           $editor = $null
           $known = @('C:\Program Files\MetaTrader 5\metaeditor64.exe', 'C:\MT5\metaeditor64.exe')
           foreach ($candidate in $known) { if (Test-Path $candidate) { $editor = $candidate; break } }
           if (!$editor) {
-            $roots = @('C:\Program Files', 'C:\Program Files (x86)', "$env:APPDATA\MetaQuotes\Terminal", 'C:\MT5')
+            $roots = @('C:\MT5', 'C:\Program Files', 'C:\Program Files (x86)', "$env:APPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\Programs\MetaTrader 5")
             foreach ($root in $roots) {
               if (Test-Path $root) {
                 $found = Get-ChildItem $root -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -35,7 +35,7 @@ jobs:
             }
           }
           if (!$editor) { throw "MetaEditor not found after installer exit code $($process.ExitCode). Installer bytes: $((Get-Item $installer).Length)" }
-          $includeRoots = @((Split-Path $editor -Parent), "$env:APPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\Programs\MetaTrader 5", "$env:LOCALAPPDATA\MetaQuotes\Terminal")
+          $includeRoots = @('C:\MT5', (Split-Path $editor -Parent), "$env:APPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\Programs\MetaTrader 5", "$env:LOCALAPPDATA\MetaQuotes\Terminal")
           $tradeInclude = $null
           foreach ($root in $includeRoots) {
             if (Test-Path $root) {
