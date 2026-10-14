@@ -134,7 +134,7 @@
 - Test-PortableSandbox follows the signature above.
 - The normal terminal is read-only for path discovery; no window/process stop, relogin or configuration mutation is permitted.
 
-- [ ] **Step 1: Add tests** for exact-path collision, canonicalized aliases, sandbox nested in an ordinary terminal data root, incomplete portable-terminal copy, common.ini/profile/login artifacts, and inability to prove sandbox identity.
+- [ ] **Step 1: Add tests** for exact-path collision, canonicalized aliases, sandbox nested in an ordinary terminal data root, incomplete portable-terminal copy, copied ordinary-terminal common.ini/profile/login state, newly generated account-free sandbox configuration, and inability to prove sandbox identity.
 - [ ] **Step 2: Run tests to confirm failure** against the unimplemented sandbox gate.
 - [ ] **Step 3: Implement canonical path discovery and the sandbox gate**; the isolated portable terminal must live in a distinct writable path, and reuse is allowed only after the required directory structure and terminal binaries are verified.
 - [ ] **Step 4: Reject copied login/account/profile state** including common.ini, account/login stores, saved chart profiles and ordinary-terminal MQL5\Profiles content. Record only path and file category in evidence, not secret contents.
