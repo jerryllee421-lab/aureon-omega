@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'qa/mql5/**'
+      - 'qa/Run-Aureon-MQL5-Compile.ps1'
       - '.github/workflows/mql5-compile.yml'
   workflow_dispatch:
 
@@ -16,73 +17,18 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Install MetaTrader 5 terminal and locate MetaEditor
+      - name: Run one-click native compile diagnostics
         shell: powershell
         run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
-          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer -TimeoutSec 120
-          $process = Start-Process -FilePath $installer -ArgumentList @('/auto', '/path:C:\MT5') -PassThru -Wait
-          $editor = $null
-          $known = @('C:\Program Files\MetaTrader 5\metaeditor64.exe', 'C:\MT5\metaeditor64.exe')
-          foreach ($candidate in $known) { if (Test-Path $candidate) { $editor = $candidate; break } }
-          if (!$editor) {
-            $roots = @('C:\MT5', 'C:\Program Files', 'C:\Program Files (x86)', "$env:APPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\Programs\MetaTrader 5")
-            foreach ($root in $roots) {
-              if (Test-Path $root) {
-                $found = Get-ChildItem $root -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($found) { $editor = $found.FullName; break }
-              }
-            }
-          }
-          if (!$editor) { throw "MetaEditor not found after installer exit code $($process.ExitCode). Installer bytes: $((Get-Item $installer).Length)" }
-          $includeRoots = @('C:\MT5', (Split-Path $editor -Parent), "$env:APPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\Programs\MetaTrader 5", "$env:LOCALAPPDATA\MetaQuotes\Terminal")
-          $tradeInclude = $null
-          foreach ($root in $includeRoots) {
-            if (Test-Path $root) {
-              $tradeInclude = Get-ChildItem $root -Filter 'Trade.mqh' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-              if ($tradeInclude) { break }
-            }
-          }
-          if (!$tradeInclude) { throw "Standard Trade.mqh include not found. Searched: $($includeRoots -join '; ')" }
-          $include = Split-Path (Split-Path $tradeInclude.FullName -Parent) -Parent
-          "MT5_EDITOR=$editor" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "MT5_INCLUDE=$include" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "MetaEditor: $editor"
-          Write-Host "MQL5 include root: $include"
-          Write-Host "Installer exit code: $($process.ExitCode)"
-      - name: Compile control and challengers
-        shell: powershell
-        run: |
-          $metaeditor = $env:MT5_EDITOR
-          $include = $env:MT5_INCLUDE
-          $logDir = Join-Path $env:RUNNER_TEMP 'mql5-compile-logs'
-          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-          $sources = Get-ChildItem 'qa/mql5' -Filter '*.mq5' | Sort-Object Name
-          if ($sources.Count -ne 4) { throw "Expected four MQL5 sources; found $($sources.Count)" }
-          foreach ($source in $sources) {
-            $log = Join-Path $logDir ($source.BaseName + '.log')
-            $ex5 = [System.IO.Path]::ChangeExtension($source.FullName, '.ex5')
-            Remove-Item $log,$ex5 -Force -ErrorAction SilentlyContinue
-            & $metaeditor "/compile:$($source.FullName)" "/log:$log" "/inc:$include"
-            $deadline = (Get-Date).AddSeconds(90)
-            $text = ''
-            while ((Get-Date) -lt $deadline) {
-              if (Test-Path $log) {
-                $text = Get-Content $log -Raw
-                if ($text -match '\d+ errors?') { break }
-              }
-              Start-Sleep -Seconds 2
-            }
-            if (!(Test-Path $log)) { throw "Compiler log missing for $($source.Name)" }
-            Write-Host "===== $($source.Name) ====="
-            Write-Host $text
-            if ($text -notmatch '0 errors') { throw "Compile errors or incomplete compiler result for $($source.Name)" }
-            if (!(Test-Path $ex5)) { throw "Compiled EX5 missing for $($source.Name)" }
-          }
-      - name: Upload compiler logs
+          $script = Join-Path $env:GITHUB_WORKSPACE 'qa\Run-Aureon-MQL5-Compile.ps1'
+          $sources = Join-Path $env:GITHUB_WORKSPACE 'qa\mql5'
+          $evidence = Join-Path $env:RUNNER_TEMP 'mql5-evidence'
+          & $script -SourceDirectory $sources -OutputDirectory $evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload compile evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mql5-compile-logs
-          path: ${{ runner.temp }}\mql5-compile-logs\*.log
+          name: aureon-mql5-compile-evidence
+          path: ${{ runner.temp }}\mql5-evidence\**
           if-no-files-found: warn
