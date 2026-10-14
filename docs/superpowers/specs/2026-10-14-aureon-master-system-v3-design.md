@@ -117,7 +117,7 @@ The CLI setup stage must first inventory tools, then report a proposed install l
 
 - Do not close, log off, relogin, or modify the normal MT5 process, profile, login settings, chart attachments or EA inputs.
 - Never reuse the normal MT5 data directory as the portable sandbox.
-- No broker API, cTrader Open API, or account connector is called by this tester orchestrator.
+- No broker-account connection, broker API, cTrader Open API, or account connector is initiated by the tester orchestrator. The isolated terminal must block before testing if logs indicate that any broker account was authenticated or attached.
 - AllowLiveTrading=0, DLL import off, optimizer off, remote/cloud agents off, and no copied account credentials are mandatory gate conditions.
 - If there is any ambiguity whether the launched terminal is the intended isolated instance, stop.
 - Inspect isolated terminal/tester logs for account authorization, broker login, or connection to a user trading account. If any appears, mark SECURITY_BLOCKED, do not launch subsequent tests, and preserve the logs. Never close or modify the ordinary terminal.
