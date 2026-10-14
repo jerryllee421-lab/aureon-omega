@@ -35,8 +35,15 @@ jobs:
             }
           }
           if (!$editor) { throw "MetaEditor not found after installer exit code $($process.ExitCode). Installer bytes: $((Get-Item $installer).Length)" }
-          $tradeInclude = Get-ChildItem (Split-Path $editor -Parent) -Filter 'Trade.mqh' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (!$tradeInclude) { throw "Standard Trade.mqh include not found under $(Split-Path $editor -Parent)" }
+          $includeRoots = @((Split-Path $editor -Parent), "$env:APPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\Programs\MetaTrader 5", "$env:LOCALAPPDATA\MetaQuotes\Terminal")
+          $tradeInclude = $null
+          foreach ($root in $includeRoots) {
+            if (Test-Path $root) {
+              $tradeInclude = Get-ChildItem $root -Filter 'Trade.mqh' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($tradeInclude) { break }
+            }
+          }
+          if (!$tradeInclude) { throw "Standard Trade.mqh include not found. Searched: $($includeRoots -join '; ')" }
           $include = Split-Path (Split-Path $tradeInclude.FullName -Parent) -Parent
           "MT5_EDITOR=$editor" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "MT5_INCLUDE=$include" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
