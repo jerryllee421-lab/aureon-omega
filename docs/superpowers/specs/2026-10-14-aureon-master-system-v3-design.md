@@ -120,6 +120,7 @@ The CLI setup stage must first inventory tools, then report a proposed install l
 - No broker API, cTrader Open API, or account connector is called by this tester orchestrator.
 - AllowLiveTrading=0, DLL import off, optimizer off, remote/cloud agents off, and no copied account credentials are mandatory gate conditions.
 - If there is any ambiguity whether the launched terminal is the intended isolated instance, stop.
+- Inspect isolated terminal/tester logs for account authorization, broker login, or connection to a user trading account. If any appears, mark SECURITY_BLOCKED, do not launch subsequent tests, and preserve the logs. Never close or modify the ordinary terminal.
 - Do not edit .mq5/.ex5 files as part of cache repair or test execution. Source changes must have an explicit patch, backup, compile, hash verification, and rollback path in a distinct development step.
 - No performance goal may override correctness, data-integrity, account-isolation or fail-closed gates.
 
@@ -146,6 +147,7 @@ The CLI setup stage must first inventory tools, then report a proposed install l
 - No account/profile/login files are copied.
 - Source and target SHA-256 match for every required HCC/TKC file; all 13 test-month TKC files are verified.
 - A file lock that cannot be resolved via consistent snapshot or a hash-verified duplicate blocks the run.
+- Logs verify no authenticated user trading account or broker session was established in the isolated environment; otherwise the run is SECURITY_BLOCKED.
 
 ### Tester/report
 
