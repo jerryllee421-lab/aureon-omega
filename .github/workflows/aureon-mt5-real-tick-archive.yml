@@ -17,8 +17,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  compile-exporter:
+    name: Compile research-only MQL5 exporter
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and install official MT5 for MetaEditor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer
+          $proc = Start-Process -FilePath $installer -ArgumentList @('/auto', '/path:C:\AUREON_MT5') -PassThru -Wait
+          $meta = 'C:\AUREON_MT5\MetaEditor64.exe'
+          if (!(Test-Path $meta)) {
+            Get-ChildItem C:\ -Filter MetaEditor64.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 10 FullName
+            throw 'Official installer did not provide MetaEditor64.exe at the expected path.'
+          }
+          New-Item -ItemType Directory -Force -Path 'C:\AUREON_MT5\MQL5\Experts\AUREON' | Out-Null
+          Copy-Item 'scripts\mt5\AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5' 'C:\AUREON_MT5\MQL5\Experts\AUREON\'
+
+      - name: Compile exporter and verify zero errors
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = 'C:\AUREON_MT5\MetaEditor64.exe'
+          $source = 'C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5'
+          $log = 'C:\AUREON_MT5\exporter-compile.log'
+          $p = Start-Process -FilePath $meta -ArgumentList @("/compile:$source", "/log:$log") -PassThru
+          try { Wait-Process -Id $p.Id -Timeout 120 } catch { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'MetaEditor compile timed out.' }
+          if (!(Test-Path $log)) { throw 'MetaEditor compile log was not created.' }
+          $content = Get-Content $log -Raw
+          Write-Output $content
+          if (!(Test-Path 'C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5')) {
+            throw 'Compiled EX5 is missing.'
+          }
+          if ($content -notmatch '(?i)0 errors') { throw 'Compile log does not confirm zero errors.' }
+          New-Item -ItemType Directory -Force -Path 'artifact' | Out-Null
+          Copy-Item $source 'artifact\'
+          Copy-Item 'C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5' 'artifact\'
+          Copy-Item $log 'artifact\exporter-compile.log'
+
+      - name: Upload compiled exporter for Linux/Wine run
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-mql5-exporter
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 3
+
   export-real-ticks:
     name: Export 740 days of MT5 XAUUSD real ticks (demo-only)
+    needs: compile-exporter
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     env:
@@ -27,6 +79,12 @@ jobs:
       MT5_INSTALLER_URL: https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download compiled exporter
+        uses: actions/download-artifact@v4
+        with:
+          name: aureon-mql5-exporter
+          path: ${{ runner.temp }}/aureon-exporter
 
       - name: Validate demo-only secrets
         shell: bash
@@ -63,56 +121,15 @@ jobs:
           sha256sum "$RUNNER_TEMP/mt5setup.exe" > "$RUNNER_TEMP/mt5-installer.sha256"
           xvfb-run -a timeout 900s wine "$RUNNER_TEMP/mt5setup.exe" /auto /path:"C:\\AUREON_MT5" || true
           wineserver -w || true
-          echo "Installed terminal candidates:"
-          find "$WINEPREFIX/drive_c" -type f \( -iname terminal64.exe -o -iname metaeditor64.exe \) -print | head -40 || true
           TERMINAL="$(find "$WINEPREFIX/drive_c" -type f -iname terminal64.exe -print -quit)"
-          if [[ -z "$TERMINAL" ]]; then
-            echo "Installer did not produce terminal64.exe; showing installer-related files:"
-            find "$WINEPREFIX/drive_c" -maxdepth 5 -type f \( -iname '*setup*.log' -o -iname '*install*.log' \) -print | head -40 || true
-            exit 1
-          fi
+          test -n "$TERMINAL" || { echo "Official MT5 terminal executable missing after install"; exit 1; }
           INSTALL_ROOT="$(dirname "$TERMINAL")"
-          echo "TERMINAL=$TERMINAL"
-          echo "INSTALL_ROOT=$INSTALL_ROOT"
-          # Portable mode gives this ephemeral installation a predictable MQL5 data root.
           mkdir -p "$INSTALL_ROOT/MQL5/Experts/AUREON"
-          cp scripts/mt5/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5 "$INSTALL_ROOT/MQL5/Experts/AUREON/"
-          # Give MT5 a short first-run window, then terminate it without waiting on GUI processes.
-          xvfb-run -a timeout 45s wine "$TERMINAL" /portable || true
-          wineserver -k || true
-          sleep 2
-          METAEDITOR="$(find "$WINEPREFIX/drive_c" -type f -iname metaeditor64.exe -print -quit)"
-          if [[ -z "$METAEDITOR" ]]; then
-            echo "MetaEditor executable missing after terminal first-run."
-            find "$WINEPREFIX/drive_c" -type f -iname '*metaeditor*' -print | head -40 || true
-            exit 1
-          fi
-          echo "METAEDITOR=$METAEDITOR" >> "$GITHUB_ENV"
+          cp "$RUNNER_TEMP/aureon-exporter/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5" "$INSTALL_ROOT/MQL5/Experts/AUREON/"
+          cp "$RUNNER_TEMP/aureon-exporter/AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5" "$INSTALL_ROOT/MQL5/Experts/AUREON/"
           echo "TERMINAL=$TERMINAL" >> "$GITHUB_ENV"
           echo "INSTALL_ROOT=$INSTALL_ROOT" >> "$GITHUB_ENV"
           echo "MQL5_ROOT=$INSTALL_ROOT/MQL5" >> "$GITHUB_ENV"
-
-      - name: Compile exporter with MetaEditor
-        shell: bash
-        run: |
-          set -euo pipefail
-          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
-          EA="$MQL5_ROOT/Experts/AUREON/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5"
-          LOG="$INSTALL_ROOT/exporter-compile.log"
-          EA_WIN='C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5'
-          LOG_WIN='C:\AUREON_MT5\exporter-compile.log'
-          xvfb-run -a timeout 60s wine "$METAEDITOR" /portable "/compile:$EA_WIN" "/log:$LOG_WIN" || true
-          wineserver -k || true
-          sleep 2
-          if [[ ! -s "$LOG" ]]; then
-            echo "MetaEditor did not create compile log. Install root contents:"
-            find "$INSTALL_ROOT" -maxdepth 4 -type f \( -iname '*.ex5' -o -iname '*compile*.log' \) -print | head -80 || true
-            exit 1
-          fi
-          iconv -f UTF-16 -t UTF-8 "$LOG" > "$RUNNER_TEMP/exporter-compile-utf8.log" 2>/dev/null || cp "$LOG" "$RUNNER_TEMP/exporter-compile-utf8.log"
-          cat "$RUNNER_TEMP/exporter-compile-utf8.log"
-          test -s "$INSTALL_ROOT/MQL5/Experts/AUREON/AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5" || { echo "Exporter EX5 missing"; exit 1; }
-          grep -Eiq '0 errors' "$RUNNER_TEMP/exporter-compile-utf8.log" || { echo "Compilation log did not confirm zero errors"; exit 1; }
 
       - name: Run exporter with isolated DEMO credentials
         shell: bash
@@ -159,7 +176,7 @@ jobs:
           mkdir -p release_assets
           cp "$COMMON_FILES/manifest.csv" release_assets/mt5_tick_daily_manifest.csv
           cp "$COMMON_FILES/status.txt" release_assets/mt5_tick_coverage_status.txt
-          cp "$RUNNER_TEMP/exporter-compile-utf8.log" release_assets/exporter_compile.log
+          cp "$RUNNER_TEMP/aureon-exporter/exporter-compile.log" release_assets/exporter_compile.log
           cp "$RUNNER_TEMP/mt5-installer.sha256" release_assets/mt5_installer.sha256
           python3 scripts/mt5/package_real_ticks.py --source "$COMMON_FILES" --out release_assets --min-days 730
           find release_assets -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
