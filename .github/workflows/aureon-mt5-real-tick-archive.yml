@@ -61,24 +61,34 @@ jobs:
           export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
           curl --fail --location --retry 5 --retry-delay 3 "$MT5_INSTALLER_URL" -o "$RUNNER_TEMP/mt5setup.exe"
           sha256sum "$RUNNER_TEMP/mt5setup.exe" > "$RUNNER_TEMP/mt5-installer.sha256"
-          xvfb-run -a timeout 900s wine "$RUNNER_TEMP/mt5setup.exe" /auto /path:"C:\\AUREON_MT5"
+          xvfb-run -a timeout 900s wine "$RUNNER_TEMP/mt5setup.exe" /auto /path:"C:\\AUREON_MT5" || true
           wineserver -w || true
+          echo "Installed terminal candidates:"
+          find "$WINEPREFIX/drive_c" -type f \( -iname terminal64.exe -o -iname metaeditor64.exe \) -print | head -40 || true
           TERMINAL="$(find "$WINEPREFIX/drive_c" -type f -iname terminal64.exe -print -quit)"
-          METAEDITOR="$(find "$WINEPREFIX/drive_c" -type f -iname metaeditor64.exe -print -quit)"
-          test -n "$TERMINAL" && test -n "$METAEDITOR"
-          echo "TERMINAL=$TERMINAL" >> "$GITHUB_ENV"
-          echo "METAEDITOR=$METAEDITOR" >> "$GITHUB_ENV"
-          TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
-          if [[ -z "$TRADE_MQH" ]]; then
-            xvfb-run -a timeout 60s wine "$TERMINAL" /portable || true
-            wineserver -w || true
-            TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
+          if [[ -z "$TERMINAL" ]]; then
+            echo "Installer did not produce terminal64.exe; showing installer-related files:"
+            find "$WINEPREFIX/drive_c" -maxdepth 5 -type f \( -iname '*setup*.log' -o -iname '*install*.log' \) -print | head -40 || true
+            exit 1
           fi
-          test -n "$TRADE_MQH" || { echo "MT5 MQL5 data folder not materialized"; exit 1; }
-          MQL5_ROOT="$(dirname "$(dirname "$(dirname "$TRADE_MQH")")")"
-          mkdir -p "$MQL5_ROOT/Experts/AUREON"
-          cp scripts/mt5/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5 "$MQL5_ROOT/Experts/AUREON/"
-          echo "MQL5_ROOT=$MQL5_ROOT" >> "$GITHUB_ENV"
+          INSTALL_ROOT="$(dirname "$TERMINAL")"
+          echo "TERMINAL=$TERMINAL"
+          echo "INSTALL_ROOT=$INSTALL_ROOT"
+          # Portable mode gives this ephemeral installation a predictable MQL5 data root.
+          mkdir -p "$INSTALL_ROOT/MQL5/Experts/AUREON"
+          cp scripts/mt5/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5 "$INSTALL_ROOT/MQL5/Experts/AUREON/"
+          xvfb-run -a timeout 90s wine "$TERMINAL" /portable || true
+          wineserver -w || true
+          METAEDITOR="$(find "$WINEPREFIX/drive_c" -type f -iname metaeditor64.exe -print -quit)"
+          if [[ -z "$METAEDITOR" ]]; then
+            echo "MetaEditor executable missing after terminal first-run."
+            find "$WINEPREFIX/drive_c" -type f -iname '*metaeditor*' -print | head -40 || true
+            exit 1
+          fi
+          echo "METAEDITOR=$METAEDITOR" >> "$GITHUB_ENV"
+          echo "TERMINAL=$TERMINAL" >> "$GITHUB_ENV"
+          echo "INSTALL_ROOT=$INSTALL_ROOT" >> "$GITHUB_ENV"
+          echo "MQL5_ROOT=$INSTALL_ROOT/MQL5" >> "$GITHUB_ENV"
 
       - name: Compile exporter with MetaEditor
         shell: bash
@@ -115,6 +125,9 @@ jobs:
           for i in $(seq 1 19800); do
             if [[ -z "$COMMON_FILES" ]]; then
               COMMON_FILES="$(find "$WINEPREFIX/drive_c/users" -type d -path '*/MetaQuotes/Terminal/Common/Files/AUREON_XAUUSD_Ticks' -print -quit || true)"
+            fi
+            if [[ -z "$COMMON_FILES" && -d "$INSTALL_ROOT/MQL5/Files/AUREON_XAUUSD_Ticks" ]]; then
+              COMMON_FILES="$INSTALL_ROOT/MQL5/Files/AUREON_XAUUSD_Ticks"
             fi
             if [[ -n "$COMMON_FILES" && -s "$COMMON_FILES/DONE.flag" ]]; then
               echo "COMMON_FILES=$COMMON_FILES" >> "$GITHUB_ENV"
