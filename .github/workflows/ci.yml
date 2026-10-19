@@ -25,7 +25,7 @@ jobs:
       - run: npm run build
       - name: Install lightweight parquet research test dependencies
         run: python -m pip install 'pandas>=2.2,<3' 'pyarrow>=19,<22'
-      - name: Validate research Python syntax
-        run: python -m py_compile research/fvg_v211.py research/run_research.py research/mirror_m1.py research/resample_validate.py research/evolution/adaptive_prediction.py research/evolution/walk_forward.py research/evolution/cost_stress.py research/evolution/run_adaptive_lab.py
+      - name: Validate research and execution-gate Python syntax
+        run: python -m py_compile research/fvg_v211.py research/run_research.py research/mirror_m1.py research/resample_validate.py research/evolution/adaptive_prediction.py research/evolution/walk_forward.py research/evolution/cost_stress.py research/evolution/run_adaptive_lab.py execution/mt5_demo_gate.py
       - name: Test research leakage, data quality, and fail-closed behavior
         run: python -m unittest discover -s tests -p 'test_*.py' -v
