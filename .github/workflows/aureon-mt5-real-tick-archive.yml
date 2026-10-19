@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: aureon-xauusd-real-tick-archive
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   export-real-ticks:
@@ -101,7 +101,7 @@ jobs:
           LOG="$INSTALL_ROOT/exporter-compile.log"
           EA_WIN='C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5'
           LOG_WIN='C:\AUREON_MT5\exporter-compile.log'
-          xvfb-run -a timeout 180s wine "$METAEDITOR" "/compile:$EA_WIN" "/log:$LOG_WIN" || true
+          xvfb-run -a timeout 60s wine "$METAEDITOR" /portable "/compile:$EA_WIN" "/log:$LOG_WIN" || true
           wineserver -k || true
           sleep 2
           if [[ ! -s "$LOG" ]]; then
