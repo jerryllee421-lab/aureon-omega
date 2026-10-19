@@ -33,12 +33,10 @@ jobs:
         env:
           MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
           MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
-          MT5_DEMO_SERVER: ${{ secrets.MT5_DEMO_SERVER }}
         run: |
           set -euo pipefail
           test -n "$MT5_DEMO_LOGIN" || { echo "Missing repository secret MT5_DEMO_LOGIN"; exit 1; }
           test -n "$MT5_DEMO_PASSWORD" || { echo "Missing repository secret MT5_DEMO_PASSWORD"; exit 1; }
-          test "$MT5_DEMO_SERVER" = "PXBTTrading-1" || { echo "MT5_DEMO_SERVER must equal PXBTTrading-1"; exit 1; }
           [[ "$MT5_DEMO_LOGIN" =~ ^[0-9]+$ ]] || { echo "MT5_DEMO_LOGIN must be numeric"; exit 1; }
           echo "Secret presence and server checks passed; values are not printed."
 
@@ -101,17 +99,16 @@ jobs:
         env:
           MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
           MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
-          MT5_DEMO_SERVER: ${{ secrets.MT5_DEMO_SERVER }}
         run: |
           set -euo pipefail
           export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
           CONFIG="$RUNNER_TEMP/mt5-demo-export.ini"
           {
-            printf '[Common]\nLogin=%s\nPassword=%s\nServer=%s\nKeepPrivate=1\n' "$MT5_DEMO_LOGIN" "$MT5_DEMO_PASSWORD" "$MT5_DEMO_SERVER"
+            printf '[Common]\nLogin=%s\nPassword=%s\nServer=PXBTTrading-1\nKeepPrivate=1\n' "$MT5_DEMO_LOGIN" "$MT5_DEMO_PASSWORD"
             printf '[Experts]\nEnabled=1\nAllowLiveTrading=0\nAllowDllImport=0\n\n[StartUp]\nSymbol=XAUUSD\nPeriod=M1\nExpert=AUREON\\AUREON_XAUUSD_REAL_TICK_EXPORTER\n'
           } > "$CONFIG"
           chmod 600 "$CONFIG"
-          unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD MT5_DEMO_SERVER
+          unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD
           xvfb-run -a wine "$TERMINAL" "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/terminal.pid"
           COMMON_FILES=""
