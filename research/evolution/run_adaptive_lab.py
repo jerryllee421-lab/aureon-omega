@@ -13,14 +13,21 @@ from research.evolution.walk_forward import evaluate_walk_forward
 
 MAX_ROWS_DEFAULT = 1_200_000
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 def load_bars(path: str | Path, side: str = "bid", max_rows: int = MAX_ROWS_DEFAULT) -> tuple[list[dict], dict]:
     source = Path(path)
     if not source.is_file():
         raise FileNotFoundError(f"Parquet dataset not found: {source}")
     if side not in {"bid", "ask", "mid"}:
         raise ValueError("side must be bid, ask, or mid")
-    if max_rows < 100:
-        raise ValueError("max_rows must be at least 100")
+    if max_rows < 1:
+        raise ValueError("max_rows must be positive")
     frame = pd.read_parquet(source)
     frame.columns = [str(c).strip().lower() for c in frame.columns]
     if len(frame) > max_rows:
@@ -47,7 +54,7 @@ def load_bars(path: str | Path, side: str = "bid", max_rows: int = MAX_ROWS_DEFA
     bars = [{"time": row.time.isoformat(), "high": float(row.high), "low": float(row.low), "close": float(row.close)} for row in selected.itertuples(index=False)]
     metadata = {
         "source_file": str(source),
-        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "source_sha256": _sha256_file(source),
         "rows": len(bars),
         "first_time_utc": bars[0]["time"] if bars else None,
         "last_time_utc": bars[-1]["time"] if bars else None,
