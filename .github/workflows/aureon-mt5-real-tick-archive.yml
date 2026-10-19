@@ -120,7 +120,9 @@ jobs:
           curl --fail --location --retry 5 --retry-delay 3 "$MT5_INSTALLER_URL" -o "$RUNNER_TEMP/mt5setup.exe"
           sha256sum "$RUNNER_TEMP/mt5setup.exe" > "$RUNNER_TEMP/mt5-installer.sha256"
           xvfb-run -a timeout 900s wine "$RUNNER_TEMP/mt5setup.exe" /auto /path:"C:\\AUREON_MT5" || true
-          wineserver -w || true
+          # Installer may auto-launch the GUI terminal; stop it here to avoid waiting on an interactive process.
+          wineserver -k || true
+          sleep 2
           TERMINAL="$(find "$WINEPREFIX/drive_c" -type f -iname terminal64.exe -print -quit)"
           test -n "$TERMINAL" || { echo "Official MT5 terminal executable missing after install"; exit 1; }
           INSTALL_ROOT="$(dirname "$TERMINAL")"
