@@ -1,18 +1,24 @@
 # AUREON Adaptive Lab — Local Historical Evaluation
 
-This runner evaluates the adaptive prediction engine against a canonical XAUUSD parquet file. It produces a walk-forward probability report and a cost-sensitivity report; it does not place trades.
+This runner discovers canonical XAUUSD Parquet partitions beneath the local AUREON root, selects a bounded timeframe group (M5 preferred, then M15/M30/H1/M1/H4/D1), stages selected columns into a temporary Parquet file, and produces walk-forward and cost-sensitivity reports. It does not connect to MT5 or place trades.
 
 ## Memory-safe starting point
 
 On an 8 GB Windows machine, start with canonical M5 or M15 bars. The default loader caps input at 1,200,000 rows and reads only timestamps plus high/low/close. It rejects duplicate timestamps, invalid OHLC geometry, missing prices, and datasets above the cap before converting bars to Python objects. Raise the cap only after checking available RAM.
 
-Example from the repository root:
+One-click run on the existing local master dataset (no MT5 terminal required):
 
-~~~powershell
-python research/evolution/run_adaptive_lab.py --data research_data/XAUUSD/canonical/XAUUSD_M5.parquet --out research_results/adaptive_lab --side bid --horizon 5 --stride 60 --lookback 1500 --cost-bps 8 --cost-grid-bps 4,8,12,20
+~~~bat
+scripts\\run_adaptive_lab.cmd "C:\\Users\\User\\Desktop\\AUREON"
 ~~~
 
-For a local ten-year file, supply its actual path to --data. The filename above is an example and must exist locally. If the file is M1 and exceeds the default cap, resample/validate it to M5 or M15 first rather than loading all ten years into memory.
+Or run the discovery wrapper directly from the repository root:
+
+~~~powershell
+python -m research.evolution.run_local_gold_dataset --data "C:\\Users\\User\\Desktop\\AUREON" --out research_results/adaptive_lab --side bid --timeframe auto --max-rows 1200000 --horizon 5 --stride 60 --lookback 1500 --cost-bps 8 --cost-grid-bps 4,8,12,20
+~~~
+
+The wrapper selects one canonical timeframe partition root, checks Parquet row counts against the cap before staging, hashes each selected source file, and records the actual date coverage in the report. If selected M5 history is not ten years, the report will expose the shorter range; do not describe it as a full-decade result unless the timestamps confirm that.
 
 ## Outputs
 
