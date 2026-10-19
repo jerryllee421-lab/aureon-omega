@@ -25,9 +25,9 @@ jobs:
       - name: Validate demo-only secrets
         shell: bash
         env:
-          MT5_DEMO_LOGIN: \${{ secrets.MT5_DEMO_LOGIN }}
-          MT5_DEMO_PASSWORD: \${{ secrets.MT5_DEMO_PASSWORD }}
-          MT5_DEMO_SERVER: \${{ secrets.MT5_DEMO_SERVER }}
+          MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+          MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+          MT5_DEMO_SERVER: ${{ secrets.MT5_DEMO_SERVER }}
         run: |
           set -euo pipefail
           test -n "$MT5_DEMO_LOGIN" || { echo "Missing repository secret MT5_DEMO_LOGIN"; exit 1; }
@@ -93,9 +93,9 @@ jobs:
       - name: Run exporter with isolated DEMO credentials
         shell: bash
         env:
-          MT5_DEMO_LOGIN: \${{ secrets.MT5_DEMO_LOGIN }}
-          MT5_DEMO_PASSWORD: \${{ secrets.MT5_DEMO_PASSWORD }}
-          MT5_DEMO_SERVER: \${{ secrets.MT5_DEMO_SERVER }}
+          MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+          MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+          MT5_DEMO_SERVER: ${{ secrets.MT5_DEMO_SERVER }}
         run: |
           set -euo pipefail
           export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
@@ -108,10 +108,15 @@ jobs:
           unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD MT5_DEMO_SERVER
           xvfb-run -a wine "$TERMINAL" "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/terminal.pid"
-          COMMON_FILES="$WINEPREFIX/drive_c/users/runner/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AUREON_XAUUSD_Ticks"
-          echo "COMMON_FILES=$COMMON_FILES" >> "$GITHUB_ENV"
+          COMMON_FILES=""
           for i in $(seq 1 19800); do
-            if [[ -s "$COMMON_FILES/DONE.flag" ]]; then echo "Exporter completion marker found."; exit 0; fi
+            if [[ -z "$COMMON_FILES" ]]; then
+              COMMON_FILES="$(find "$WINEPREFIX/drive_c/users" -type d -path '*/MetaQuotes/Terminal/Common/Files/AUREON_XAUUSD_Ticks' -print -quit || true)"
+            fi
+            if [[ -n "$COMMON_FILES" && -s "$COMMON_FILES/DONE.flag" ]]; then
+              echo "COMMON_FILES=$COMMON_FILES" >> "$GITHUB_ENV"
+              echo "Exporter completion marker found."; exit 0
+            fi
             if grep -q 'AUREON_EXPORT_FATAL' "$RUNNER_TEMP/terminal.log" 2>/dev/null; then
               echo "Exporter reported fatal error."; tail -n 120 "$RUNNER_TEMP/terminal.log" || true; exit 1
             fi
@@ -137,8 +142,8 @@ jobs:
       - name: Publish persistent GitHub Release assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: xauusd-real-ticks-\${{ github.run_id }}
-          name: "AUREON XAUUSD MT5 Real Ticks — run \${{ github.run_id }}"
+          tag_name: xauusd-real-ticks-${{ github.run_id }}
+          name: "AUREON XAUUSD MT5 Real Ticks — run ${{ github.run_id }}"
           body: |
             Source: MT5 CopyTicksRange with COPY_TICKS_ALL from the PXBTTrading-1 DEMO terminal.
             Requested span: 740 calendar days. Coverage validation passed before publication.
@@ -146,5 +151,5 @@ jobs:
             Archives are split by UTC month and include SHA-256 metadata.
           draft: false
           prerelease: false
-          files: release_assets/*.zip
-          token: \${{ secrets.GITHUB_TOKEN }}
+          files: release_assets/*
+          token: ${{ secrets.GITHUB_TOKEN }}
