@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title AUREON Omega - Adaptive Research Lab
 cd /d "%~dp0.."
 set "DATA=%~1"
-if not defined DATA set "DATA=research_data\XAUUSD\canonical\XAUUSD_M5.parquet"
+if not defined DATA set "DATA=C:\Users\User\Desktop\AUREON"
 set "OUT=research_results\adaptive_lab"
 if not exist ".venv\Scripts\python.exe" (
   echo [AUREON] Creating isolated Python environment...
@@ -21,14 +21,14 @@ if not exist "%DATA%" (
   echo [AUREON] ERROR: Dataset not found:
   echo   %DATA%
   echo.
-  echo Usage: scripts\run_adaptive_lab.cmd "C:\path\to\XAUUSD_M5.parquet"
-  echo Default expected: research_data\XAUUSD\canonical\XAUUSD_M5.parquet
+  echo Usage: scripts\run_adaptive_lab.cmd "C:\Users\User\Desktop\AUREON"
+  echo You may also pass a single canonical Parquet file or narrower data folder.
   exit /b 2
 )
-echo [AUREON] Running research-only adaptive walk-forward and cost stress.
+echo [AUREON] Discovering canonical timeframe partitions and running research-only walk-forward and cost stress.
 echo [AUREON] Input: %DATA%
 echo [AUREON] Output: %OUT%\adaptive_lab_report.json
-"%PY%" -m research.evolution.run_adaptive_lab --data "%DATA%" --out "%OUT%" --side bid --horizon 5 --stride 60 --lookback 1500 --cost-bps 8 --cost-grid-bps 4,8,12,20
+"%PY%" -m research.evolution.run_local_gold_dataset --data "%DATA%" --out "%OUT%" --side bid --timeframe auto --max-rows 1200000 --horizon 5 --stride 60 --lookback 1500 --cost-bps 8 --cost-grid-bps 4,8,12,20
 if errorlevel 1 goto :error
 echo.
 echo [AUREON] Research complete. No trades were submitted.
