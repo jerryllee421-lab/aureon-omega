@@ -2,6 +2,12 @@ name: AUREON MT5 Real-Tick Archive
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/adaptive-prediction-engine
+    paths:
+      - '.github/workflows/aureon-mt5-real-tick-archive.yml'
+      - 'scripts/mt5/**'
 
 permissions:
   contents: write
