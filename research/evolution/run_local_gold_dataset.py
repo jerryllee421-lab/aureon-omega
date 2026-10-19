@@ -87,6 +87,7 @@ def main():
     staged = out / f".staged_xauusd_{tf.lower()}.parquet"
     staged_tmp = staged.with_suffix(".parquet.tmp")
     writer = None
+    output_schema = None
     try:
         for i, file in enumerate(selected, 1):
             time_col, price_cols = columns_for(file, args.side)
@@ -95,9 +96,10 @@ def main():
             frame = frame[["time", "high", "low", "close"]]
             table = pa.Table.from_pandas(frame, preserve_index=False)
             if writer is None:
-                writer = pq.ParquetWriter(staged_tmp, table.schema, compression="zstd")
-            elif table.schema != writer.schema:
-                table = table.cast(writer.schema)
+                output_schema = table.schema
+                writer = pq.ParquetWriter(staged_tmp, output_schema, compression="zstd")
+            elif table.schema != output_schema:
+                table = table.cast(output_schema)
             writer.write_table(table)
             if i % 100 == 0 or i == len(selected):
                 print(f"[AUREON] Staged {i}/{len(selected)} partitions")
