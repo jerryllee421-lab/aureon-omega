@@ -59,6 +59,7 @@ def evaluate_walk_forward(
     actual_counts = defaultdict(int)
     regime_stats = defaultdict(lambda: {"n": 0, "brier_sum": 0.0, "logloss_sum": 0.0})
     pnl = []
+    proxy_trade_count = 0
     equity = peak = max_drawdown = 0.0
 
     for i in range(start, end, stride):
@@ -111,6 +112,7 @@ def evaluate_walk_forward(
         # Research-only directional proxy. No broker execution is performed.
         trade_pnl = 0.0
         if f.status == "RESEARCH_CANDIDATE" and predicted in ("UP", "DOWN"):
+            proxy_trade_count += 1
             trade_pnl = (future_ret if predicted == "UP" else -future_ret) - cost_fraction
         pnl.append(trade_pnl)
         equity += trade_pnl
@@ -120,10 +122,10 @@ def evaluate_walk_forward(
             abstained += 1
 
     traded = [x for x in pnl if x != 0.0]
-    trade_count = len(traded)
-    wins = sum(1 for x in traded if x > 0)
-    gross_profit = sum(x for x in traded if x > 0)
-    gross_loss = -sum(x for x in traded if x < 0)
+    trade_count = proxy_trade_count
+    wins = sum(1 for x in pnl if x > 0)
+    gross_profit = sum(x for x in pnl if x > 0)
+    gross_loss = -sum(x for x in pnl if x < 0)
     per_regime = {
         regime: {
             "samples": v["n"],
@@ -153,7 +155,7 @@ def evaluate_walk_forward(
         "proxy_trade_count": trade_count,
         "proxy_win_rate": wins / trade_count if trade_count else None,
         "proxy_profit_factor": gross_profit / gross_loss if gross_loss > 0 else None,
-        "proxy_net_return_sum": sum(traded),
+        "proxy_net_return_sum": sum(pnl),
         "proxy_max_drawdown": max_drawdown,
         "regime_metrics": per_regime,
         "warning": "Close-to-close proxy with flat cost floor; not a native tick backtest.",
