@@ -1,0 +1,150 @@
+name: AUREON MT5 Real-Tick Archive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aureon-xauusd-real-tick-archive
+  cancel-in-progress: false
+
+jobs:
+  export-real-ticks:
+    name: Export 740 days of MT5 XAUUSD real ticks (demo-only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      WINEARCH: win64
+      WINEDEBUG: -all
+      MT5_INSTALLER_URL: https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate demo-only secrets
+        shell: bash
+        env:
+          MT5_DEMO_LOGIN: \${{ secrets.MT5_DEMO_LOGIN }}
+          MT5_DEMO_PASSWORD: \${{ secrets.MT5_DEMO_PASSWORD }}
+          MT5_DEMO_SERVER: \${{ secrets.MT5_DEMO_SERVER }}
+        run: |
+          set -euo pipefail
+          test -n "$MT5_DEMO_LOGIN" || { echo "Missing repository secret MT5_DEMO_LOGIN"; exit 1; }
+          test -n "$MT5_DEMO_PASSWORD" || { echo "Missing repository secret MT5_DEMO_PASSWORD"; exit 1; }
+          test "$MT5_DEMO_SERVER" = "PXBTTrading-1" || { echo "MT5_DEMO_SERVER must equal PXBTTrading-1"; exit 1; }
+          [[ "$MT5_DEMO_LOGIN" =~ ^[0-9]+$ ]] || { echo "MT5_DEMO_LOGIN must be numeric"; exit 1; }
+          echo "Secret presence and server checks passed; values are not printed."
+
+      - name: Install Wine and utilities
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full zip unzip
+          wine --version
+
+      - name: Initialize isolated Wine prefix
+        run: |
+          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
+          mkdir -p "$WINEPREFIX"
+          xvfb-run -a timeout 180s wineboot -u
+          wineserver -w || true
+
+      - name: Install official MT5 terminal and stage exporter
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
+          curl --fail --location --retry 5 --retry-delay 3 "$MT5_INSTALLER_URL" -o "$RUNNER_TEMP/mt5setup.exe"
+          sha256sum "$RUNNER_TEMP/mt5setup.exe" > "$RUNNER_TEMP/mt5-installer.sha256"
+          xvfb-run -a timeout 900s wine "$RUNNER_TEMP/mt5setup.exe" /auto /path:"C:\\AUREON_MT5"
+          wineserver -w || true
+          TERMINAL="$(find "$WINEPREFIX/drive_c" -type f -iname terminal64.exe -print -quit)"
+          METAEDITOR="$(find "$WINEPREFIX/drive_c" -type f -iname metaeditor64.exe -print -quit)"
+          test -n "$TERMINAL" && test -n "$METAEDITOR"
+          echo "TERMINAL=$TERMINAL" >> "$GITHUB_ENV"
+          echo "METAEDITOR=$METAEDITOR" >> "$GITHUB_ENV"
+          TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
+          if [[ -z "$TRADE_MQH" ]]; then
+            xvfb-run -a timeout 60s wine "$TERMINAL" /portable || true
+            wineserver -w || true
+            TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
+          fi
+          test -n "$TRADE_MQH" || { echo "MT5 MQL5 data folder not materialized"; exit 1; }
+          MQL5_ROOT="$(dirname "$(dirname "$(dirname "$TRADE_MQH")")")"
+          mkdir -p "$MQL5_ROOT/Experts/AUREON"
+          cp scripts/mt5/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5 "$MQL5_ROOT/Experts/AUREON/"
+          echo "MQL5_ROOT=$MQL5_ROOT" >> "$GITHUB_ENV"
+
+      - name: Compile exporter with MetaEditor
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
+          EA="$MQL5_ROOT/Experts/AUREON/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5"
+          LOG="$RUNNER_TEMP/exporter-compile.log"
+          xvfb-run -a timeout 480s wine "$METAEDITOR" "/compile:$(winepath -w "$EA")" "/log:$(winepath -w "$LOG")" || true
+          wineserver -w || true
+          test -s "$MQL5_ROOT/Experts/AUREON/AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5" || { echo "Exporter EX5 missing"; exit 1; }
+          test -s "$LOG" || { echo "MetaEditor log missing"; exit 1; }
+          iconv -f UTF-16 -t UTF-8 "$LOG" > "$RUNNER_TEMP/exporter-compile-utf8.log" 2>/dev/null || cp "$LOG" "$RUNNER_TEMP/exporter-compile-utf8.log"
+          grep -Eiq '0 errors' "$RUNNER_TEMP/exporter-compile-utf8.log" || { cat "$RUNNER_TEMP/exporter-compile-utf8.log"; exit 1; }
+
+      - name: Run exporter with isolated DEMO credentials
+        shell: bash
+        env:
+          MT5_DEMO_LOGIN: \${{ secrets.MT5_DEMO_LOGIN }}
+          MT5_DEMO_PASSWORD: \${{ secrets.MT5_DEMO_PASSWORD }}
+          MT5_DEMO_SERVER: \${{ secrets.MT5_DEMO_SERVER }}
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
+          CONFIG="$RUNNER_TEMP/mt5-demo-export.ini"
+          {
+            printf '[Common]\nLogin=%s\nPassword=%s\nServer=%s\nKeepPrivate=1\n' "$MT5_DEMO_LOGIN" "$MT5_DEMO_PASSWORD" "$MT5_DEMO_SERVER"
+            printf '[Experts]\nEnabled=1\nAllowLiveTrading=0\nAllowDllImport=0\n\n[StartUp]\nSymbol=XAUUSD\nPeriod=M1\nExpert=AUREON\\AUREON_XAUUSD_REAL_TICK_EXPORTER\n'
+          } > "$CONFIG"
+          chmod 600 "$CONFIG"
+          unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD MT5_DEMO_SERVER
+          xvfb-run -a wine "$TERMINAL" "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/terminal.pid"
+          COMMON_FILES="$WINEPREFIX/drive_c/users/runner/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AUREON_XAUUSD_Ticks"
+          echo "COMMON_FILES=$COMMON_FILES" >> "$GITHUB_ENV"
+          for i in $(seq 1 19800); do
+            if [[ -s "$COMMON_FILES/DONE.flag" ]]; then echo "Exporter completion marker found."; exit 0; fi
+            if grep -q 'AUREON_EXPORT_FATAL' "$RUNNER_TEMP/terminal.log" 2>/dev/null; then
+              echo "Exporter reported fatal error."; tail -n 120 "$RUNNER_TEMP/terminal.log" || true; exit 1
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for MT5 tick export."; tail -n 120 "$RUNNER_TEMP/terminal.log" || true; exit 1
+
+      - name: Validate coverage and package monthly archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$COMMON_FILES/DONE.flag"
+          test -s "$COMMON_FILES/manifest.csv"
+          mkdir -p release_assets
+          cp "$COMMON_FILES/manifest.csv" release_assets/mt5_tick_daily_manifest.csv
+          cp "$COMMON_FILES/status.txt" release_assets/mt5_tick_coverage_status.txt
+          cp "$RUNNER_TEMP/exporter-compile-utf8.log" release_assets/exporter_compile.log
+          cp "$RUNNER_TEMP/mt5-installer.sha256" release_assets/mt5_installer.sha256
+          python3 scripts/mt5/package_real_ticks.py --source "$COMMON_FILES" --out release_assets --min-days 730
+          find release_assets -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          sha256sum release_assets/* > release_assets/SHA256SUMS.txt
+
+      - name: Publish persistent GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: xauusd-real-ticks-\${{ github.run_id }}
+          name: "AUREON XAUUSD MT5 Real Ticks — run \${{ github.run_id }}"
+          body: |
+            Source: MT5 CopyTicksRange with COPY_TICKS_ALL from the PXBTTrading-1 DEMO terminal.
+            Requested span: 740 calendar days. Coverage validation passed before publication.
+            Market-data acquisition only; no orders are sent. No account credentials are included.
+            Archives are split by UTC month and include SHA-256 metadata.
+          draft: false
+          prerelease: false
+          files: release_assets/*.zip
+          token: \${{ secrets.GITHUB_TOKEN }}
