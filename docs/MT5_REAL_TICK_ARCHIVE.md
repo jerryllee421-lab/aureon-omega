@@ -30,3 +30,15 @@ Open Actions → AUREON MT5 Real-Tick Archive → Run workflow on the branch con
 Use the latest xauusd-real-ticks-* release as the pinned historical source and verify manifest plus SHA-256 values before importing. Existing Dukascopy M1 mirror data and OHLC bars must not be represented as MT5 real ticks.
 
 Important: release assets are public because this repository is public. They contain market ticks, not credentials or account identifiers. Broker history coverage can vary by account, server, symbol and retention policy. A successful archive proves acquisition and validation; it does not alone prove an MT5 Strategy Tester consumed the archive. Custom-symbol/native tester import must be explicitly validated before calling downstream results real-tick backtests.
+
+## Downloading and pinning the canonical archive
+
+Once the first validated release exists, fetch it with Python (no third-party packages required):
+
+\`python research/evolution/fetch_mt5_real_tick_archive.py --out C:/AUREON/data/mt5_real_ticks\`
+
+To reproduce an exact dataset version rather than automatically selecting the latest release:
+
+\`python research/evolution/fetch_mt5_real_tick_archive.py --tag xauusd-real-ticks-<run_id> --out C:/AUREON/data/mt5_real_ticks\`
+
+The downloader verifies the manifest's MT5 source identity, symbol, server, DEMO policy, minimum coverage, and every monthly ZIP's SHA-256. It writes \`PINNED_SOURCE.json\` for future test reports. Keep these archives outside Git history; GitHub Releases are the durable artifact store. Do not report OHLC-derived tests as MT5 real-tick Strategy Tester runs. A future tester integration must import these tick files into MT5's custom-symbol tick history or otherwise demonstrate that the Strategy Tester consumed these exact verified archives.
