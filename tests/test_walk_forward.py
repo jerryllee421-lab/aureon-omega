@@ -1,7 +1,20 @@
 import unittest
 
 from research.evolution.walk_forward import evaluate_walk_forward
-from tests.test_adaptive_prediction import make_bars
+
+
+def make_bars(n=260):
+    bars = []
+    price = 2000.0
+    for i in range(n):
+        drift = 0.8 if (i // 35) % 2 == 0 else -0.65
+        step = drift + (0.12 if i % 3 else -0.18)
+        open_ = price
+        close = price + step
+        bars.append({"time": f"{i:05d}", "open": open_, "high": max(open_, close) + 0.35,
+                     "low": min(open_, close) - 0.35, "close": close, "volume": 1})
+        price = close
+    return bars
 
 
 class WalkForwardTests(unittest.TestCase):
@@ -17,6 +30,7 @@ class WalkForwardTests(unittest.TestCase):
         self.assertLessEqual(result["coverage"], 1)
         self.assertGreaterEqual(result["brier_score"], 0)
         self.assertIn("regime_metrics", result)
+        self.assertIn("prior_baseline_brier_score", result)
 
     def test_rejects_overlapping_horizon_configuration(self):
         with self.assertRaises(ValueError):
