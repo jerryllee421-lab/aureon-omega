@@ -148,7 +148,7 @@ jobs:
           } > "$CONFIG"
           chmod 600 "$CONFIG"
           unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD
-          xvfb-run -a wine "$TERMINAL" "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
+          xvfb-run -a wine "$TERMINAL" /portable "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/terminal.pid"
           COMMON_FILES=""
           for i in $(seq 1 19800); do
