@@ -19,6 +19,6 @@ class AdaptiveLabLoaderTests(unittest.TestCase):
         frame=pd.DataFrame({"time":pd.date_range("2024-01-01",periods=3,freq="5min",tz="UTC"),"bid_high":[2010.0]*3,"bid_low":[1990.0]*3,"bid_close":[2000.0]*3})
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/"bars.parquet"; frame.to_parquet(path)
-            with self.assertRaisesRegex(ValueError,"safety cap"): load_bars(path,"bid",100 if False else 100)
+            with self.assertRaisesRegex(ValueError,"safety cap"): load_bars(path,"bid",2)
 
 if __name__ == "__main__": unittest.main()
