@@ -1,8 +1,6 @@
 """Leakage-aware, regime-conditioned empirical forecasts for AUREON research.
 
-This is a research component, not an execution adapter or profitability claim.
-Input bars must be chronological and contain completed OHLC candles. At forecast
-index i, training labels are only admitted when their full horizon ends before i.
+Research only: no broker connection, order routing, or execution authority.
 """
 from __future__ import annotations
 
@@ -10,7 +8,7 @@ from dataclasses import asdict, dataclass
 import json
 import math
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -43,21 +41,13 @@ class Forecast:
         return asdict(self)
 
 
-def _finite(value: object) -> bool:
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError):
-        return False
-
-
 def _validate_bars(bars: Sequence[Mapping[str, object]]) -> None:
     if len(bars) < 40:
         raise ValueError("At least 40 chronological bars are required.")
     previous_time = None
     for i, bar in enumerate(bars):
-        missing = [k for k in ("high", "low", "close") if k not in bar]
-        if missing:
-            raise ValueError(f"Bar {i} missing required fields: {missing}")
+        if any(k not in bar for k in ("high", "low", "close")):
+            raise ValueError(f"Bar {i} missing required OHLC fields.")
         high, low, close = (float(bar[k]) for k in ("high", "low", "close"))
         if not all(math.isfinite(x) and x > 0 for x in (high, low, close)):
             raise ValueError(f"Bar {i} has invalid OHLC values.")
@@ -70,31 +60,32 @@ def _validate_bars(bars: Sequence[Mapping[str, object]]) -> None:
             previous_time = stamp
 
 
-def _features(bars: Sequence[Mapping[str, object]], i: int) -> Feature | None:
-    if i < 21:
-        return None
+def _feature_series(bars: Sequence[Mapping[str, object]]) -> list[Feature | None]:
+    """Compute features once for a bounded window; O(n) time and memory."""
+    n = len(bars)
     close = [float(b["close"]) for b in bars]
-    high = [float(b["high"]) for b in bars]
-    low = [float(b["low"]) for b in bars]
-    tr = []
-    for k in range(i - 19, i + 1):
-        prev = close[k - 1]
-        tr.append(max(high[k] - low[k], abs(high[k] - prev), abs(low[k] - prev)))
-    atr = sum(tr) / len(tr)
-    if not math.isfinite(atr) or atr <= 0:
-        return None
-    m3 = (close[i] - close[i - 3]) / atr
-    m12 = (close[i] - close[i - 12]) / atr
-    short_vol = atr
-    long_tr = []
-    for k in range(i - 39, i + 1):
-        prev = close[k - 1]
-        long_tr.append(max(high[k] - low[k], abs(high[k] - prev), abs(low[k] - prev)))
-    long_atr = sum(long_tr) / len(long_tr)
-    ratio = short_vol / long_atr if long_atr > 0 else 1.0
-    mom_bucket = "down" if m3 < -0.35 else "up" if m3 > 0.35 else "flat"
-    vol_bucket = "low" if ratio < 0.75 else "high" if ratio > 1.35 else "normal"
-    return Feature(mom_bucket, vol_bucket, atr, m3, m12, ratio)
+    tr = [0.0] * n
+    for i, bar in enumerate(bars):
+        high, low = float(bar["high"]), float(bar["low"])
+        previous = close[i - 1] if i else close[i]
+        tr[i] = max(high - low, abs(high - previous), abs(low - previous))
+    prefix = [0.0] * (n + 1)
+    for i, value in enumerate(tr):
+        prefix[i + 1] = prefix[i] + value
+
+    result: list[Feature | None] = [None] * n
+    for i in range(40, n):
+        atr20 = (prefix[i + 1] - prefix[i - 19]) / 20.0
+        atr40 = (prefix[i + 1] - prefix[i - 39]) / 40.0
+        if atr20 <= 0 or atr40 <= 0:
+            continue
+        m3 = (close[i] - close[i - 3]) / atr20
+        m12 = (close[i] - close[i - 12]) / atr20
+        ratio = atr20 / atr40
+        mom_bucket = "down" if m3 < -0.35 else "up" if m3 > 0.35 else "flat"
+        vol_bucket = "low" if ratio < 0.75 else "high" if ratio > 1.35 else "normal"
+        result[i] = Feature(mom_bucket, vol_bucket, atr20, m3, m12, ratio)
+    return result
 
 
 def _regime(feature: Feature) -> str:
@@ -117,50 +108,58 @@ def forecast(
     min_directional_probability: float = 0.55,
     prior_strength: float = 20.0,
 ) -> Forecast:
-    """Estimate empirical UP/DOWN/NEUTRAL probabilities from past analogues only.
+    """Estimate smoothed empirical UP/DOWN/NEUTRAL probabilities from analogues.
 
-    Cost threshold is a return fraction expressed in basis points. Probabilities
-    are smoothed toward the historical global class prior. The returned status
-    abstains when sample size or directional evidence is inadequate.
+    Only bars at or before the forecast index are read. A training label is
+    admitted only if its entire forward horizon ends strictly before that index.
     """
     _validate_bars(bars)
     if horizon_bars < 1 or lookback < 1 or min_samples < 1:
         raise ValueError("horizon_bars, lookback and min_samples must be positive.")
-    if not _finite(cost_bps) or cost_bps < 0:
+    if not math.isfinite(float(cost_bps)) or cost_bps < 0:
         raise ValueError("cost_bps must be finite and non-negative.")
     if not 0.0 < min_directional_probability < 1.0 or prior_strength < 0:
         raise ValueError("Invalid probability threshold or prior strength.")
     i = len(bars) - 1 if index is None else index
     if i < 40 or i >= len(bars):
         raise ValueError("index must identify an available bar at index >= 40.")
-    current = _features(bars, i)
+
+    start = max(40, i - lookback)
+    # Slice references, not copies of candle dictionaries. Include 40 bars before
+    # the training window so the feature calculation has sufficient warm-up.
+    offset = max(0, start - 40)
+    window = bars[offset:i + 1]
+    features = _feature_series(window)
+    local_i = i - offset
+    current = features[local_i]
     if current is None:
         raise ValueError("Unable to compute current features.")
+
     classes = ("UP", "DOWN", "NEUTRAL")
     threshold = float(cost_bps) / 10000.0
-    start = max(40, i - lookback)
-    labelled = []
+    labelled: list[tuple[Feature, str, float]] = []
     for j in range(start, i):
-        # Strict purge: the complete outcome horizon must end before forecast bar i.
         if j + horizon_bars >= i:
-            continue
-        feat = _features(bars, j)
+            continue  # strict purge: no training outcome touches forecast time
+        local_j = j - offset
+        feat = features[local_j]
         if feat is None:
             continue
         ret = float(bars[j + horizon_bars]["close"]) / float(bars[j]["close"]) - 1.0
         label = "UP" if ret > threshold else "DOWN" if ret < -threshold else "NEUTRAL"
         labelled.append((feat, label, ret))
+
     if not labelled:
         return Forecast("ABSTAIN", i, horizon_bars, _regime(current),
                         {c: 1 / 3 for c in classes}, None, None, 0, 0, None,
                         ["NO_PAST_LABELLED_SAMPLES"])
 
-    global_counts = {c: sum(1 for _, label, _ in labelled if label == c) for c in classes}
     total = len(labelled)
+    global_counts = {c: sum(1 for _, label, _ in labelled if label == c) for c in classes}
     prior = {c: global_counts[c] / total for c in classes}
-    analogues = [(f, label, ret) for f, label, ret in labelled
-                 if f.momentum_bucket == current.momentum_bucket
-                 and f.volatility_bucket == current.volatility_bucket]
+    analogues = [(feat, label, ret) for feat, label, ret in labelled
+                 if feat.momentum_bucket == current.momentum_bucket
+                 and feat.volatility_bucket == current.volatility_bucket]
     counts = {c: sum(1 for _, label, _ in analogues if label == c) for c in classes}
     n_cond = len(analogues)
     denom = n_cond + prior_strength
@@ -175,8 +174,6 @@ def forecast(
         reasons.append("INSUFFICIENT_CONDITIONAL_SAMPLE")
     if direction_prob < min_directional_probability:
         reasons.append("WEAK_DIRECTIONAL_EVIDENCE")
-    if confidence < min_directional_probability:
-        reasons.append("LOW_CONFIDENCE")
     status = "RESEARCH_CANDIDATE" if not reasons else "ABSTAIN"
     return Forecast(
         status=status,
