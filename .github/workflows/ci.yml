@@ -26,4 +26,4 @@ jobs:
       - name: Validate research Python syntax
         run: python -m py_compile research/fvg_v211.py research/run_research.py research/mirror_m1.py research/resample_validate.py research/evolution/adaptive_prediction.py
       - name: Test adaptive prediction leakage and fail-closed behavior
-        run: python -m unittest tests.test_adaptive_prediction -v
+        run: python -m unittest discover -s tests -p 'test_adaptive_prediction.py' -v
