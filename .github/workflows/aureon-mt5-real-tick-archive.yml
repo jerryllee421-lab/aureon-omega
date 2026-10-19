@@ -77,8 +77,10 @@ jobs:
           # Portable mode gives this ephemeral installation a predictable MQL5 data root.
           mkdir -p "$INSTALL_ROOT/MQL5/Experts/AUREON"
           cp scripts/mt5/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5 "$INSTALL_ROOT/MQL5/Experts/AUREON/"
-          xvfb-run -a timeout 90s wine "$TERMINAL" /portable || true
-          wineserver -w || true
+          # Give MT5 a short first-run window, then terminate it without waiting on GUI processes.
+          xvfb-run -a timeout 45s wine "$TERMINAL" /portable || true
+          wineserver -k || true
+          sleep 2
           METAEDITOR="$(find "$WINEPREFIX/drive_c" -type f -iname metaeditor64.exe -print -quit)"
           if [[ -z "$METAEDITOR" ]]; then
             echo "MetaEditor executable missing after terminal first-run."
