@@ -32,7 +32,7 @@ def evaluate_walk_forward(
     bars: Sequence[Mapping[str, object]],
     *,
     horizon_bars: int = 5,
-    stride: int = 5,
+    stride: int = 20,
     lookback: int = 1500,
     min_samples: int = 60,
     cost_bps: float = 8.0,
