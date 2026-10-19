@@ -23,8 +23,8 @@ def main() -> None:
     if not (source / "DONE.flag").is_file():
         raise SystemExit("Missing exporter completion marker; refusing to publish partial data.")
     daily = sorted(source.glob("ticks_????????.csv"))
-    if not daily:
-        raise SystemExit("No daily tick files found.")
+    if len(daily) < 400:
+        raise SystemExit(f"Insufficient nonempty daily tick shards: {len(daily)} < 400; refusing to publish likely partial history.")
     months = defaultdict(list)
     total_ticks = 0
     earliest = latest = None
@@ -55,6 +55,8 @@ def main() -> None:
             latest = day_last if latest is None else max(latest, day_last)
             day_rows.append({"date": date_key, "ticks": n, "first_tick_msc": day_first, "last_tick_msc": day_last})
         months[date_key[:6]].append(path)
+    if total_ticks < 1_000_000:
+        raise SystemExit(f"Insufficient tick volume: {total_ticks:,} < 1,000,000; refusing to publish likely partial history.")
     coverage_ms = latest - earliest
     if coverage_ms < args.min_days * 86400 * 1000:
         raise SystemExit(f"Insufficient real-tick coverage: {coverage_ms / 86400000:.2f} days < {args.min_days}.")
