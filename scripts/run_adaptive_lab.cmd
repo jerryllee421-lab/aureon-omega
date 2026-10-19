@@ -2,7 +2,6 @@
 setlocal EnableExtensions
 title AUREON Omega - Adaptive Research Lab
 cd /d "%~dp0.."
-set "AUREON_ROOT=%CD%"
 set "DATA=%~1"
 if not defined DATA set "DATA=research_data\XAUUSD\canonical\XAUUSD_M5.parquet"
 set "OUT=research_results\adaptive_lab"
@@ -29,7 +28,7 @@ if not exist "%DATA%" (
 echo [AUREON] Running research-only adaptive walk-forward and cost stress.
 echo [AUREON] Input: %DATA%
 echo [AUREON] Output: %OUT%\adaptive_lab_report.json
-"%PY%" research\evolution\run_adaptive_lab.py --data "%DATA%" --out "%OUT%" --side bid --horizon 5 --stride 60 --lookback 1500 --cost-bps 8 --cost-grid-bps 4,8,12,20
+"%PY%" -m research.evolution.run_adaptive_lab --data "%DATA%" --out "%OUT%" --side bid --horizon 5 --stride 60 --lookback 1500 --cost-bps 8 --cost-grid-bps 4,8,12,20
 if errorlevel 1 goto :error
 echo.
 echo [AUREON] Research complete. No trades were submitted.
