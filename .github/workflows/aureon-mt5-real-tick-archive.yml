@@ -98,13 +98,21 @@ jobs:
           set -euo pipefail
           export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
           EA="$MQL5_ROOT/Experts/AUREON/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5"
-          LOG="$RUNNER_TEMP/exporter-compile.log"
-          xvfb-run -a timeout 480s wine "$METAEDITOR" "/compile:$(winepath -w "$EA")" "/log:$(winepath -w "$LOG")" || true
-          wineserver -w || true
-          test -s "$MQL5_ROOT/Experts/AUREON/AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5" || { echo "Exporter EX5 missing"; exit 1; }
-          test -s "$LOG" || { echo "MetaEditor log missing"; exit 1; }
+          LOG="$INSTALL_ROOT/exporter-compile.log"
+          EA_WIN='C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5'
+          LOG_WIN='C:\AUREON_MT5\exporter-compile.log'
+          xvfb-run -a timeout 180s wine "$METAEDITOR" "/compile:$EA_WIN" "/log:$LOG_WIN" || true
+          wineserver -k || true
+          sleep 2
+          if [[ ! -s "$LOG" ]]; then
+            echo "MetaEditor did not create compile log. Install root contents:"
+            find "$INSTALL_ROOT" -maxdepth 4 -type f \( -iname '*.ex5' -o -iname '*compile*.log' \) -print | head -80 || true
+            exit 1
+          fi
           iconv -f UTF-16 -t UTF-8 "$LOG" > "$RUNNER_TEMP/exporter-compile-utf8.log" 2>/dev/null || cp "$LOG" "$RUNNER_TEMP/exporter-compile-utf8.log"
-          grep -Eiq '0 errors' "$RUNNER_TEMP/exporter-compile-utf8.log" || { cat "$RUNNER_TEMP/exporter-compile-utf8.log"; exit 1; }
+          cat "$RUNNER_TEMP/exporter-compile-utf8.log"
+          test -s "$INSTALL_ROOT/MQL5/Experts/AUREON/AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5" || { echo "Exporter EX5 missing"; exit 1; }
+          grep -Eiq '0 errors' "$RUNNER_TEMP/exporter-compile-utf8.log" || { echo "Compilation log did not confirm zero errors"; exit 1; }
 
       - name: Run exporter with isolated DEMO credentials
         shell: bash
