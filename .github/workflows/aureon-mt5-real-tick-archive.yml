@@ -162,6 +162,12 @@ jobs:
               echo "COMMON_FILES=$COMMON_FILES" >> "$GITHUB_ENV"
               echo "Exporter completion marker found."; exit 0
             fi
+            if [[ "$i" -eq 240 && ( -z "$COMMON_FILES" || ! -s "$COMMON_FILES/manifest.csv" ) ]]; then
+              echo "Exporter did not initialize within 240 seconds; refusing to wait for the full job timeout."
+              tail -n 120 "$RUNNER_TEMP/terminal.log" || true
+              find "$WINEPREFIX/drive_c" -type f -path '*/MQL5/Logs/*' -print | head -10 || true
+              exit 1
+            fi
             if grep -q 'AUREON_EXPORT_FATAL' "$RUNNER_TEMP/terminal.log" 2>/dev/null; then
               echo "Exporter reported fatal error."; tail -n 120 "$RUNNER_TEMP/terminal.log" || true; exit 1
             fi
