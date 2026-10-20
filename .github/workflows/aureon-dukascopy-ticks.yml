@@ -42,10 +42,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --user --upgrade dukascopy-downloader
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/duka" --help
-          "$HOME/.local/bin/duka" download --help
+          python3 -m venv "$RUNNER_TEMP/duka-venv"
+          "$RUNNER_TEMP/duka-venv/bin/python" -m pip install --upgrade pip dukascopy-downloader
+          echo "$RUNNER_TEMP/duka-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/duka-venv/bin/duka" --help
+          "$RUNNER_TEMP/duka-venv/bin/duka" download --help
 
       - name: Validate dates and download tick history in resumable monthly chunks
         id: archive
