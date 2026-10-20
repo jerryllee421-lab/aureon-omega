@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/duka-venv"
-          "$RUNNER_TEMP/duka-venv/bin/python" -m pip install --upgrade pip dukascopy-downloader
+          "$RUNNER_TEMP/duka-venv/bin/python" -m pip install --upgrade pip dukascopy-downloader pyarrow
           echo "$RUNNER_TEMP/duka-venv/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/duka-venv/bin/duka" --help
           "$RUNNER_TEMP/duka-venv/bin/duka" download --help
@@ -82,24 +82,43 @@ jobs:
             echo "::group::Download XAUUSD ticks $cursor to $period_end"
             duka download XAUUSD --tf tick --from "$cursor" --to "$period_end" --data-dir "$ROOT" --rate 3
             python3 - "$ROOT" "tick_archive/months/xauusd-ticks-$period.zip" "$cursor" "$period_end" <<'PY'
-          import sys, zipfile
+          import json, sys, zipfile
           from pathlib import Path
+          import pyarrow as pa
+          import pyarrow.compute as pc
+          import pyarrow.parquet as pq
           src, out, start, end = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
-          # Package only daily Parquet files in the requested calendar month/range.
-          files = sorted(p for p in src.rglob("*.parquet") if p.is_file() and start.replace("-", "") <= p.stem.replace("-", "")[:8] <= end.replace("-", ""))
+          files = sorted(p for p in src.rglob("*.parquet") if p.is_file() and start <= p.stem[:10] <= end)
           if not files:
-              # Some releases place daily files under nested symbol folders with a YYYY-MM-DD stem.
-              files = sorted(p for p in src.rglob("*.parquet") if p.is_file() and start <= p.stem[:10] <= end)
-          if not files:
-              raise SystemExit(f"No Parquet tick files found for {start}..{end}; inspect duka output and fail closed")
+              raise SystemExit(f"No Parquet tick files found for {start}..{end}; fail closed")
+          required = {"time", "bid", "ask"}
+          rows_total, first_tick, last_tick = 0, None, None
           with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=3) as zf:
               for p in files:
+                  pf = pq.ParquetFile(p)
+                  names = set(pf.schema_arrow.names)
+                  if not required.issubset(names):
+                      raise SystemExit(f"Tick schema missing {required - names} in {p}")
+                  table = pq.read_table(p, columns=["time", "bid", "ask"])
+                  if table.num_rows == 0:
+                      raise SystemExit(f"Empty tick Parquet: {p}")
+                  if pc.any(pc.less_equal(table["bid"], 0)).as_py() or pc.any(pc.less_equal(table["ask"], 0)).as_py():
+                      raise SystemExit(f"Non-positive quote in {p}")
+                  if pc.any(pc.less(table["ask"], table["bid"])).as_py():
+                      raise SystemExit(f"Ask below bid in {p}")
+                  lo, hi = pc.min(table["time"]).as_py(), pc.max(table["time"]).as_py()
+                  lo, hi = str(lo), str(hi)
+                  first_tick = lo if first_tick is None or lo < first_tick else first_tick
+                  last_tick = hi if last_tick is None or hi > last_tick else last_tick
+                  rows_total += table.num_rows
                   zf.write(p, arcname=str(p.relative_to(src)))
           with zipfile.ZipFile(out) as zf:
               bad = zf.testzip()
               if bad:
                   raise SystemExit(f"Corrupt archive member: {bad}")
-          print(f"Validated {out.name}: {len(files)} daily Parquet file(s), {out.stat().st_size} bytes")
+          validation = {"file":out.name,"tick_count":rows_total,"daily_files":len(files),"coverage_start_utc":first_tick,"coverage_end_utc":last_tick,"bid_ask_validated":True}
+          out.with_suffix(".validation.json").write_text(json.dumps(validation, indent=2) + "\\n", encoding="utf-8")
+          print(f"Validated {out.name}: {rows_total} ticks across {len(files)} daily Parquet file(s), {out.stat().st_size} bytes")
           PY
             echo "::endgroup::"
             cursor="$next_month"
@@ -116,9 +135,16 @@ jobs:
                   h=hashlib.sha256()
                   for chunk in iter(lambda:f.read(1024*1024), b""):
                       h.update(chunk)
-              archives.append({"file":p.name,"sha256":h.hexdigest(),"bytes":p.stat().st_size})
+              validation_path=p.with_suffix(".validation.json")
+              if not validation_path.exists():
+                  raise SystemExit(f"Missing tick validation report: {validation_path}")
+              details=json.loads(validation_path.read_text(encoding="utf-8"))
+              archives.append({"file":p.name,"sha256":h.hexdigest(),"bytes":p.stat().st_size,**details})
           if not archives:
               raise SystemExit("No archives produced")
+          total_ticks=sum(int(a["tick_count"]) for a in archives)
+          if total_ticks <= 0 or not all(a.get("bid_ask_validated") for a in archives):
+              raise SystemExit("Tick validation failed")
           manifest={
             "dataset_id":"AUREON_XAUUSD_DUKASCOPY_HISTORICAL_TICKS",
             "symbol":"XAUUSD",
@@ -129,6 +155,10 @@ jobs:
             "date_to_utc_inclusive":end,
             "requested_calendar_span_days":(date.fromisoformat(end)-date.fromisoformat(start)).days,
             "archive_count":len(archives),
+            "tick_count":total_ticks,
+            "actual_coverage_start_utc":min(a["coverage_start_utc"] for a in archives),
+            "actual_coverage_end_utc":max(a["coverage_end_utc"] for a in archives),
+            "bid_ask_validated":True,
             "archives":archives,
             "integrity":"SHA-256 per ZIP; consumers must re-verify",
             "created_by_workflow":os.environ.get("GITHUB_WORKFLOW",""),
