@@ -68,7 +68,7 @@ jobs:
           if (end - start).days < 730:
               raise SystemExit("Requested coverage must span at least 730 days")
           PY
-          TAG="xauusd-dukascopy-ticks-${DATE_FROM}-to-${DATE_TO}"
+          TAG="xauusd-dukascopy-ticks-${DATE_FROM}-to-${DATE_TO}-${GITHUB_SHA:0:7}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "date_from=$DATE_FROM" >> "$GITHUB_OUTPUT"
           echo "date_to=$DATE_TO" >> "$GITHUB_OUTPUT"
