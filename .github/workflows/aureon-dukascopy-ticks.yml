@@ -1,4 +1,5 @@
 name: AUREON Dukascopy XAUUSD Tick Archive
+# Acquisition pipeline revision: 2026-10-20; push/manual runs acquire data, PR runs validate only.
 
 on:
   push:
