@@ -138,6 +138,10 @@ def main():
     report["source"]["source_files"] = manifest
     report["source"]["staged_file_sha256"] = sha256(staged)
     report["source"]["staged_file"] = str(staged)
+    report["source"]["data_fidelity"] = "OHLC_BAR_PROXY_NOT_MT5_REAL_TICKS"
+    report["source"]["real_tick_archive_consumed"] = False
+    report["source"]["native_mt5_strategy_tester_validation"] = "NOT_RUN"
+    report["source"]["promotion_blocked_until_real_tick_test"] = True
     report["authority"]["research_only"] = True
     report["authority"]["execution_authorized"] = False
     report["authority"]["demo_orders_submitted"] = False
