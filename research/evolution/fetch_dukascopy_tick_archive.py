@@ -67,8 +67,9 @@ def main() -> int:
         raise SystemExit("Manifest dataset or symbol mismatch.")
     if "NOT PXBTTrading-1 broker ticks" not in manifest.get("source_type", ""):
         raise SystemExit("Manifest provenance is missing the third-party feed disclaimer.")
-    if int(manifest.get("requested_calendar_span_days", 0)) < 730:
-        raise SystemExit("Manifest calendar span is under 730 days.")
+    span_days = int(manifest.get("requested_calendar_span_days", 0))
+    if not 27 <= span_days <= 31:
+        raise SystemExit("Manifest calendar span is not an approximately one-month pilot (expected 27–31 elapsed days).")
     archives = manifest.get("archives")
     if not isinstance(archives, list) or not archives:
         raise SystemExit("Manifest has no archives.")
