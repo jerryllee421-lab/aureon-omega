@@ -54,8 +54,8 @@ jobs:
         id: archive
         shell: bash
         env:
-          DATE_FROM: ${{ inputs.date_from || '2024-10-20' }}
-          DATE_TO: ${{ inputs.date_to || '2026-10-20' }}
+          DATE_FROM: ${{ inputs.date_from || '2024-10-01' }}
+          DATE_TO: ${{ inputs.date_to || '2024-10-31' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
