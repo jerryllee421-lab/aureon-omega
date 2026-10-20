@@ -82,7 +82,7 @@ jobs:
             if [[ "$period_end" > "$DATE_TO" ]]; then period_end="$DATE_TO"; fi
             period="$(date -u -d "$cursor" +%Y-%m)"
             echo "::group::Download XAUUSD ticks $cursor to $period_end"
-            duka download XAUUSD --tf tick --from "$cursor" --to "$period_end" --data-dir "$ROOT" --rate 3
+            duka download XAUUSD --tf tick --from "$cursor" --to "$period_end" --side BOTH --data-dir "$ROOT" --rate 3 --retries 12
             python3 - "$ROOT" "tick_archive/months/xauusd-ticks-$period.zip" "$cursor" "$period_end" <<'PY'
           import json, sys, zipfile
           from pathlib import Path
