@@ -65,7 +65,7 @@ jobs:
         id: probe
         shell: bash
         env:
-          DATE_FROM: ${{ inputs.date_from }}
+          DATE_FROM: ${{ inputs.date_from || '2024-10-20' }}
         run: |
           set -u
           mkdir -p diagnostics probe-data
@@ -79,7 +79,7 @@ jobs:
           echo "Probe start UTC: $(date -u +%FT%TZ)" | tee diagnostics/probe-status.txt
           echo "Testing first 24-hour window: $DATE_FROM to $DAY_END" | tee -a diagnostics/probe-status.txt
           set +e
-          timeout --signal=TERM --kill-after=15s 12m "$RUNNER_TEMP/duka-venv/bin/duka" download XAUUSD --tf tick --from "$DATE_FROM" --to "$DAY_END" --data-dir "$PWD/probe-data" --rate 3 > diagnostics/downloader.log 2>&1
+          timeout --signal=TERM --kill-after=15s 12m "$RUNNER_TEMP/duka-venv/bin/duka" download XAUUSD --tf tick --from "$DATE_FROM" --to "$DAY_END" --side BOTH --data-dir "$PWD/probe-data" --rate 3 --retries 12 > diagnostics/downloader.log 2>&1
           rc=$?
           set -e
           echo "exit_code=$rc" | tee -a diagnostics/probe-status.txt
