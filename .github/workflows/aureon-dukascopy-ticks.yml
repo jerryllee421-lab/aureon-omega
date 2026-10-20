@@ -27,7 +27,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: aureon-dukascopy-ticks
+  # Keep PR validation in a separate group so a queued PR run cannot cancel data acquisition.
+  group: ${{ github.event_name == 'pull_request' && format('aureon-dukascopy-ticks-pr-{0}', github.event.pull_request.number) || 'aureon-dukascopy-ticks' }}
   cancel-in-progress: false
 
 jobs:
