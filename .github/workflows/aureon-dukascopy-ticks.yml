@@ -1,6 +1,10 @@
 name: AUREON Dukascopy XAUUSD Tick Archive
 
 on:
+  push:
+    branches: [feature/adaptive-prediction-engine]
+    paths:
+      - ".github/workflows/aureon-dukascopy-ticks.yml"
   workflow_dispatch:
     inputs:
       date_from:
@@ -38,8 +42,8 @@ jobs:
         id: archive
         shell: bash
         env:
-          DATE_FROM: ${{ inputs.date_from }}
-          DATE_TO: ${{ inputs.date_to }}
+          DATE_FROM: ${{ inputs.date_from || '2024-10-20' }}
+          DATE_TO: ${{ inputs.date_to || '2026-10-20' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -54,6 +58,8 @@ jobs:
           PY
           TAG="xauusd-dukascopy-ticks-${DATE_FROM}-to-${DATE_TO}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "date_from=$DATE_FROM" >> "$GITHUB_OUTPUT"
+          echo "date_to=$DATE_TO" >> "$GITHUB_OUTPUT"
           mkdir -p tick_archive/months
           cursor="$DATE_FROM"
           while [[ "$cursor" < "$DATE_TO" ]]; do
@@ -143,5 +149,5 @@ jobs:
           TAG="${{ steps.archive.outputs.tag }}"
           gh release create "$TAG" tick_archive/months/*.zip tick_archive/manifest.json \
             --repo "${GITHUB_REPOSITORY}" \
-            --title "AUREON XAUUSD Dukascopy ticks ${{ inputs.date_from }} to ${{ inputs.date_to }}" \
+            --title "AUREON XAUUSD Dukascopy ticks ${{ steps.archive.outputs.date_from }} to ${{ steps.archive.outputs.date_to }}" \
             --notes "Third-party Dukascopy XAUUSD historical tick data. This is not PXBTTrading-1 broker history and is not, by itself, an MT5 Strategy Tester real-tick import. Verify manifest SHA-256 values before use. No trading is performed."
