@@ -1,0 +1,142 @@
+name: AUREON Dukascopy XAUUSD Tick Archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      date_from:
+        description: "Start date UTC (YYYY-MM-DD)"
+        required: true
+        default: "2024-10-20"
+        type: string
+      date_to:
+        description: "End date UTC (YYYY-MM-DD)"
+        required: true
+        default: "2026-10-20"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aureon-dukascopy-ticks
+  cancel-in-progress: false
+
+jobs:
+  download:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node and tools
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate dates and create monthly tick archives
+        id: archive
+        shell: bash
+        env:
+          DATE_FROM: ${{ inputs.date_from }}
+          DATE_TO: ${{ inputs.date_to }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from datetime import date
+          import os, re
+          start = date.fromisoformat(os.environ["DATE_FROM"])
+          end = date.fromisoformat(os.environ["DATE_TO"])
+          if end <= start:
+              raise SystemExit("date_to must be later than date_from")
+          if (end - start).days < 730:
+              raise SystemExit("Requested coverage must be at least 730 days")
+          if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", os.environ["DATE_FROM"]):
+              raise SystemExit("Invalid date_from")
+          if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", os.environ["DATE_TO"]):
+              raise SystemExit("Invalid date_to")
+          PY
+          TAG="xauusd-dukascopy-ticks-${DATE_FROM}-to-${DATE_TO}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          mkdir -p tick_archive/months
+          cursor="$DATE_FROM"
+          while [[ "$cursor" < "$DATE_TO" ]]; do
+            month_end="$(date -u -d "$cursor +1 month -1 day" +%F)"
+            if [[ "$month_end" > "$DATE_TO" ]]; then month_end="$DATE_TO"; fi
+            month="$(date -u -d "$cursor" +%Y-%m)"
+            outdir="$RUNNER_TEMP/dukascopy-$month"
+            mkdir -p "$outdir"
+            echo "Downloading XAUUSD ticks: $cursor to $month_end"
+            npx --yes dukascopy-node@latest \
+              --instrument xauusd \
+              --date-from "$cursor" \
+              --date-to "$month_end" \
+              --timeframe tick \
+              --format csv \
+              --directory "$outdir" \
+              --retries 5 \
+              --retry-pause 1500
+            mapfile -t csvs < <(find "$outdir" -type f -name '*.csv' -size +0c | sort)
+            if [[ "${#csvs[@]}" -eq 0 ]]; then
+              echo "No non-empty CSV produced for $month ($cursor to $month_end)" >&2
+              find "$outdir" -maxdepth 2 -type f -printf '%p %s bytes\\n' || true
+              exit 1
+            fi
+            cat "${csvs[@]}" > "tick_archive/months/xauusd-ticks-$month.csv"
+            python3 - "tick_archive/months/xauusd-ticks-$month.csv" "$cursor" "$month_end" <<'PY'
+          import csv, sys
+          from datetime import date
+          path, start, end = sys.argv[1:]
+          with open(path, "r", newline="", encoding="utf-8-sig") as f:
+              rows = list(csv.reader(f))
+          if len(rows) < 2:
+              raise SystemExit(f"Tick CSV has no data rows: {path}")
+          print(f"Validated {path}: {len(rows)-1} data rows; requested {start}..{end}")
+          PY
+            (cd tick_archive/months && zip -q -9 "xauusd-ticks-$month.zip" "xauusd-ticks-$month.csv")
+            rm "tick_archive/months/xauusd-ticks-$month.csv"
+            cursor="$(date -u -d "$cursor +1 month" +%F)"
+          done
+
+          python3 - "$DATE_FROM" "$DATE_TO" "$TAG" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          from datetime import date
+          start, end, tag = sys.argv[1:]
+          files=[]
+          for p in sorted(Path("tick_archive/months").glob("*.zip")):
+              digest=hashlib.sha256(p.read_bytes()).hexdigest()
+              files.append({"file":p.name,"sha256":digest,"bytes":p.stat().st_size})
+          if not files:
+              raise SystemExit("No monthly ZIP archives produced")
+          manifest={
+            "dataset_id":"AUREON_XAUUSD_DUKASCOPY_HISTORICAL_TICKS",
+            "symbol":"XAUUSD",
+            "source_provider":"Dukascopy historical market data via dukascopy-node",
+            "source_type":"third-party historical bid/ask tick feed; NOT PXBTTrading-1 broker ticks",
+            "price_type":"provider tick CSV; validate bid/ask schema before strategy use",
+            "account_mode":"NOT_APPLICABLE_PUBLIC_HISTORICAL_DATA",
+            "date_from_utc":start,
+            "date_to_utc_inclusive":end,
+            "calendar_span_days":(date.fromisoformat(end)-date.fromisoformat(start)).days,
+            "archive_count":len(files),
+            "archives":files,
+            "integrity":"SHA-256 per monthly ZIP; consumers must re-verify",
+            "created_by_workflow":os.environ.get("GITHUB_WORKFLOW",""),
+            "release_tag":tag
+          }
+          Path("tick_archive/manifest.json").write_text(json.dumps(manifest,indent=2)+"\\n")
+          print(json.dumps({"archive_count":len(files),"span_days":manifest["calendar_span_days"],"tag":tag},indent=2))
+          PY
+
+      - name: Publish verified monthly archives as GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.archive.outputs.tag }}"
+          gh release create "$TAG" tick_archive/months/*.zip tick_archive/manifest.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "AUREON XAUUSD Dukascopy ticks ${{ inputs.date_from }} to ${{ inputs.date_to }}" \
+            --notes "Third-party Dukascopy XAUUSD historical tick data. This is not PXBTTrading-1 broker history and is not, by itself, an MT5 Strategy Tester real-tick import. Verify manifest SHA-256 values before use. No trading is performed."
