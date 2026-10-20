@@ -90,7 +90,8 @@ def main() -> None:
         "walk_forward":walk,
         "cost_stress":stress,
         "authority":{"research_only":True,"execution_authorized":False,"demo_orders_submitted":False,"live_trading_allowed":False},
-        "promotion_gate":"NOT_EVALUATED_FOR_PROMOTION: requires native MT5 real-tick verification and frozen-control comparison",
+        "data_fidelity":{"price_data":"OHLC_BAR_PROXY","real_tick_archive_consumed":False,"native_mt5_strategy_tester_validation":"NOT_RUN","promotion_blocked_until_real_tick_test":True},
+        "promotion_gate":"BLOCKED: OHLC proxy only; requires native MT5 real-tick verification and frozen-control comparison",
     }
     output = Path(args.out)
     output.mkdir(parents=True, exist_ok=True)
