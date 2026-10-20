@@ -89,13 +89,12 @@ def audit(root: Path, batch_size: int = 100_000) -> dict:
         names = set(pf.schema_arrow.names)
         if not REQUIRED.issubset(names):
             raise ValueError(f"{file}: missing required columns {sorted(REQUIRED - names)}")
-        idx = {name: pf.schema_arrow.get_field_index(name) for name in REQUIRED}
-        file_rows, file_first, file_last, prev = 0, None, None, None
+            file_rows, file_first, file_last, prev = 0, None, None, None
         file_bad_order = 0
         for batch in pf.iter_batches(batch_size=batch_size, columns=["time", "bid", "ask"]):
-            times = time_values(batch.column(idx["time"]))
-            bids = batch.column(idx["bid"]).to_pylist()
-            asks = batch.column(idx["ask"]).to_pylist()
+            times = time_values(batch.column(batch.schema.get_field_index("time")))
+            bids = batch.column(batch.schema.get_field_index("bid")).to_pylist()
+            asks = batch.column(batch.schema.get_field_index("ask")).to_pylist()
             for t, bid, ask in zip(times, bids, asks):
                 report["tick_count"] += 1
                 file_rows += 1
