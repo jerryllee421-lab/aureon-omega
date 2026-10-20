@@ -1,6 +1,10 @@
 name: AUREON Dukascopy Acquisition Diagnostics
 
 on:
+  push:
+    branches: [feature/adaptive-prediction-engine]
+    paths:
+      - ".github/workflows/aureon-dukascopy-diagnostics.yml"
   workflow_dispatch:
     inputs:
       date_from:
@@ -33,15 +37,15 @@ jobs:
         id: validate
         shell: bash
         env:
-          DATE_FROM: ${{ inputs.date_from }}
-          DATE_TO: ${{ inputs.date_to }}
+          DATE_FROM: ${{ inputs.date_from || '2024-10-20' }}
+          DATE_TO: ${{ inputs.date_to || '2026-10-20' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from datetime import date
           import os, re
           a, b = os.environ["DATE_FROM"], os.environ["DATE_TO"]
-          if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", a) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", b):
+          if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", b):
               raise SystemExit("Dates must use YYYY-MM-DD")
           start, end = date.fromisoformat(a), date.fromisoformat(b)
           if end < start or (end-start).days < 730:
