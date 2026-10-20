@@ -149,8 +149,25 @@ jobs:
           chmod 600 "$CONFIG"
           unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD
           echo "Launching MT5 terminal in portable mode with DEMO-only account config."
-          xvfb-run -a wine "$TERMINAL" /portable /skipupdate "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
+          # Keep the virtual display alive independently; detached xvfb-run can tear
+          # down its X server before the terminal has finished initializing.
+          Xvfb :97 -screen 0 1280x900x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/xvfb.pid"
+          export DISPLAY=:97
+          for i in $(seq 1 20); do
+            [[ -S /tmp/.X11-unix/X97 ]] && break
+            sleep 1
+          done
+          test -S /tmp/.X11-unix/X97 || { echo "Virtual display failed to initialize"; cat "$RUNNER_TEMP/xvfb.log"; exit 1; }
+          wine "$TERMINAL" /portable "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/terminal.pid"
+          sleep 10
+          if ! kill -0 "$(cat "$RUNNER_TEMP/terminal.pid")" 2>/dev/null; then
+            echo "MT5 terminal exited immediately after launch."
+            cat "$RUNNER_TEMP/terminal.log" || true
+            cat "$RUNNER_TEMP/xvfb.log" || true
+            exit 1
+          fi
           COMMON_FILES=""
           for i in $(seq 1 19800); do
             if [[ -z "$COMMON_FILES" ]]; then
