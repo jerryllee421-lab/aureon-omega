@@ -77,9 +77,9 @@ jobs:
           PY
           DAY_END="$(python3 -c 'from datetime import date,timedelta; import os; print((date.fromisoformat(os.environ["DATE_FROM"])+timedelta(days=1)).isoformat())')"
           echo "Probe start UTC: $(date -u +%FT%TZ)" | tee diagnostics/probe-status.txt
-          echo "Testing first 24-hour window: $DATE_FROM to $DAY_END" | tee -a diagnostics/probe-status.txt
+          echo "Testing exactly one UTC calendar day: $DATE_FROM" | tee -a diagnostics/probe-status.txt
           set +e
-          timeout --signal=TERM --kill-after=15s 12m "$RUNNER_TEMP/duka-venv/bin/duka" download XAUUSD --tf tick --from "$DATE_FROM" --to "$DAY_END" --side BOTH --data-dir "$PWD/probe-data" --rate 3 --retries 12 > diagnostics/downloader.log 2>&1
+          timeout --signal=TERM --kill-after=15s 12m "$RUNNER_TEMP/duka-venv/bin/duka" download XAUUSD --tf tick --from "$DATE_FROM" --to "$DATE_FROM" --side BOTH --data-dir "$PWD/probe-data" --rate 3 --retries 12 > diagnostics/downloader.log 2>&1
           rc=$?
           set -e
           echo "exit_code=$rc" | tee -a diagnostics/probe-status.txt
@@ -95,7 +95,37 @@ jobs:
             exit "$rc"
           fi
           test -s diagnostics/downloader.log
-          echo "Single-day downloader probe completed. This is not yet proof of full coverage." | tee -a diagnostics/probe-status.txt
+          "$RUNNER_TEMP/duka-venv/bin/python" - "$PWD/probe-data" "$DATE_FROM" <<'PY'
+          import json, sys
+          from pathlib import Path
+          import pyarrow.compute as pc
+          import pyarrow.parquet as pq
+          root, expected = Path(sys.argv[1]), sys.argv[2]
+          files = sorted(root.rglob("*.parquet"))
+          day_files = [p for p in files if p.stem == expected]
+          if len(day_files) != 1:
+              raise SystemExit(f"Expected exactly one daily Parquet for {expected}; found {[p.name for p in day_files]}")
+          p = day_files[0]
+          table = pq.read_table(p, columns=["time", "bid", "ask"])
+          if table.num_rows <= 0:
+              raise SystemExit("Probe produced zero ticks")
+          for name in ("time", "bid", "ask"):
+              if table[name].null_count:
+                  raise SystemExit(f"Null values found in {name}")
+          if pc.any(pc.less_equal(table["bid"], 0)).as_py() or pc.any(pc.less_equal(table["ask"], 0)).as_py():
+              raise SystemExit("Non-positive bid/ask in probe")
+          if pc.any(pc.less(table["ask"], table["bid"])).as_py():
+              raise SystemExit("Ask below bid in probe")
+          if table["time"].null_count:
+              raise SystemExit("Null timestamps in probe")
+          report = {"date_utc": expected, "file": str(p.relative_to(root)), "tick_rows": table.num_rows,
+                    "schema": str(table.schema), "bid_ask_valid": True,
+                    "first_timestamp": str(pc.min(table["time"]).as_py()),
+                    "last_timestamp": str(pc.max(table["time"]).as_py())}
+          Path("diagnostics/probe-validation.json").write_text(json.dumps(report, indent=2) + "\\n", encoding="utf-8")
+          print(json.dumps(report, indent=2))
+          PY
+          echo "Single-day download and quote sanity checks passed. Full coverage remains unproven." | tee -a diagnostics/probe-status.txt
 
       - name: Upload diagnostics even on failure
         if: always()
