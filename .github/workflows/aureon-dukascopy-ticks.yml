@@ -31,18 +31,23 @@ concurrency:
 
 jobs:
   download:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Node and tools
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - name: Install resumable, rate-limited Dukascopy downloader
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user --upgrade dukascopy-downloader
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/duka" --help
+          "$HOME/.local/bin/duka" download --help
 
-      - name: Validate dates and create monthly tick archives
+      - name: Validate dates and download tick history in resumable monthly chunks
         id: archive
         shell: bash
         env:
@@ -53,10 +58,10 @@ jobs:
           python3 - <<'PY'
           from datetime import date
           import os, re
-          start_text, end_text = os.environ["DATE_FROM"], os.environ["DATE_TO"]
-          if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start_text) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_text):
+          a, b = os.environ["DATE_FROM"], os.environ["DATE_TO"]
+          if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", b):
               raise SystemExit("Dates must use YYYY-MM-DD")
-          start, end = date.fromisoformat(start_text), date.fromisoformat(end_text)
+          start, end = date.fromisoformat(a), date.fromisoformat(b)
           if (end - start).days < 730:
               raise SystemExit("Requested coverage must span at least 730 days")
           PY
@@ -64,54 +69,36 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "date_from=$DATE_FROM" >> "$GITHUB_OUTPUT"
           echo "date_to=$DATE_TO" >> "$GITHUB_OUTPUT"
-          mkdir -p tick_archive/months
+          ROOT="$RUNNER_TEMP/dukascopy-data"
+          mkdir -p "$ROOT" tick_archive/months
           cursor="$DATE_FROM"
           while [[ "$cursor" < "$DATE_TO" ]]; do
             period_end="$(date -u -d "$cursor +1 month -1 day" +%F)"
             if [[ "$period_end" > "$DATE_TO" ]]; then period_end="$DATE_TO"; fi
-            period="$(date -u -d "$cursor" +%Y-%m-%d)"
-            outdir="$RUNNER_TEMP/dukascopy-$period"
-            mkdir -p "$outdir"
-            echo "Downloading XAUUSD ticks: $cursor to $period_end"
-            npx --yes dukascopy-node@latest \
-              --instrument xauusd \
-              --date-from "$cursor" \
-              --date-to "$period_end" \
-              --timeframe tick \
-              --format csv \
-              --directory "$outdir" \
-              --retries 5 \
-              --retry-pause 1500
-            python3 - "$outdir" "tick_archive/months/xauusd-ticks-$period.zip" "$cursor" "$period_end" <<'PY'
-          import csv, hashlib, sys, zipfile
+            period="$(date -u -d "$cursor" +%Y-%m)"
+            echo "::group::Download XAUUSD ticks $cursor to $period_end"
+            duka download XAUUSD --tf tick --from "$cursor" --to "$period_end" --data-dir "$ROOT" --rate 3
+            python3 - "$ROOT" "tick_archive/months/xauusd-ticks-$period.zip" "$cursor" "$period_end" <<'PY'
+          import sys, zipfile
           from pathlib import Path
-          src, zip_path, start, end = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
-          csvs = sorted(p for p in src.rglob("*.csv") if p.is_file() and p.stat().st_size > 0)
-          if not csvs:
-              raise SystemExit(f"No non-empty tick CSV produced for {start}..{end}")
-          rows_total = 0
-          headers = None
-          with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-              for p in csvs:
-                  with p.open("r", newline="", encoding="utf-8-sig") as f:
-                      reader = csv.reader(f)
-                      try:
-                          header = next(reader)
-                      except StopIteration:
-                          continue
-                      if headers is None:
-                          headers = header
-                      elif header != headers:
-                          raise SystemExit(f"CSV schema mismatch in {p.name}: {header} != {headers}")
-                      count = sum(1 for row in reader if row)
-                      if count == 0:
-                          continue
-                      rows_total += count
-                      zf.write(p, arcname=p.name)
-          if not headers or rows_total == 0 or zip_path.stat().st_size == 0:
-              raise SystemExit(f"Empty tick archive for {start}..{end}")
-          print(f"Validated {zip_path.name}: {rows_total} data rows across {len(csvs)} CSV file(s); requested {start}..{end}")
+          src, out, start, end = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+          # Package only daily Parquet files in the requested calendar month/range.
+          files = sorted(p for p in src.rglob("*.parquet") if p.is_file() and start.replace("-", "") <= p.stem.replace("-", "")[:8] <= end.replace("-", ""))
+          if not files:
+              # Some releases place daily files under nested symbol folders with a YYYY-MM-DD stem.
+              files = sorted(p for p in src.rglob("*.parquet") if p.is_file() and start <= p.stem[:10] <= end)
+          if not files:
+              raise SystemExit(f"No Parquet tick files found for {start}..{end}; inspect duka output and fail closed")
+          with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=3) as zf:
+              for p in files:
+                  zf.write(p, arcname=str(p.relative_to(src)))
+          with zipfile.ZipFile(out) as zf:
+              bad = zf.testzip()
+              if bad:
+                  raise SystemExit(f"Corrupt archive member: {bad}")
+          print(f"Validated {out.name}: {len(files)} daily Parquet file(s), {out.stat().st_size} bytes")
           PY
+            echo "::endgroup::"
             cursor="$(date -u -d "$cursor +1 month" +%F)"
           done
 
@@ -120,28 +107,32 @@ jobs:
           from pathlib import Path
           from datetime import date
           start, end, tag = sys.argv[1:]
-          files=[]
+          archives=[]
           for p in sorted(Path("tick_archive/months").glob("*.zip")):
-              files.append({"file":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"bytes":p.stat().st_size})
-          if not files:
-              raise SystemExit("No monthly ZIP archives produced")
+              with p.open("rb") as f:
+                  h=hashlib.sha256()
+                  for chunk in iter(lambda:f.read(1024*1024), b""):
+                      h.update(chunk)
+              archives.append({"file":p.name,"sha256":h.hexdigest(),"bytes":p.stat().st_size})
+          if not archives:
+              raise SystemExit("No archives produced")
           manifest={
             "dataset_id":"AUREON_XAUUSD_DUKASCOPY_HISTORICAL_TICKS",
             "symbol":"XAUUSD",
-            "source_provider":"Dukascopy historical market data via dukascopy-node",
-            "source_type":"third-party historical tick feed; NOT PXBTTrading-1 broker ticks",
-            "account_mode":"NOT_APPLICABLE_PUBLIC_HISTORICAL_DATA",
+            "source_provider":"Dukascopy historical market data via dukascopy-downloader",
+            "source_type":"third-party historical bid/ask tick feed; NOT PXBTTrading-1 broker ticks",
+            "timestamp_timezone":"UTC",
             "date_from_utc":start,
             "date_to_utc_inclusive":end,
             "requested_calendar_span_days":(date.fromisoformat(end)-date.fromisoformat(start)).days,
-            "archive_count":len(files),
-            "archives":files,
-            "integrity":"SHA-256 per monthly ZIP; consumers must re-verify",
+            "archive_count":len(archives),
+            "archives":archives,
+            "integrity":"SHA-256 per ZIP; consumers must re-verify",
             "created_by_workflow":os.environ.get("GITHUB_WORKFLOW",""),
             "release_tag":tag
           }
           Path("tick_archive/manifest.json").write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
-          print(json.dumps({"archive_count":len(files),"span_days":manifest["requested_calendar_span_days"],"tag":tag},indent=2))
+          print(json.dumps({"archive_count":len(archives),"requested_span_days":manifest["requested_calendar_span_days"],"tag":tag},indent=2))
           PY
 
       - name: Publish monthly archives as GitHub Release assets
@@ -154,4 +145,4 @@ jobs:
           gh release create "$TAG" tick_archive/months/*.zip tick_archive/manifest.json \
             --repo "${GITHUB_REPOSITORY}" \
             --title "AUREON XAUUSD Dukascopy ticks ${{ steps.archive.outputs.date_from }} to ${{ steps.archive.outputs.date_to }}" \
-            --notes "Third-party Dukascopy XAUUSD historical tick data. This is not PXBTTrading-1 broker history and is not, by itself, an MT5 Strategy Tester real-tick import. Verify manifest SHA-256 values before use. No trading is performed."
+            --notes "Third-party Dukascopy XAUUSD historical ticks. This is not PXBTTrading-1 broker history and is not by itself an MT5 Strategy Tester real-tick import. Verify manifest SHA-256 values and tick schema before use. No trading is performed."
