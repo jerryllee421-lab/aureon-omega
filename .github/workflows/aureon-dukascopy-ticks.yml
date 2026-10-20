@@ -96,6 +96,7 @@ jobs:
               raise SystemExit(f"No Parquet tick files found for {start}..{end}; fail closed")
           required = {"time", "bid", "ask"}
           rows_total, first_tick, last_tick = 0, None, None
+          nonempty_files, empty_files = 0, []
           with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=3) as zf:
               for p in files:
                   pf = pq.ParquetFile(p)
@@ -104,22 +105,33 @@ jobs:
                       raise SystemExit(f"Tick schema missing {required - names} in {p}")
                   table = pq.read_table(p, columns=["time", "bid", "ask"])
                   if table.num_rows == 0:
-                      raise SystemExit(f"Empty tick Parquet: {p}")
+                      # Empty weekend/holiday files can be legitimate. Record them and
+                      # exclude them from the tick archive; never silently treat them as ticks.
+                      empty_files.append(p.name)
+                      continue
+                  if pc.any(pc.is_null(table["time"])).as_py():
+                      raise SystemExit(f"Null tick timestamp in {p}")
                   if pc.any(pc.less_equal(table["bid"], 0)).as_py() or pc.any(pc.less_equal(table["ask"], 0)).as_py():
                       raise SystemExit(f"Non-positive quote in {p}")
                   if pc.any(pc.less(table["ask"], table["bid"])).as_py():
                       raise SystemExit(f"Ask below bid in {p}")
+                  times = table["time"].to_pylist()
+                  if any(times[i] < times[i-1] for i in range(1, len(times))):
+                      raise SystemExit(f"Out-of-order timestamps in {p}")
                   lo, hi = pc.min(table["time"]).as_py(), pc.max(table["time"]).as_py()
                   lo, hi = str(lo), str(hi)
                   first_tick = lo if first_tick is None or lo < first_tick else first_tick
                   last_tick = hi if last_tick is None or hi > last_tick else last_tick
                   rows_total += table.num_rows
+                  nonempty_files += 1
                   zf.write(p, arcname=str(p.relative_to(src)))
+          if rows_total <= 0 or nonempty_files == 0:
+              raise SystemExit(f"No non-empty tick data found for {start}..{end}; fail closed")
           with zipfile.ZipFile(out) as zf:
               bad = zf.testzip()
               if bad:
                   raise SystemExit(f"Corrupt archive member: {bad}")
-          validation = {"file":out.name,"tick_count":rows_total,"daily_files":len(files),"coverage_start_utc":first_tick,"coverage_end_utc":last_tick,"bid_ask_validated":True}
+          validation = {"file":out.name,"tick_count":rows_total,"daily_files":nonempty_files,"empty_daily_files":len(empty_files),"empty_file_names":empty_files,"coverage_start_utc":first_tick,"coverage_end_utc":last_tick,"bid_ask_validated":True,"timestamps_ordered_per_file":True}
           out.with_suffix(".validation.json").write_text(json.dumps(validation, indent=2) + "\\n", encoding="utf-8")
           print(f"Validated {out.name}: {rows_total} ticks across {len(files)} daily Parquet file(s), {out.stat().st_size} bytes")
           PY
