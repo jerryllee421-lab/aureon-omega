@@ -84,6 +84,7 @@ def audit(root: Path, batch_size: int = 100_000) -> dict:
         "files": [],
     }
     spread_sample: list[float] = []
+    previous_tick_global = None
     for file in files:
         pf = pq.ParquetFile(file)
         names = set(pf.schema_arrow.names)
@@ -104,7 +105,11 @@ def audit(root: Path, batch_size: int = 100_000) -> dict:
                     if prev is not None and t < prev:
                         report["out_of_order_count"] += 1
                         file_bad_order += 1
+                    if previous_tick_global is not None and t < previous_tick_global and (prev is None or t >= prev):
+                        report["out_of_order_count"] += 1
+                        file_bad_order += 1
                     prev = t
+                    previous_tick_global = t
                     if file_first is None or t < file_first:
                         file_first = t
                     if file_last is None or t > file_last:
