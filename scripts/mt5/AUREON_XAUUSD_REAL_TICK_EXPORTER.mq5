@@ -56,6 +56,17 @@ int OnInit()
       Print("AUREON_EXPORT_FATAL InpDays must be 730..800.");
       return INIT_FAILED;
    }
+   // Wait for login before reading account metadata; pre-login values are not authoritative.
+   int wait_seconds = 0;
+   while(!TerminalInfoInteger(TERMINAL_CONNECTED) && wait_seconds < 120)
+   {
+      Sleep(1000); wait_seconds++;
+   }
+   if(!TerminalInfoInteger(TERMINAL_CONNECTED))
+   {
+      Print("AUREON_EXPORT_FATAL terminal connection timeout.");
+      return INIT_FAILED;
+   }
    if(AccountInfoInteger(ACCOUNT_TRADE_MODE) != ACCOUNT_TRADE_MODE_DEMO)
    {
       Print("AUREON_EXPORT_FATAL DEMO account required; export refused.");
@@ -65,16 +76,6 @@ int OnInit()
    if(server != "PXBTTrading-1")
    {
       Print("AUREON_EXPORT_FATAL unexpected server; export refused. Server=", server);
-      return INIT_FAILED;
-   }
-   int wait_seconds = 0;
-   while(!TerminalInfoInteger(TERMINAL_CONNECTED) && wait_seconds < 120)
-   {
-      Sleep(1000); wait_seconds++;
-   }
-   if(!TerminalInfoInteger(TERMINAL_CONNECTED))
-   {
-      Print("AUREON_EXPORT_FATAL terminal connection timeout.");
       return INIT_FAILED;
    }
    if(!SymbolSelect(InpSymbol, true))
