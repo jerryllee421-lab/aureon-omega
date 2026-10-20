@@ -1,0 +1,107 @@
+name: AUREON Dukascopy Acquisition Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      date_from:
+        description: "Start date UTC (YYYY-MM-DD)"
+        required: true
+        default: "2024-10-20"
+        type: string
+      date_to:
+        description: "End date UTC (YYYY-MM-DD)"
+        required: true
+        default: "2026-10-20"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aureon-dukascopy-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate request and environment
+        id: validate
+        shell: bash
+        env:
+          DATE_FROM: ${{ inputs.date_from }}
+          DATE_TO: ${{ inputs.date_to }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from datetime import date
+          import os, re
+          a, b = os.environ["DATE_FROM"], os.environ["DATE_TO"]
+          if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", a) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", b):
+              raise SystemExit("Dates must use YYYY-MM-DD")
+          start, end = date.fromisoformat(a), date.fromisoformat(b)
+          if end < start or (end-start).days < 730:
+              raise SystemExit("Require valid dates spanning at least 730 days")
+          print(f"Requested UTC date span: {a} through {b}; {(end-start).days} elapsed days")
+          PY
+          python3 -m venv "$RUNNER_TEMP/duka-venv"
+          "$RUNNER_TEMP/duka-venv/bin/python" -m pip install --upgrade pip dukascopy-downloader pyarrow
+          "$RUNNER_TEMP/duka-venv/bin/duka" --help > "$RUNNER_TEMP/duka-help.txt" 2>&1
+          "$RUNNER_TEMP/duka-venv/bin/duka" download --help > "$RUNNER_TEMP/duka-download-help.txt" 2>&1
+          cat "$RUNNER_TEMP/duka-help.txt"
+          cat "$RUNNER_TEMP/duka-download-help.txt"
+          echo "date_from=$DATE_FROM" >> "$GITHUB_OUTPUT"
+          echo "date_to=$DATE_TO" >> "$GITHUB_OUTPUT"
+
+      - name: Probe a single bounded day and capture diagnostics
+        id: probe
+        shell: bash
+        env:
+          DATE_FROM: ${{ inputs.date_from }}
+        run: |
+          set -u
+          mkdir -p diagnostics probe-data
+          python3 - "$DATE_FROM" <<'PY'
+          from datetime import date, timedelta
+          import sys
+          d=date.fromisoformat(sys.argv[1])
+          print((d+timedelta(days=1)).isoformat())
+          PY
+          DAY_END="$(python3 -c 'from datetime import date,timedelta; import os; print((date.fromisoformat(os.environ["DATE_FROM"])+timedelta(days=1)).isoformat())')"
+          echo "Probe start UTC: $(date -u +%FT%TZ)" | tee diagnostics/probe-status.txt
+          echo "Testing first 24-hour window: $DATE_FROM to $DAY_END" | tee -a diagnostics/probe-status.txt
+          set +e
+          timeout --signal=TERM --kill-after=15s 12m "$RUNNER_TEMP/duka-venv/bin/duka" download XAUUSD --tf tick --from "$DATE_FROM" --to "$DAY_END" --data-dir "$PWD/probe-data" --rate 3 > diagnostics/downloader.log 2>&1
+          rc=$?
+          set -e
+          echo "exit_code=$rc" | tee -a diagnostics/probe-status.txt
+          echo "Probe end UTC: $(date -u +%FT%TZ)" | tee -a diagnostics/probe-status.txt
+          find probe-data -type f -printf '%p %s bytes\n' > diagnostics/files.txt || true
+          cat diagnostics/downloader.log
+          if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
+            echo "Downloader timed out during a one-day probe. Do not start a full two-year download until this is resolved." | tee -a diagnostics/probe-status.txt
+            exit 1
+          fi
+          if [[ "$rc" -ne 0 ]]; then
+            echo "Downloader failed during a one-day probe." | tee -a diagnostics/probe-status.txt
+            exit "$rc"
+          fi
+          test -s diagnostics/downloader.log
+          echo "Single-day downloader probe completed. This is not yet proof of full coverage." | tee -a diagnostics/probe-status.txt
+
+      - name: Upload diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-dukascopy-diagnostics-${{ github.run_id }}
+          path: |
+            diagnostics/
+            probe-data/
+            ${{ runner.temp }}/duka-help.txt
+            ${{ runner.temp }}/duka-download-help.txt
+          if-no-files-found: warn
+          retention-days: 14
