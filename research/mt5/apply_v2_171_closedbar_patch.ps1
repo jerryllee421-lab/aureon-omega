@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "AUREON roo
 $found = @(Get-ChildItem -LiteralPath $root -Filter $expected -File -Recurse -ErrorAction SilentlyContinue)
 if ($found.Count -ne 1) { throw "Expected exactly one $expected under $root; found $($found.Count). No changes made." }
 $srcPath = $found[0].FullName
-$src = [IO.File]::ReadAllText($srcPath, [Text.Encoding]::UTF8)
+$src = [IO.File]::ReadAllText($srcPath, [Text.Encoding]::UTF8) -replace "`r`n", "`n"
 $bullOld = @'
 bool BullishRejection()
 {
@@ -58,7 +58,7 @@ bool BearishRejection()
    return (closePos <= 0.45);
 }
 '@
-if (-not $src.Contains($bullOld) -or -not $src.Contains($bearOld)) { throw "Source does not match expected V2.17 functions. No candidate created." }
+$bullOld = $bullOld -replace "`r`n", "`n"`n$bearOld = $bearOld -replace "`r`n", "`n"`n$bullNew = $bullNew -replace "`r`n", "`n"`n$bearNew = $bearNew -replace "`r`n", "`n"`nif (-not $src.Contains($bullOld) -or -not $src.Contains($bearOld)) { throw "Source does not match expected V2.17 functions. No candidate created." }
 $src = $src.Replace($bullOld,$bullNew).Replace($bearOld,$bearNew)
 $src = $src.Replace('#property version   "2.17"','#property version   "2.171"')
 $src = $src.Replace('#property description "FVG V2.17 Forward Validation: preserves V2.15 aggressive edge; adds live/demo execution telemetry, FVG attribution, benchmark drift monitoring and optional safety block."','#property description "FVG V2.171 Closed-Bar Diagnostic: rejection uses last closed candle; V2.17 preserved as control."')
