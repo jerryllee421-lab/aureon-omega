@@ -73,8 +73,10 @@ jobs:
           ROOT="$RUNNER_TEMP/dukascopy-data"
           mkdir -p "$ROOT" tick_archive/months
           cursor="$DATE_FROM"
-          while [[ "$cursor" < "$DATE_TO" ]]; do
-            period_end="$(date -u -d "$cursor +1 month -1 day" +%F)"
+          while [[ "$cursor" < "$DATE_TO" || "$cursor" == "$DATE_TO" ]]; do
+            month_start="$(date -u -d "$cursor" +%Y-%m-01)"
+            next_month="$(date -u -d "$month_start +1 month" +%F)"
+            period_end="$(date -u -d "$next_month -1 day" +%F)"
             if [[ "$period_end" > "$DATE_TO" ]]; then period_end="$DATE_TO"; fi
             period="$(date -u -d "$cursor" +%Y-%m)"
             echo "::group::Download XAUUSD ticks $cursor to $period_end"
@@ -100,7 +102,7 @@ jobs:
           print(f"Validated {out.name}: {len(files)} daily Parquet file(s), {out.stat().st_size} bytes")
           PY
             echo "::endgroup::"
-            cursor="$(date -u -d "$cursor +1 month" +%F)"
+            cursor="$next_month"
           done
 
           python3 - "$DATE_FROM" "$DATE_TO" "$TAG" <<'PY'
