@@ -89,7 +89,7 @@ def audit(root: Path, batch_size: int = 100_000) -> dict:
         names = set(pf.schema_arrow.names)
         if not REQUIRED.issubset(names):
             raise ValueError(f"{file}: missing required columns {sorted(REQUIRED - names)}")
-            file_rows, file_first, file_last, prev = 0, None, None, None
+        file_rows, file_first, file_last, prev = 0, None, None, None
         file_bad_order = 0
         for batch in pf.iter_batches(batch_size=batch_size, columns=["time", "bid", "ask"]):
             times = time_values(batch.column(batch.schema.get_field_index("time")))
