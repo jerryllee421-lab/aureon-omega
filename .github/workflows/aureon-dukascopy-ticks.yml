@@ -54,10 +54,17 @@ jobs:
         id: archive
         shell: bash
         env:
-          DATE_FROM: ${{ inputs.date_from || '2024-10-01' }}
-          DATE_TO: ${{ inputs.date_to || '2024-10-31' }}
+          DATE_FROM: ${{ inputs.date_from }}
+          DATE_TO: ${{ inputs.date_to }}
         run: |
           set -euo pipefail
+          # On push events there are no workflow_dispatch inputs. Acquire the current
+          # UTC month-to-date by default; manual dispatch retains the explicit dates.
+          if [[ -z "${DATE_FROM:-}" || -z "${DATE_TO:-}" ]]; then
+            DATE_FROM="$(date -u +%Y-%m-01)"
+            DATE_TO="$(date -u +%F)"
+            export DATE_FROM DATE_TO
+          fi
           python3 - <<'PY'
           from datetime import date
           import os, re
@@ -66,8 +73,8 @@ jobs:
               raise SystemExit("Dates must use YYYY-MM-DD")
           start, end = date.fromisoformat(a), date.fromisoformat(b)
           span = (end - start).days
-          if span < 27 or span > 31 or end < start:
-              raise SystemExit("This acquisition workflow is configured for approximately one calendar month (27–31 elapsed days).")
+          if span < 0 or span > 30 or end < start:
+              raise SystemExit("Date range must contain at most 31 inclusive calendar days.")
           PY
           TAG="xauusd-dukascopy-ticks-${DATE_FROM}-to-${DATE_TO}-${GITHUB_SHA:0:7}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -132,7 +139,7 @@ jobs:
               if bad:
                   raise SystemExit(f"Corrupt archive member: {bad}")
           validation = {"file":out.name,"tick_count":rows_total,"daily_files":nonempty_files,"empty_daily_files":len(empty_files),"empty_file_names":empty_files,"coverage_start_utc":first_tick,"coverage_end_utc":last_tick,"bid_ask_validated":True,"timestamps_ordered_per_file":True}
-          out.with_suffix(".validation.json").write_text(json.dumps(validation, indent=2) + "\\n", encoding="utf-8")
+          out.with_suffix(".validation.json").write_text(json.dumps(validation, indent=2) + "\n", encoding="utf-8")
           print(f"Validated {out.name}: {rows_total} ticks across {len(files)} daily Parquet file(s), {out.stat().st_size} bytes")
           PY
             echo "::endgroup::"
