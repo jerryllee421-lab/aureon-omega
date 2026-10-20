@@ -143,12 +143,13 @@ jobs:
           export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
           CONFIG="$RUNNER_TEMP/mt5-demo-export.ini"
           {
-            printf '[Common]\nLogin=%s\nPassword=%s\nServer=PXBTTrading-1\nKeepPrivate=1\n' "$MT5_DEMO_LOGIN" "$MT5_DEMO_PASSWORD"
-            printf '[Experts]\nEnabled=1\nAllowLiveTrading=0\nAllowDllImport=0\n\n[StartUp]\nSymbol=XAUUSD\nPeriod=M1\nExpert=AUREON\\AUREON_XAUUSD_REAL_TICK_EXPORTER\n'
+            printf '[Common]\\r\\nLogin=%s\\r\\nPassword=%s\\r\\nServer=PXBTTrading-1\\r\\nKeepPrivate=1\\r\\n' "$MT5_DEMO_LOGIN" "$MT5_DEMO_PASSWORD"
+            printf '[Experts]\\r\\nEnabled=1\\r\\nAllowLiveTrading=0\\r\\nAllowDllImport=0\\r\\n\\r\\n[StartUp]\\r\\nSymbol=XAUUSD\\r\\nPeriod=M1\\r\\nExpert=AUREON\\\\AUREON_XAUUSD_REAL_TICK_EXPORTER\\r\\n'
           } > "$CONFIG"
           chmod 600 "$CONFIG"
           unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD
-          xvfb-run -a wine "$TERMINAL" /portable "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
+          echo "Launching MT5 terminal in portable mode with DEMO-only account config."
+          xvfb-run -a wine "$TERMINAL" /portable /skipupdate "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/terminal.pid"
           COMMON_FILES=""
           for i in $(seq 1 19800); do
@@ -164,8 +165,19 @@ jobs:
             fi
             if [[ "$i" -eq 240 && ( -z "$COMMON_FILES" || ! -s "$COMMON_FILES/manifest.csv" ) ]]; then
               echo "Exporter did not initialize within 240 seconds; refusing to wait for the full job timeout."
-              tail -n 120 "$RUNNER_TEMP/terminal.log" || true
-              find "$WINEPREFIX/drive_c" -type f -path '*/MQL5/Logs/*' -print | head -10 || true
+              echo "=== terminal process ==="
+              ps -ef | grep -Ei 'terminal64|metatrader' | grep -v grep || true
+              echo "=== terminal stdout/stderr ==="
+              tail -n 160 "$RUNNER_TEMP/terminal.log" || true
+              echo "=== latest MT5 logs ==="
+              find "$WINEPREFIX/drive_c" -type f \\( -path '*/MQL5/Logs/*' -o -path '*/Logs/*' \\) -printf '%T@ %p\\n' 2>/dev/null | sort -nr | head -8 | cut -d' ' -f2- | while IFS= read -r logfile; do
+                echo "--- $logfile"
+                tail -n 100 "$logfile" 2>/dev/null | sed -E 's/^(Password=).*/\\1[REDACTED]/I' || true
+              done
+              echo "=== candidate exporter output directories ==="
+              find "$WINEPREFIX/drive_c" -type d -name 'AUREON_XAUUSD_Ticks' -print 2>/dev/null || true
+              echo "=== startup config (password withheld) ==="
+              sed -E 's/^(Password=).*/\\1[REDACTED]/I' "$CONFIG" || true
               exit 1
             fi
             if grep -q 'AUREON_EXPORT_FATAL' "$RUNNER_TEMP/terminal.log" 2>/dev/null; then
