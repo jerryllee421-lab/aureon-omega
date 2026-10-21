@@ -1,4 +1,3 @@
-// Research orchestration refresh: compile evidence must be regenerated after source review.
 //+------------------------------------------------------------------+
 //| AUREON Omega XAUUSD Strategy Research Suite                      |
 //| M5 Mean Reversion / H4 Breakout / Session / Daily CRT             |
