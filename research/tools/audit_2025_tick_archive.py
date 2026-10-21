@@ -137,7 +137,7 @@ calendar_nonempty = sorted({x["date"] for x in calendar_inventory if x["rows"] >
 calendar_empty = sorted({x["date"] for x in calendar_inventory if x["rows"] == 0})
 calendar_missing_files = sorted(set(calendar_dates) - {x["date"] for x in calendar_inventory})
 calendar_missing_quote_dates = sorted(set(calendar_dates) - set(calendar_nonempty))
-archive_name_mismatch = [x["archive"] for x in archive_summaries if not re.fullmatch(r"xauusd-ticks-2025-(0[1-9]|1[0-2])\\.zip", x["archive"])]
+archive_name_mismatch = [x["archive"] for x in archive_summaries if not re.fullmatch(r"xauusd-ticks-2025-(0[1-9]|1[0-2])\.zip", x["archive"])]
 archive_naming_note = "Archive filenames are monthly labels only; verify member timestamp ranges because the published data windows may roll across month boundaries."
 coverage = {
     "calendar_year": "2025",
