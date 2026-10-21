@@ -37,7 +37,7 @@ New-Item -ItemType Directory -Force -Path $reports | Out-Null
 
 # Compile the exact source staged into the selected terminal's Experts folder.
 $compileLog = Join-Path $runRoot "compile.log"
-$compile = Start-Process -FilePath $metaEditor -ArgumentList @("/compile:$eaTarget", "/log") -Wait -PassThru
+$compile = Start-Process -FilePath $metaEditor -ArgumentList @("/compile:`"$eaTarget`"", "/log") -Wait -PassThru
 Start-Sleep -Seconds 2
 $nativeLog = [System.IO.Path]::ChangeExtension($eaTarget, ".log")
 if (Test-Path -LiteralPath $nativeLog) { Copy-Item -LiteralPath $nativeLog -Destination $compileLog -Force }
@@ -85,8 +85,11 @@ foreach ($test in $tests) {
   $params = [ordered]@{}; foreach ($key in $common.Keys) { $params[$key] = $common[$key] }
   $params["InpStrategy"] = $test.Strategy
   foreach ($key in $test.Params.Keys) { $params[$key] = $test.Params[$key] }
-  $setPath = Join-Path $runRoot ($test.Name + ".set")
-  $setLines = foreach ($key in $params.Keys) { "$key=$($params[$key])" }
+  $testerProfiles = Join-Path (Split-Path (Split-Path $Mql5ExpertsPath -Parent) -Parent) "MQL5\\Profiles\\Tester"
+  New-Item -ItemType Directory -Force -Path $testerProfiles | Out-Null
+  $setName = $test.Name + ".set"
+  $setPath = Join-Path $testerProfiles $setName
+  $setLines = foreach ($key in $params.Keys) { $value = $params[$key]; "$key=$value||$value||$value||$value||N" }
   Set-Content -LiteralPath $setPath -Value $setLines -Encoding ASCII
 
   $reportRel = "reports\$($test.Name).htm"
@@ -94,7 +97,7 @@ foreach ($test in $tests) {
   $ini = @(
     "[Tester]"
     "Expert=AUREON\AUREON_XAUUSD_Strategy_Suite_RealTicks_v1.ex5"
-    "ExpertParameters=$setPath"
+    "ExpertParameters=$setName"
     "Symbol=$Symbol"
     "Period=M5"
     "Deposit=$Deposit"
@@ -116,7 +119,7 @@ foreach ($test in $tests) {
   )
   Set-Content -LiteralPath $iniPath -Value $ini -Encoding ASCII
   Write-Host "Running $($test.Name) on $Symbol, $from to $to, Model=4 (Every tick based on real ticks)"
-  $proc = Start-Process -FilePath $TerminalPath -ArgumentList @("/config:$iniPath") -Wait -PassThru
+  $proc = Start-Process -FilePath $TerminalPath -ArgumentList @("/config:`"$iniPath`"") -Wait -PassThru
   $reportPath = Join-Path $reports ($test.Name + ".htm")
   $exists = Test-Path -LiteralPath $reportPath -PathType Leaf
   $summary.Add([pscustomobject]@{Strategy=$test.Name;ProcessExitCode=$proc.ExitCode;ReportPath=$reportPath;ReportCreated=$exists;Model="Every tick based on real ticks";FromDate=$from;ToDate=$to})
