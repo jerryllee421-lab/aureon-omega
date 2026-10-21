@@ -73,9 +73,14 @@ def measure(trades):
     dd=float(np.max(peak-eq)) if len(eq) else 0.0
     return {"trade_count":len(a),"net_price_units":float(a.sum()),"profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((a>0).mean()*100),"avg_r":float(r.mean()),"max_drawdown_r":dd}
 
-def run_one(x,cfg,split):
+def run_one(x,cfg,start_i=0,end_i=None):
+    """Replay one isolated segment. end_i is exclusive; no trade may cross a split."""
     trades=[]; pos=None; last_exit=-10**9
-    for i in range(80,len(x)-1):
+    if end_i is None: end_i=len(x)
+    end_i=max(0,min(int(end_i),len(x)))
+    start_i=max(80,int(start_i))
+    # Leave the final bar for marking open positions; entries use next-bar open.
+    for i in range(start_i,min(end_i-1,len(x)-1)):
         r=x.iloc[i]; t=x.index[i]
         if pos is not None:
             ex=None; reason=""
@@ -119,11 +124,12 @@ def run_one(x,cfg,split):
         if not side: continue
         entry=float(x.open.iloc[i+1]); spr=float(x.spread.iloc[i+1]); dist=cfg["stop_atr"]*float(r.atr)
         pos={"side":side,"entry":entry,"spread":spr,"sl":entry-side*dist,"tp":entry+side*dist*cfg["rr"],"risk":dist,"time":x.index[i+1]}
-    if pos:
-        r=x.iloc[-1]; gross=(float(r.close)-pos["entry"])*pos["side"]; net=gross-pos["spread"]-float(r.spread)-0.70
-        trades.append({"entry_time":pos["time"],"net":net,"r":net/pos["risk"],"reason":"END_OF_DATA_MARK"})
-    ins=[z for z in trades if z["entry_time"]<split]; oos=[z for z in trades if z["entry_time"]>=split]
-    return {"all":measure(trades),"in_sample":measure(ins),"out_of_sample":measure(oos)},trades
+    if pos and end_i>0:
+        r=x.iloc[end_i-1]
+        gross=(float(r.close)-pos["entry"])*pos["side"]
+        net=gross-pos["spread"]-float(r.spread)-0.70
+        trades.append({"entry_time":pos["time"],"net":net,"r":net/pos["risk"],"reason":"SEGMENT_END_MARK"})
+    return trades
 
 def main():
     if not base.ARCHIVE.exists(): raise FileNotFoundError("Tick archive missing: "+str(base.ARCHIVE))
@@ -133,10 +139,15 @@ def main():
     ticks=ticks[(ticks.ask>=ticks.bid)&(ticks.bid>0)&(ticks.ask>0)].drop_duplicates(["timestamp","bid","ask"]).sort_values("timestamp").reset_index(drop=True)
     b=base.bars(ticks)
     if len(b)<100: raise RuntimeError("Insufficient M5 bars")
-    x=prepare(b); split=x.index[int(len(x)*.7)]
+    x=prepare(b); split_idx=int(len(x)*.7); split=x.index[split_idx]
     cfgs=configs(); rows=[]; ledger=[]
     for c in cfgs:
-        met,trades=run_one(x,c,split)
+        # Run each segment independently to prevent boundary-crossing trades and
+        # position/cooldown state from leaking across the chronological split.
+        trades=run_one(x,c,0,len(x))
+        ins=run_one(x,c,0,split_idx)
+        oos_trades=run_one(x,c,split_idx,len(x))
+        met={"all":measure(trades),"in_sample":measure(ins),"out_of_sample":measure(oos_trades)}
         allm=met["all"]; oos=met["out_of_sample"]; reasons=[]
         if allm["trade_count"]<100: reasons.append("fewer than 100 total trades")
         if oos["trade_count"]<30: reasons.append("fewer than 30 OOS trades")
