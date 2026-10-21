@@ -37,13 +37,16 @@ New-Item -ItemType Directory -Force -Path $reports | Out-Null
 
 # Compile the exact source staged into the selected terminal's Experts folder.
 $compileLog = Join-Path $runRoot "compile.log"
+$ex5 = [System.IO.Path]::ChangeExtension($eaTarget, ".ex5")
+if (Test-Path -LiteralPath $ex5) { Remove-Item -LiteralPath $ex5 -Force }
 $compile = Start-Process -FilePath $metaEditor -ArgumentList @("/compile:`"$eaTarget`"", "/log") -Wait -PassThru
 Start-Sleep -Seconds 2
 $nativeLog = [System.IO.Path]::ChangeExtension($eaTarget, ".log")
 if (Test-Path -LiteralPath $nativeLog) { Copy-Item -LiteralPath $nativeLog -Destination $compileLog -Force }
-$ex5 = [System.IO.Path]::ChangeExtension($eaTarget, ".ex5")
-if (-not (Test-Path -LiteralPath $ex5 -PathType Leaf)) { throw "MetaEditor did not create EX5. Inspect $compileLog" }
-if ((Test-Path $compileLog) -and ((Get-Content -Raw $compileLog) -notmatch '(?i)0 errors')) { throw "Compile log does not confirm zero errors. Inspect $compileLog" }
+if ($compile.ExitCode -ne 0) { throw "MetaEditor process returned $($compile.ExitCode). Inspect $compileLog" }
+if (-not (Test-Path -LiteralPath $ex5 -PathType Leaf)) { throw "MetaEditor did not create a fresh EX5. Inspect $compileLog" }
+if (-not (Test-Path -LiteralPath $compileLog -PathType Leaf)) { throw "MetaEditor compile log is missing: $compileLog" }
+if ((Get-Content -Raw $compileLog) -notmatch '(?i)0 errors') { throw "Compile log does not confirm zero errors. Inspect $compileLog" }
 
 $from = $FromDate.ToString("yyyy.MM.dd")
 $to = $ToDate.ToString("yyyy.MM.dd")
