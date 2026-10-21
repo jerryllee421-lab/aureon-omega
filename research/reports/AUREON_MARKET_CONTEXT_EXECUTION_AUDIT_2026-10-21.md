@@ -3,52 +3,61 @@ Date: 2026-10-21
 
 ## Executive finding
 
-The current strategy suite is not yet testing a clean enough execution model to determine which market context creates edge. This audit found a concrete cost-timing defect in the offline replay: entry spread cost was based on the *average spread across the entire entry M5 bar*, even though the entry is modeled at that bar's open. That average contains quotes observed after the entry time. This is not a direct signal-price lookahead, but it is a point-in-time accounting defect and makes cost attribution inconsistent.
+The corrected replay and dependency-corrected validation workflow both completed successfully. The accounting fix did not produce an approved strategy. The sample is only about 20 days, is third-party Dukascopy rather than verified PXBT broker-native data, and still uses M5 OHLC exits. Results are research diagnostics, not a claim of live profitability.
 
-## Fix applied in research branch
+## Execution-cost timing defect fixed
 
-- Preserve mean spread for descriptive diagnostics and the signal-bar spread filter.
-- Add `spread_open` from the first quote in each M5 bar and use it for entry cost.
-- Add `spread_max` and use the maximum spread in the exit M5 bar as a conservative cost bound. This intentionally errs against the strategy, but it is not an exact fill model; exact exit-time spread requires quote-level execution replay.
-- Reject entry if the first-quote spread of the next bar exceeds 0.80 price units, even if the signal bar itself passed the spread filter.
-- Add a regression test proving open, mean, and maximum spread are distinct and computed as expected.
+- Added `spread_open` from the first quote in each M5 bar and use it for entry cost; the previous mean spread included quotes after the modeled entry.
+- Added `spread_max` and use the maximum spread in the exit M5 bar as a conservative bound.
+- Reject entry when the first quote spread at the next-bar entry exceeds 0.80 price units.
+- Added regression coverage separating opening, mean and maximum spread.
+- CI now installs pandas, NumPy and PyArrow before running the replay unit tests.
 
-## Market-context diagnosis from the existing short sample
+Validation:
+- Corrected replay: [GitHub Actions run 39671685656](https://github.com/jerryllee421-lab/aureon-omega/actions/runs/39671685656) — success.
+- Dependency-corrected validation: [GitHub Actions run 39671691045](https://github.com/jerryllee421-lab/aureon-omega/actions/runs/39671691045) — success.
+- Tick archive SHA-256 verified: `d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0`.
+- Replay artifact: `aureon-offline-tick-research`, run 39671685656.
 
-The existing 20-day third-party Dukascopy archive is insufficient to infer stable regime-conditioned expectancy. What it does show:
+## Corrected replay snapshot
 
-- Daily CRT: full-sample PF 1.28, but 13 OOS trades net -10.13 price units and PF 0.82; its third chronological fold is negative. Treat as a hypothesis, not an edge.
-- AMD session: overall net -36.49; 12 OOS trades net -2.93 and PF 0.95. UTC session definitions are not verified against PXBT server time.
-- FVG scalper: 77 trades, net -16.68, PF 0.94; fold net degrades from +33.13 to -10.66 to -39.15. Strong instability signal.
-- Gold trap: 123 trades, net -168.81, PF 0.69; negative across all three folds.
-- H1 breakout, session breakout, and session VWAP+EMA are negative on the available sample.
-- Daily swing has zero trades because the sample is shorter than its 50-completed-daily-bar requirement; it is untested, not disproven.
-- M5 mean reversion has only one trade; no inference is justified.
+Archive: 3,820,624 quotes, 3,816 derived M5 bars, 2026-10-01 through 2026-10-20 UTC. Chronological split: 2026-10-14 15:35 UTC. P/L is in price units, not account currency.
 
-## Further execution defects / limitations still open
+| Strategy | Trades | All-sample net | All-sample PF | OOS trades | OOS net | OOS PF |
+|---|---:|---:|---:|---:|---:|---:|
+| Daily CRT | 42 | +15.89 | 1.094 | 13 | -10.97 | 0.807 |
+| AMD session | 28 | -38.97 | 0.723 | 12 | -3.88 | 0.931 |
+| FVG scalper | 77 | -32.52 | 0.891 | 21 | -17.51 | 0.785 |
+| Gold trap | 122 | -176.77 | 0.673 | 39 | -68.52 | 0.605 |
+| H1 breakout | 29 | -128.12 | 0.287 | 9 | -20.81 | 0.485 |
+| H4 breakout | 11 | -1.43 | 0.973 | 4 | -33.37 | 0.000 |
+| Session breakout | 45 | -227.47 | 0.272 | 13 | -75.84 | 0.185 |
+| Session VWAP + EMA | 119 | -278.10 | 0.514 | 35 | -110.08 | 0.382 |
+| M5 mean reversion | 1 | +15.80 | N/A | 0 | 0.00 | N/A |
+| Daily swing | 0 | N/A | N/A | 0 | N/A | N/A |
 
-1. **M5 OHLC exit ordering:** when both stop and target are touched in one M5 candle, stop-first is a conservative rule but does not reconstruct the actual quote sequence. A tick-level exit simulator is required for reliable ranking.
-2. **Fill price abstraction:** entries and exits are represented by midpoint OHLC plus spread/slippage deductions. This is not the same as buying at ask and selling at bid on each actual quote.
-3. **Session labels:** UTC is a proxy. PXBT server time, session boundaries and DST need verification.
-4. **Market-regime attribution:** existing reports do not yet provide a robust regime × session × setup × direction breakdown with sufficient independent trades per cell. Do not infer a best regime from tiny bins.
-5. **Sample/provenance:** archive is third-party Dukascopy, only about 20 days, and not verified PXBTTrading-1 native ticks.
-6. **Broker economics:** commission, swap, contract size, tick value and ZAR conversion remain unverified.
+Daily CRT remains only a research hypothesis: its OOS net and PF are negative. Daily swing has no trades because the sample does not satisfy its completed-daily-bar requirement; it is untested, not disproven. M5 mean reversion has one trade and supports no inference.
 
-## CI validation diagnosis
+## Why these results are still not deployment evidence
 
-The first CI attempt passed the application tests/build and Python syntax checks, then failed at the new Python unit-test step because the workflow environment had not installed pandas (and the replay also requires NumPy). This was a test-environment dependency omission, not a demonstrated strategy failure. The workflow now installs pandas, NumPy and PyArrow before running the regression tests. The corrected run is pending; do not treat it as passed until GitHub reports success.
+1. **Approximate exits:** stop/target order is inferred from M5 OHLC. When both levels fall within a candle, stop-first is conservative but does not reproduce actual quote chronology.
+2. **Mid-price model:** the replay does not yet simulate executable bid/ask fills at each quote. Exit spread uses the entire exit bar's maximum as a bound, not the exact spread at exit time.
+3. **Data provenance:** Dukascopy data is not verified against PXBTTrading-1 broker-native ticks.
+4. **Sessions:** UTC labels are proxies; PXBT server time and DST boundaries are unverified.
+5. **Broker economics:** commission, swap, contract size, tick value and ZAR conversion remain unverified.
+6. **Regime attribution:** regime × session × setup × direction results with adequate independent trade counts have not been established.
+7. **Coverage:** this is not a multi-regime, multi-year walk-forward test.
 
-## Next investigation sequence
+## Next engineering sequence
 
-1. Confirm the dependency-corrected CI regression run passes.
-2. Implement quote-level execution: enter on first eligible tick after the completed M5 signal, buy at ask/sell at bid, and evaluate stop/target against executable quotes in chronological order.
-3. Add causal regime labels computed only from completed bars: volatility percentile, trend strength/slope, range-vs-expansion, and session. Freeze the definitions before evaluating.
-4. Report per-strategy and pooled trade expectancy by regime/session/direction, with sample counts and uncertainty; mark thin cells inconclusive.
-5. Evaluate on longer data using anchored walk-forward splits and a locked final holdout. Do not optimize the holdout.
-6. Reproduce finalists in MT5 Strategy Tester using broker-native “Every Tick Based on Real Ticks” and verified PXBT costs.
+1. Build quote-level execution: signals only after a completed M5 bar; enter on the first eligible subsequent quote; buy at ask and sell at bid; evaluate SL/TP in timestamp order; apply explicit slippage and reject stale/gapped quotes.
+2. Add deterministic unit tests for long/short entries, spread, SL/TP ordering, gaps, and end-of-data handling.
+3. Freeze causal regime labels from completed bars only: volatility percentile, trend strength/slope, range-vs-expansion and session. Then report expectancy with counts and uncertainty; thin bins remain inconclusive.
+4. Run longer anchored walk-forward evaluation with a locked final holdout and no holdout tuning.
+5. Reproduce candidates in MT5 Strategy Tester using broker-native “Every Tick Based on Real Ticks” and verified PXBT costs.
 
 ## Release status
 
 **NO STRATEGY APPROVED. DEMO ONLY. LIVE BLOCKED. Frozen V2.12 remains unchanged.**
 
-This audit is a research engineering update, not a profitability claim.
+This report records research-engineering progress, not a profitability claim.
