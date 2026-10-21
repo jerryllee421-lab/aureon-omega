@@ -8,6 +8,7 @@ on:
       - .github/workflows/aureon-offline-tick-replay.yml
     branches:
       - research/xauusd-strategy-suite-20261021
+      - research/market-context-execution-audit-20261021
 
 permissions:
   contents: read
@@ -20,7 +21,7 @@ jobs:
       - name: Checkout research branch
         uses: actions/checkout@v4
         with:
-          ref: research/xauusd-strategy-suite-20261021
+          ref: ${{ github.ref_name }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
