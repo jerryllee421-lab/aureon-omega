@@ -201,7 +201,7 @@ bool MeanReversionSignal(int &side,double &atr)
 {
    side=0; double ema,rsi,adx;
    if(!ReadValue(hEMA,0,1,ema)||!ReadValue(hRSI,0,1,rsi)||!ReadValue(hATR,0,1,atr)||!ReadValue(hADX,0,1,adx)) return false;
-   if(adx>InpADXMaxForMeanReversion) return true;
+   if(InpUseRegimeFilter && adx>InpADXMaxForMeanReversion) return true;
    MqlRates b; if(!GetClosedM5(b)) return false;
    double dev=(b.close-ema)/atr;
    if(dev<=-InpMeanDeviationATR && rsi<=InpRSILow && b.close>b.open) side=1;
@@ -263,10 +263,17 @@ bool SessionVWAPEMASignal(int &side,double &atr)
    double ema1[]; ArraySetAsSeries(ema1,true);
    if(CopyBuffer(hEMA,0,1,2,ema1)!=2) return false;
    MqlDateTime dt; TimeToStruct(b[0].time,dt);
+   if(InpVWAPStartHour<InpVWAPEndHour)
+   {
+      if(dt.hour<InpVWAPStartHour || dt.hour>InpVWAPEndHour) return true;
+   }
+   else if(InpVWAPStartHour>InpVWAPEndHour)
+   {
+      if(dt.hour>InpVWAPEndHour && dt.hour<InpVWAPStartHour) return true;
+   }
    MqlDateTime start=dt; start.hour=InpVWAPStartHour; start.min=0; start.sec=0;
-   MqlDateTime finish=dt; finish.hour=InpVWAPEndHour; finish.min=59; finish.sec=59;
-   datetime from=StructToTime(start), to=StructToTime(finish);
-   if(to<from) return false;
+   datetime from=StructToTime(start);
+   if(InpVWAPStartHour>InpVWAPEndHour && dt.hour<=InpVWAPEndHour) from-=86400;
    MqlRates m1[]; ArraySetAsSeries(m1,false);
    int n=CopyRates(_Symbol,PERIOD_M1,from,b[0].time,m1);
    if(n<=0) return false;
