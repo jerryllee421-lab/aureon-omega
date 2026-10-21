@@ -91,8 +91,18 @@ cmp --silent "$EA_SOURCE" "$EA_DEST"
 sha256sum "$EA_SOURCE" | tee "$ARTIFACT_DIR/ea-source.sha256"
 
 echo "== Compile with official MetaEditor =="
-EA_WIN="$(winepath -w "$EA_DEST")"
-MQL5_WIN="$(winepath -w "$MQL5_ROOT")"
+to_windows_c_path() {
+  local path="$1"
+  local relative="${path#"$WINEPREFIX/drive_c/"}"
+  if [[ "$relative" == "$path" ]]; then
+    echo "Path is outside Wine C: drive: $path" >&2
+    return 1
+  fi
+  relative="${relative//\//\\}"
+  printf 'C:\\\\%s' "$relative"
+}
+EA_WIN="$(to_windows_c_path "$EA_DEST")"
+MQL5_WIN="$(to_windows_c_path "$MQL5_ROOT")"
 printf '%s\n' "$EA_WIN" > "$ARTIFACT_DIR/ea-windows-path.txt"
 printf '%s\n' "$MQL5_WIN" > "$ARTIFACT_DIR/mql5-windows-path.txt"
 
