@@ -1,6 +1,12 @@
 name: AUREON Daily CRT Quantum Edge 1000
 
 on:
+  push:
+    branches:
+      - research/daily-crt-quantum-edge-1000-20261021
+    paths:
+      - ".github/workflows/aureon-daily-crt-quantum-edge-1000.yml"
+      - "research/tools/daily_crt_quantum_edge_1000.py"
   workflow_dispatch:
 
 permissions:
