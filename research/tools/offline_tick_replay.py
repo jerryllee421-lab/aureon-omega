@@ -146,7 +146,38 @@ def main():
  for name in ("m5_mean_reversion","h4_breakout","session_breakout","daily_crt","session_vwap_ema"):
   res,td=replay(b,name,split); results.append(res)
   if len(td): ledgers.append(td)
+ # Explicitly separate exploratory replay from strategy qualification.
  report["strategy_results"]=results
+ data_days=(ticks.timestamp.max()-ticks.timestamp.min()).total_seconds()/86400.0
+ report["coverage_days_elapsed"]=float(data_days)
+ report["qualification_policy"]={
+  "minimum_closed_trades_all":100,
+  "minimum_closed_trades_oos":30,
+  "minimum_profit_factor_all_after_costs":1.20,
+  "minimum_profit_factor_oos_after_costs":1.10,
+  "requires_positive_oos_net":True,
+  "requires_native_broker_tick_provenance":True,
+  "requires_longer_multi_regime_sample":True,
+  "requires_commission_swap_and_cost_stress_validation":True,
+  "requires_native_mt5_every_tick_real_ticks_reproduction":True,
+  "current_archive_is_native_broker_data":False
+ }
+ for res in results:
+  allm=res.get("all",{})
+  oosm=res.get("out_of_sample",{})
+  reasons=[]
+  if allm.get("trade_count",0)<100: reasons.append("fewer than 100 total trades")
+  if oosm.get("trade_count",0)<30: reasons.append("fewer than 30 out-of-sample trades")
+  if allm.get("profit_factor") is None or allm.get("profit_factor",0)<1.20: reasons.append("all-sample PF below 1.20")
+  if oosm.get("profit_factor") is None or oosm.get("profit_factor",0)<1.10: reasons.append("out-of-sample PF below 1.10")
+  if oosm.get("net_price_units",0)<=0: reasons.append("out-of-sample net result is not positive")
+  reasons.append("data is third-party Dukascopy, not verified PXBT-native ticks")
+  reasons.append("short sample; multi-regime and walk-forward validation absent")
+  reasons.append("commission/swap and execution-cost sensitivity not validated")
+  reasons.append("native MT5 Every Tick Based on Real Ticks reproduction absent")
+  res["qualification"]={"status":"BLOCKED_RESEARCH_ONLY","passed":False,"reasons":reasons}
+ report["overall_qualification"]="NO_STRATEGY_QUALIFIED"
+ report["overall_qualification_reason"]="No candidate passes the statistical gates, and the dataset provenance/coverage cannot qualify a strategy for deployment."
  if bad: report["warnings"].append("Negative spread rows were found.")
  if dup: report["warnings"].append("Duplicate quotes found; duplicate rows removed for replay.")
  if ledgers: pd.concat(ledgers,ignore_index=True).to_csv(OUT/"trades.csv",index=False)
