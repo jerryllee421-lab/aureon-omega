@@ -133,3 +133,35 @@ The offline replay now includes five additional fixed-rule research candidates a
 - **Daily swing:** completed daily EMA20/EMA50 trend alignment with M5 EMA20 pullback recross; requires at least 50 completed daily bars, so this short October sample should correctly produce no eligible daily-swing signals.
 
 All five are exploratory definitions, not claims of institutional-grade validation. The AMD times are UTC proxies, not confirmed PXBT server-time sessions. FVG and trap conditions are simplified bar-based hypotheses. All candidates retain the same modeled costs, spread gate, cooldown, and conservative stop-first M5-bar exit logic. The refreshed ten-strategy replay is running at [run 39670015311](https://github.com/jerryllee421-lab/aureon-omega/actions/runs/39670015311); do not rank the new candidates until its artifact is inspected.
+
+
+## Expanded ten-strategy replay results (run 39670015311, 2026-10-21)
+
+The ten-candidate offline replay completed successfully; artifact `12378873093` contains the JSON audit and complete trade ledger. The source remains the same October 2026 third-party Dukascopy archive, not PXBT-native data.
+
+| Strategy | Trades | Net price units | PF | OOS trades | OOS net | OOS PF |
+|---|---:|---:|---:|---:|---:|---:|
+| Daily CRT | 43 | +43.97 | 1.28 | 13 | -10.13 | 0.82 |
+| H4 breakout | 11 | +0.29 | 1.01 | 4 | -32.31 | 0.00 |
+| H1 breakout | 29 | -125.96 | 0.29 | 9 | -20.31 | 0.49 |
+| AMD session | 28 | -36.49 | 0.74 | 12 | -2.93 | 0.95 |
+| FVG scalper | 77 | -16.68 | 0.94 | 21 | -16.20 | 0.80 |
+| Gold trap | 123 | -168.81 | 0.69 | 39 | -65.35 | 0.62 |
+| Daily swing | 0 | N/A | N/A | 0 | N/A | N/A |
+| M5 mean reversion | 1 | +15.92 | N/A | 0 | 0.00 | N/A |
+| Session breakout | 45 | -221.45 | 0.28 | 13 | -75.09 | 0.19 |
+| Session VWAP + EMA | 119 | -224.83 | 0.59 | 35 | -103.96 | 0.41 |
+
+### New-candidate diagnosis
+
+- **H1 breakout:** materially negative across all three chronological folds; stop this formulation rather than tune it against the same short sample.
+- **AMD session:** negative overall and negative in the first two folds; the third fold was near flat. The UTC session window is only a proxy until PXBT server time is verified.
+- **FVG scalper:** positive first fold (+33.13, PF 1.35), then negative in folds two (-10.66, PF 0.89) and three (-39.15, PF 0.62). Strong regime instability; no approval.
+- **Gold trap:** negative in all three folds (approximately -59.05, -47.37, -62.38); reject the current formulation on this sample.
+- **Daily swing:** zero trades because the rule intentionally requires 50 completed daily bars; the 20-day archive cannot evaluate it. It is **untested**, not a losing strategy. Acquire a sufficiently long sample before evaluating.
+
+### Updated disposition
+
+Daily CRT remains the only candidate with positive full-sample net and PF above 1.20, but its OOS result is negative and its third fold reverses. No strategy passes the qualification gates. Do not perform broad parameter optimization against this sample. Next research priority is expanding historical coverage, validating no-lookahead and trade mechanics, and running a locked walk-forward evaluation; daily swing specifically needs at least 50 completed daily bars plus a separate untouched holdout. Native MT5 real-tick execution, broker-specific costs and DEMO validation remain outstanding.
+
+Replay run: https://github.com/jerryllee421-lab/aureon-omega/actions/runs/39670015311
