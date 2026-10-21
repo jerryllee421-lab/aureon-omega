@@ -88,12 +88,13 @@ while day < END:
 df = pd.DataFrame(rows, columns=["timestamp_ms_utc", "bid", "ask", "bid_volume", "ask_volume"])
 if not df.empty:
     df["timestamp"] = pd.to_datetime(df["timestamp_ms_utc"], unit="ms", utc=True)
+    source_order_monotonic = bool(df["timestamp_ms_utc"].is_monotonic_increasing)
     df = df.sort_values("timestamp_ms_utc", kind="stable").reset_index(drop=True)
     df["spread"] = df["ask"] - df["bid"]
     invalid = int((~df["timestamp"].notna() | (df["bid"] <= 0) | (df["ask"] <= 0) | df["bid"].isna() | df["ask"].isna()).sum())
     negative_spread = int((df["spread"] < 0).sum())
     duplicate_quotes = int(df.duplicated(subset=["timestamp_ms_utc", "bid", "ask"]).sum())
-    non_monotonic = not df["timestamp_ms_utc"].is_monotonic_increasing
+    non_monotonic = not source_order_monotonic
     first_ts = df["timestamp"].min().isoformat()
     last_ts = df["timestamp"].max().isoformat()
     min_bid, max_ask = float(df["bid"].min()), float(df["ask"].max())
@@ -101,6 +102,7 @@ if not df.empty:
     df.to_parquet(OUT / "xauusd-dukascopy-ticks-2025-01-01-to-2025-01-19.parquet", index=False, compression="zstd")
 else:
     invalid = negative_spread = duplicate_quotes = 0
+    source_order_monotonic = False
     non_monotonic = True
     first_ts = last_ts = None
     min_bid = max_ask = max_spread = None
@@ -129,7 +131,8 @@ manifest = {
     "invalid_quote_rows": invalid,
     "negative_spread_rows": negative_spread,
     "duplicate_quote_rows": duplicate_quotes,
-    "timestamps_monotonic_after_sort": not non_monotonic,
+    "timestamps_monotonic_in_source_order": source_order_monotonic,
+    "timestamps_monotonic_after_sort": bool(not df.empty and df["timestamp_ms_utc"].is_monotonic_increasing),
     "downloaded_bytes": total_bytes,
     "fetch_decode_errors": errors,
     "sha256_parquet": hashlib.sha256((OUT / "xauusd-dukascopy-ticks-2025-01-01-to-2025-01-19.parquet").read_bytes()).hexdigest() if not df.empty else None,
