@@ -1,0 +1,57 @@
+# AUREON Ω — XAUUSD Research Diagnostic (2026-10-21)
+
+## Decision
+
+**NO STRATEGY APPROVED. DEMO ONLY. LIVE BLOCKED.** This is a short exploratory offline replay, not a broker-native MT5 backtest. The January 2025 recovery is not a blocker for this separate October 2026 archive replay.
+
+## Evidence inspected
+
+- Published archive: `xauusd-ticks-2026-10.zip`
+- SHA-256: `d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0` (verified by CI).
+- Coverage: 2026-10-01 00:00:00.017 UTC to 2026-10-20 18:59:59.821 UTC.
+- 3,820,624 quote rows; 17 Parquet members; 3,816 derived M5 bars.
+- Provenance is third-party Dukascopy, **not verified PXBTTrading-1 native ticks**.
+- Negative spreads, exact duplicate quotes and zero spreads reported: 0 each.
+- Spread median 0.545, p95 0.75, max 12.564 price units.
+- Largest time gap 176,459.533 seconds; likely a market closure/weekend gap, but the earlier report did not classify gaps by weekday/closure. The refreshed audit adds that classification and spread-threshold counts.
+- The replay assumes mid-price fills, a spread cost on entry/exit and 0.35 price units of slippage per side; commission is set to zero. Contract sizing, ZAR conversion, swap and actual broker execution are not modelled.
+- M5 OHLC is synthesized from quote ticks. The report cannot validate intrabar execution sequencing or replace MT5's native “Every tick based on real ticks” model.
+
+## Strategy results (before any additional cost-stress multiplier)
+
+| Strategy | Trades | Net price units | PF | OOS trades | OOS net | OOS PF |
+|---|---:|---:|---:|---:|---:|---:|
+| M5 mean reversion | 1 | +15.27 | N/A | 0 | 0.00 | N/A |
+| H4 breakout | 11 | -5.60 | 0.90 | 4 | -34.44 | 0.00 |
+| Session breakout | 45 | -245.57 | 0.25 | 13 | -81.63 | 0.17 |
+| Daily CRT | 43 | +18.99 | 1.11 | 13 | -16.86 | 0.72 |
+| Session VWAP + EMA | 119 | -292.87 | 0.50 | 35 | -122.43 | 0.35 |
+
+The split is chronological, at 70% of the derived M5 bar series. No candidate passes the minimum trade count, OOS PF/net, provenance, multi-regime, cost stress, walk-forward and native MT5 gates.
+
+## Diagnosis
+
+1. **Sample too short.** Roughly 20 calendar days is not enough to establish durable edge. Even the one positive mean-reversion trade is statistically meaningless.
+2. **Daily CRT degrades out of sample.** PF falls from 1.33 in sample to 0.72 OOS; the in-sample edge does not persist.
+3. **Session breakout and VWAP+EMA are materially negative after modeled costs.** Do not promote or optimize these against this sample as if they were proven winners.
+4. **H4 breakout reverses OOS.** Four OOS trades are too few for a definitive rejection, but the evidence is currently adverse.
+5. **Cost realism remains incomplete.** Commission is zero; swap and account-currency conversion are absent. Current cost assumptions are illustrative and need PXBT contract specifications.
+6. **Quote quality needs closure-aware diagnostics.** A max-gap statistic alone is misleading across weekends/market closures. The refreshed script reports long-gap counts, weekday gaps under 24 hours, and quote spreads above the configured threshold.
+7. **Replay is not MT5 certification.** Stops/targets are evaluated against synthetic M5 OHLC; a real tick can hit both stop and target in sequence. This replay uses conservative stop-first ordering, but it is still not the terminal's native tick engine.
+8. **No fresh live-market evidence.** A compile is a code-quality gate, not a profitability test. No orders were placed.
+
+## Engineering updates
+
+- Added same-signal cost sensitivity at 1.0x / 1.5x / 2.0x modeled transaction costs. This isolates how the current trade ledger degrades under higher costs; it does not simulate altered fills.
+- Added spread threshold counts and gap diagnostics to the offline replay report.
+- Removed nonfunctional orchestration marker comments from the EA and replay source.
+- Triggered CI, offline replay and MT5 compile workflows on the research branch; final results must be checked after those runs complete.
+
+## Next gates
+
+1. Review refreshed audit/replay output and confirm cost-stress metrics are present and internally consistent.
+2. Fix strategy logic or reject candidates based on repeatable, out-of-sample evidence—not parameter fishing on this short sample.
+3. Extend evaluation to multiple market regimes with anchored walk-forward folds and locked holdout dates.
+4. Obtain broker-specific symbol specs, commission/swap and tick-size/value details.
+5. Reproduce the shortlisted candidate in MT5 Strategy Tester with **Every Tick Based on Real Ticks**, DEMO configuration and the same date range.
+6. Preserve frozen V2.12 unchanged as the control. No LIVE enablement.
