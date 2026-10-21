@@ -1,0 +1,39 @@
+name: AUREON Recover Missing Jan 2025 XAUUSD Ticks
+
+on:
+  push:
+    branches:
+      - research/xauusd-strategy-suite-20261021
+    paths:
+      - .github/workflows/recover-2025-jan-xauusd-ticks.yml
+      - research/tools/recover_2025_01_01_19_dukascopy_ticks.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover-gap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/xauusd-strategy-suite-20261021
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install parquet support
+        run: python -m pip install --upgrade pip pandas pyarrow
+      - name: Recover and validate missing January dates from Dukascopy
+        run: python research/tools/recover_2025_01_01_19_dukascopy_ticks.py
+      - name: Upload recovery dataset and audit manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-xauusd-2025-01-01-to-19-recovery
+          path: recovery-output/
+          if-no-files-found: warn
+          retention-days: 90
