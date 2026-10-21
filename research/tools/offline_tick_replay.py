@@ -56,6 +56,7 @@ def bars(t):
  d=t.set_index("timestamp"); m=((d.bid+d.ask)/2)
  b=m.resample("5min").ohlc()
  b["spread"]=d.assign(s=d.ask-d.bid).s.resample("5min").mean()
+ b["tick_volume"]=d.bid.resample("5min").count()
  return b.dropna()
 def replay(b,name,split):
  x=b.copy(); c=x.close
@@ -99,11 +100,17 @@ def replay(b,name,split):
     prev=d.iloc[-1]
     if r.low<prev.low and prev.low<r.close<prev.high and r.close>r.open: side=1
     elif r.high>prev.high and prev.low<r.close<prev.high and r.close<r.open: side=-1
-  elif name=="vwap_ema":
+  elif name=="session_vwap_ema":
+   # Tick-volume-weighted M5 typical-price VWAP proxy, reset at UTC day boundary.
    day=t.floor("D")
-   # VWAP proxy is tick mid-price average; no volume-weighting unless source has volume.
-   if r.close>r.ema and x.close.iloc[i-1]<=x.ema.iloc[i-1]: side=1
-   elif r.close<r.ema and x.close.iloc[i-1]>=x.ema.iloc[i-1]: side=-1
+   sess=x.loc[(x.index>=day)&(x.index<=t)]
+   vol=sess.tick_volume.clip(lower=0)
+   denom=float(vol.sum())
+   if denom>0:
+    vwap=float((((sess.high+sess.low+sess.close)/3.0)*vol).sum()/denom)
+    prev=x.iloc[i-1]
+    if r.close>vwap and r.close>r.ema and prev.close<=prev.ema: side=1
+    elif r.close<vwap and r.close<r.ema and prev.close>=prev.ema: side=-1
   if side:
    entry=float(x.open.iloc[i+1]); stop=1.5*float(r.atr)
    pos={"side":side,"entry":entry,"spread":float(x.spread.iloc[i+1]),"sl":entry-side*stop,"tp":entry+side*stop*1.5,"time":x.index[i+1]}
@@ -116,7 +123,7 @@ def replay(b,name,split):
   eq=d.net_price_units.cumsum(); dd=(eq.cummax()-eq).max()
   return {"trade_count":int(len(d)),"net_price_units":float(d.net_price_units.sum()),"profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((d.net_price_units>0).mean()*100),"max_trade_sequence_drawdown_price_units":float(dd),"average_net_price_units":float(d.net_price_units.mean())}
  dates=pd.to_datetime(td.entry_time,utc=True)
- result={"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":.35,"spread_cap_price_units":.80,"commission":0,"spread_cost":"half entry spread plus half exit spread; entry prices are mid-price to avoid double-counting"},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing is conservative approximation, not tick-by-tick MT5 execution","session uses UTC; broker timezone/DST unverified","VWAP is a mid-price proxy unless volume is available"]}
+ result={"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":.35,"spread_cap_price_units":.80,"commission":0,"spread_cost":"half entry spread plus half exit spread; entry prices are mid-price to avoid double-counting"},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing is conservative approximation, not tick-by-tick MT5 execution","session uses UTC; broker timezone/DST unverified","Offline VWAP uses tick-count-weighted M5 typical price; this is a tick-volume proxy, not exchange volume, and resets at UTC midnight"]}
  return result,td
 def main():
  if not ARCHIVE.exists(): raise FileNotFoundError("Tick archive missing: "+str(ARCHIVE))
@@ -136,7 +143,7 @@ def main():
  if len(b)<100: raise RuntimeError("Insufficient M5 bars: "+str(len(b)))
  split=b.index[int(len(b)*.7)]; report["m5_bars"]=int(len(b)); report["train_oos_split_utc"]=split.isoformat()
  ledgers=[]; results=[]
- for name in ("m5_mean_reversion","h4_breakout","session_breakout","daily_crt","vwap_ema"):
+ for name in ("m5_mean_reversion","h4_breakout","session_breakout","daily_crt","session_vwap_ema"):
   res,td=replay(b,name,split); results.append(res)
   if len(td): ledgers.append(td)
  report["strategy_results"]=results
