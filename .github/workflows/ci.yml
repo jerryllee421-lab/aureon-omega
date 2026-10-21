@@ -33,4 +33,5 @@ jobs:
         run: python -m unittest research.tests.test_quote_execution
       - name: Test SMC intraday candidate engine
         run: python -m unittest research.tests.test_smc_intraday_candidates
-      - name: Test context-aware strategy intelligence\n        run: python -m unittest research.tests.test_strategy_intelligence\n
+      - name: Test context-aware strategy intelligence
+        run: python -m unittest research.tests.test_strategy_intelligence
