@@ -1,4 +1,8 @@
 name: AUREON Strategy Suite MetaEditor Compile
+
+concurrency:
+  group: aureon-strategy-suite-compile-${{ github.ref }}
+  cancel-in-progress: true
 on:
   workflow_dispatch:
   push:
