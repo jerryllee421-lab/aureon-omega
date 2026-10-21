@@ -83,6 +83,14 @@ def bars(t):
  b["spread_max"]=spread.resample("5min").max()
  b["tick_volume"]=d.bid.resample("5min").count()
  return b.dropna()
+def directional_movement(high, low):
+ """Return Wilder-style raw +DM/-DM after mutually exclusive direction tests."""
+ raw_plus=high.diff()
+ raw_minus=-low.diff()
+ plus=raw_plus.where((raw_plus>raw_minus)&(raw_plus>0),0.0)
+ minus=raw_minus.where((raw_minus>raw_plus)&(raw_minus>0),0.0)
+ return plus,minus
+
 def replay(b,name,split):
  """Exploratory replay with closed-bar signals, conservative intrabar exits and explicit limitations.
  This remains a bar replay, not MT5 native real-tick execution.
@@ -94,12 +102,8 @@ def replay(b,name,split):
  tr=pd.concat([x.high-x.low,(x.high-c.shift()).abs(),(x.low-c.shift()).abs()],axis=1).max(axis=1)
  x["atr"]=tr.ewm(alpha=1/14,adjust=False).mean()
  x["adx"]=np.nan
- raw_plus_dm=x.high.diff()
- raw_minus_dm=-x.low.diff()
- # Compare raw directional moves before masking either series. Mutating +DM first
- # would otherwise change the condition used to calculate -DM and bias ADX.
- plus_dm=raw_plus_dm.where((raw_plus_dm>raw_minus_dm)&(raw_plus_dm>0),0.0)
- minus_dm=raw_minus_dm.where((raw_minus_dm>raw_plus_dm)&(raw_minus_dm>0),0.0)
+ # Calculate +DM and -DM from the original, unmasked movements.
+ plus_dm,minus_dm=directional_movement(x.high,x.low)
  atr_wilder=tr.ewm(alpha=1/14,adjust=False).mean().replace(0,np.nan)
  pdi=100*plus_dm.ewm(alpha=1/14,adjust=False).mean()/atr_wilder
  mdi=100*minus_dm.ewm(alpha=1/14,adjust=False).mean()/atr_wilder
