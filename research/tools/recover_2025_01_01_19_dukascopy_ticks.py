@@ -98,6 +98,8 @@ if not df.empty:
     df["spread"] = df["ask"] - df["bid"]
     invalid = int((~df["timestamp"].notna() | (df["bid"] <= 0) | (df["ask"] <= 0) | df["bid"].isna() | df["ask"].isna()).sum())
     negative_spread = int((df["spread"] < 0).sum())
+    zero_spread = int((df["spread"] == 0).sum())
+    extreme_spread = int((df["spread"] > 5.0).sum())  # diagnostic threshold only; validate against source/broker before interpreting
     duplicate_quotes = int(df.duplicated(subset=["timestamp_ms_utc", "bid", "ask"]).sum())
     non_monotonic = not source_order_monotonic
     first_ts = df["timestamp"].min().isoformat()
@@ -106,7 +108,7 @@ if not df.empty:
     max_spread = float(df["spread"].max())
     df.to_parquet(OUT / "xauusd-dukascopy-ticks-2025-01-01-to-2025-01-19.parquet", index=False, compression="zstd")
 else:
-    invalid = negative_spread = duplicate_quotes = 0
+    invalid = negative_spread = zero_spread = extreme_spread = duplicate_quotes = 0
     source_order_monotonic = False
     non_monotonic = True
     first_ts = last_ts = None
@@ -135,6 +137,8 @@ manifest = {
     "min_bid": min_bid, "max_ask": max_ask, "max_spread": max_spread,
     "invalid_quote_rows": invalid,
     "negative_spread_rows": negative_spread,
+    "zero_spread_rows": zero_spread,
+    "spread_over_5_price_units_rows": extreme_spread,
     "duplicate_quote_rows": duplicate_quotes,
     "timestamps_monotonic_in_source_order": source_order_monotonic,
     "timestamps_monotonic_after_sort": bool(not df.empty and df["timestamp_ms_utc"].is_monotonic_increasing),
