@@ -34,14 +34,20 @@ def load():
    if ext==".bi5":
     try: frames.append(decode_bi5(z.read(info),info.filename))
     except Exception as e: members[-1]["parse_error"]=str(e)
-   elif ext==".csv":
+   elif ext in (".csv",".parquet"):
     try:
-     d=pd.read_csv(z.open(info)); c={str(x).lower().strip():x for x in d.columns}
-     tc=next((c[k] for k in ("timestamp","time","datetime","date","utc time","gmt time") if k in c),None)
-     bc=next((c[k] for k in ("bid","bid_price","bidprice") if k in c),None)
-     ac=next((c[k] for k in ("ask","ask_price","askprice") if k in c),None)
-     if tc and bc and ac: frames.append(pd.DataFrame({"timestamp":pd.to_datetime(d[tc],utc=True,errors="coerce"),"bid":pd.to_numeric(d[bc],errors="coerce"),"ask":pd.to_numeric(d[ac],errors="coerce")}))
-     else: members[-1]["columns"]=list(d.columns)
+     d=pd.read_csv(z.open(info)) if ext==".csv" else pd.read_parquet(z.open(info))
+     c={str(x).lower().strip():x for x in d.columns}
+     tc=next((c[k] for k in ("timestamp","time","datetime","date","utc time","gmt time","time_msc","timestamp_ms","ts","t") if k in c),None)
+     bc=next((c[k] for k in ("bid","bid_price","bidprice","bidprice","b") if k in c),None)
+     ac=next((c[k] for k in ("ask","ask_price","askprice","a") if k in c),None)
+     if tc and bc and ac:
+      ts=d[tc]
+      if str(c[tc]).lower().endswith("_msc") or str(c[tc]).lower().endswith("_ms") or str(c[tc]).lower()=="timestamp_ms":
+       ts=pd.to_datetime(ts,unit="ms",utc=True,errors="coerce")
+      else: ts=pd.to_datetime(ts,utc=True,errors="coerce")
+      frames.append(pd.DataFrame({"timestamp":ts,"bid":pd.to_numeric(d[bc],errors="coerce"),"ask":pd.to_numeric(d[ac],errors="coerce")}))
+     else: members[-1]["columns"]=list(d.columns); members[-1]["unsupported_schema"]=True
     except Exception as e: members[-1]["parse_error"]=str(e)
  if not frames: raise RuntimeError("No supported CSV or BI5 bid/ask tick data found. See archive member listing.")
  ticks=pd.concat(frames,ignore_index=True).dropna().sort_values("timestamp").reset_index(drop=True)
