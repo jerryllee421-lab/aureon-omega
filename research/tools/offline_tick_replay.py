@@ -13,6 +13,12 @@ def sha(path):
   for b in iter(lambda:f.read(1024*1024),b""): h.update(b)
  return h.hexdigest()
 def decode_bi5(raw,name):
+ scale=os.getenv('BI5_PRICE_SCALE')
+ if not scale:
+  raise ValueError('BI5 price scale is instrument-specific; set BI5_PRICE_SCALE explicitly after verifying archive metadata')
+ scale=float(scale)
+ if not np.isfinite(scale) or scale<=0:
+  raise ValueError('BI5_PRICE_SCALE must be positive and finite')
  raw=lzma.decompress(raw)
  if len(raw)%20: raise ValueError("Invalid BI5 record size in "+name)
  parts=pathlib.Path(name).parts
@@ -22,8 +28,27 @@ def decode_bi5(raw,name):
  rows=[]
  for off in range(0,len(raw),20):
   ms,ask,bid,av,bv=struct.unpack(">IIIff",raw[off:off+20])
-  rows.append((base+pd.Timedelta(milliseconds=ms),bid*1e-5,ask*1e-5))
+  rows.append((base+pd.Timedelta(milliseconds=ms),bid*scale,ask*scale))
  return pd.DataFrame(rows,columns=["timestamp","bid","ask"])
+def parse_timestamp(series, column_name):
+ """Parse timestamps without silently interpreting epoch seconds as nanoseconds."""
+ name=str(column_name).lower()
+ if name.endswith("_msc") or name.endswith("_ms") or name=="timestamp_ms":
+  return pd.to_datetime(series,unit="ms",utc=True,errors="coerce")
+ if pd.api.types.is_numeric_dtype(series):
+  vals=pd.to_numeric(series,errors="coerce").dropna()
+  if vals.empty:
+   return pd.to_datetime(series,utc=True,errors="coerce")
+  magnitude=float(vals.abs().median())
+  if magnitude>=1e17: unit="ns"
+  elif magnitude>=1e14: unit="us"
+  elif magnitude>=1e11: unit="ms"
+  elif magnitude>=1e8: unit="s"
+  else:
+   raise ValueError("Ambiguous numeric timestamp scale; provide an explicit *_ms or datetime column")
+  return pd.to_datetime(series,unit=unit,utc=True,errors="coerce")
+ return pd.to_datetime(series,utc=True,errors="coerce")
+
 def load():
  frames=[]; members=[]
  with zipfile.ZipFile(ARCHIVE) as z:
@@ -42,10 +67,7 @@ def load():
      bc=next((c[k] for k in ("bid","bid_price","bidprice","bidprice","b") if k in c),None)
      ac=next((c[k] for k in ("ask","ask_price","askprice","a") if k in c),None)
      if tc and bc and ac:
-      ts=d[tc]
-      if str(c[tc]).lower().endswith("_msc") or str(c[tc]).lower().endswith("_ms") or str(c[tc]).lower()=="timestamp_ms":
-       ts=pd.to_datetime(ts,unit="ms",utc=True,errors="coerce")
-      else: ts=pd.to_datetime(ts,utc=True,errors="coerce")
+      ts=parse_timestamp(d[tc],c[tc])
       frames.append(pd.DataFrame({"timestamp":ts,"bid":pd.to_numeric(d[bc],errors="coerce"),"ask":pd.to_numeric(d[ac],errors="coerce")}))
      else: members[-1]["columns"]=list(d.columns); members[-1]["unsupported_schema"]=True
     except Exception as e: members[-1]["parse_error"]=str(e)
