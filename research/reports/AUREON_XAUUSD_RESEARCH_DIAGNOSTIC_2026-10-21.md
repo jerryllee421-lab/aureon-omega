@@ -120,3 +120,16 @@ Session breakout was negative in all three folds: -90.72 (PF 0.28), -19.39 (PF 0
 - Archive remains third-party Dukascopy, not verified PXBT-native ticks. Native MT5 “Every Tick Based on Real Ticks” testing and verified contract costs remain mandatory.
 
 **Status unchanged: DEMO ONLY; LIVE BLOCKED; frozen V2.12 untouched.**
+
+
+## Expanded candidate suite added (2026-10-21)
+
+The offline replay now includes five additional fixed-rule research candidates alongside the original five:
+
+- **H1 breakout:** closed H1 close breaks the preceding 20 completed H1-bar high/low with an ATR buffer.
+- **AMD session trading:** UTC 00:00–06:00 accumulation range; during 07:00–16:00 UTC, require a sweep and reclaim/rejection of that range.
+- **FVG scalper:** three-candle fair-value-gap condition followed by a closed M5 bar retracing into the gap and rejecting its midpoint.
+- **Gold trap:** false break of the preceding 12 completed M5-bar range with close back inside and a minimum ATR-scaled wick.
+- **Daily swing:** completed daily EMA20/EMA50 trend alignment with M5 EMA20 pullback recross; requires at least 50 completed daily bars, so this short October sample should correctly produce no eligible daily-swing signals.
+
+All five are exploratory definitions, not claims of institutional-grade validation. The AMD times are UTC proxies, not confirmed PXBT server-time sessions. FVG and trap conditions are simplified bar-based hypotheses. All candidates retain the same modeled costs, spread gate, cooldown, and conservative stop-first M5-bar exit logic. The refreshed ten-strategy replay is running at [run 39670015311](https://github.com/jerryllee421-lab/aureon-omega/actions/runs/39670015311); do not rank the new candidates until its artifact is inspected.
