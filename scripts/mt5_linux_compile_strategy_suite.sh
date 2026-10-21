@@ -107,8 +107,8 @@ printf '%s\n' "$EA_WIN" > "$ARTIFACT_DIR/ea-windows-path.txt"
 printf '%s\n' "$MQL5_WIN" > "$ARTIFACT_DIR/mql5-windows-path.txt"
 
 set +e
-RAW_LOG_WIN="$(winepath -w "${EA_DEST%.mq5}.log")"
-xvfb-run -a timeout 480s wine "$METAEDITOR" "/compile:$EA_WIN" "/include:$MQL5_WIN" "/log:$RAW_LOG_WIN" \
+RAW_LOG_WIN="$(to_windows_c_path "${EA_DEST%.mq5}.log")"
+xvfb-run -a timeout 120s wine "$METAEDITOR" "/compile:$EA_WIN" "/include:$MQL5_WIN" /log \
   >"$ARTIFACT_DIR/metaeditor-process.log" 2>&1
 compile_rc=$?
 set -e
