@@ -6,6 +6,7 @@ on:
       - research/xauusd-strategy-suite-20261021
     paths:
       - .github/workflows/audit-2025-xauusd-ticks.yml
+      - research/tools/audit_2025_tick_archive.py
   workflow_dispatch:
 
 permissions:
