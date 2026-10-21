@@ -37,7 +37,7 @@ def prepare(b):
         ("asia", (hours<7), None)
     ]:
         pass
-    am=x.loc[hours<7].groupby(x.index.floor("D")).agg(ah=("high","max"),al=("low","min"))
+    am=x.loc[hours<7].groupby(x.loc[hours<7].index.floor("D")).agg(ah=("high","max"),al=("low","min"))
     x["ash"]=day.map(am.ah.to_dict()).to_numpy(); x["asl"]=day.map(am.al.to_dict()).to_numpy()
     return x
 
