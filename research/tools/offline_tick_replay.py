@@ -94,7 +94,7 @@ def replay(b,name,split):
    if ex is not None:
     gross=(ex-pos["entry"])*pos["side"]
     # Mid-price entry/exit, so charge full quoted spread + two-sided slippage.
-    cost=float(pos["entry_spread"])+float(r.spread)+0.70
+    cost=0.5*(float(pos["entry_spread"])+float(r.spread))+0.70
     trades.append({"strategy":name,"entry_time":str(pos["time"]),"exit_time":str(t),"net_price_units":gross-cost,"gross_price_units":gross,"cost_price_units":cost,"reason":why})
     pos=None; last_exit_i=i
   if pos or i-last_exit_i<6 or not np.isfinite(r.atr) or r.atr<=0 or not np.isfinite(r.rsi): continue
@@ -136,7 +136,7 @@ def replay(b,name,split):
    pos={"side":side,"entry":entry,"entry_spread":entry_spread,"sl":entry-side*stop,"tp":entry+side*stop*1.5,"time":x.index[i+1]}
  if pos:
   r=x.iloc[-1]; gross=(float(r.close)-pos["entry"])*pos["side"]
-  cost=float(pos["entry_spread"])+float(r.spread)+0.70
+  cost=0.5*(float(pos["entry_spread"])+float(r.spread))+0.70
   trades.append({"strategy":name,"entry_time":str(pos["time"]),"exit_time":str(x.index[-1]),"net_price_units":gross-cost,"gross_price_units":gross,"cost_price_units":cost,"reason":"END_OF_DATA_MARK"})
  td=pd.DataFrame(trades)
  if td.empty: return {"strategy":name,"trade_count":0,"note":"No trades; no performance conclusion"},td
@@ -145,7 +145,7 @@ def replay(b,name,split):
   eq=d.net_price_units.cumsum(); dd=(eq.cummax()-eq).max()
   return {"trade_count":int(len(d)),"net_price_units":float(d.net_price_units.sum()),"profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((d.net_price_units>0).mean()*100),"max_trade_sequence_drawdown_price_units":float(dd),"average_net_price_units":float(d.net_price_units.mean())}
  dates=pd.to_datetime(td.entry_time,utc=True)
- return {"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":0.35,"spread_cap_price_units":0.80,"commission":0,"spread_cost":"full quoted spread charged per round trip plus two-sided slippage; mid-price entry to avoid spread double-counting"},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing assumes stop first when both hit","session uses UTC; broker timezone/DST unverified","VWAP is M5 tick-count-weighted typical-price proxy, not exchange volume","synthetic M5 OHLC aggregation cannot establish true tick fill order"]},td
+ return {"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":0.35,"spread_cap_price_units":0.80,"commission":0,"spread_cost":"half of entry spread plus half of exit spread for mid-price P/L; plus two-sided slippage (0.35 per side)"},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing assumes stop first when both hit","session uses UTC; broker timezone/DST unverified","VWAP is M5 tick-count-weighted typical-price proxy, not exchange volume","synthetic M5 OHLC aggregation cannot establish true tick fill order"]},td
 
 def main():
  if not ARCHIVE.exists(): raise FileNotFoundError("Tick archive missing: "+str(ARCHIVE))
@@ -192,6 +192,28 @@ def main():
     stress[strategy][f"{mult:.1f}x_cost"]={"trade_count":int(len(net)),"net_price_units":float(net.sum()),
      "profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((net>0).mean()*100)}
   report["cost_stress_same_signals"]=stress
+  # Fixed-parameter chronological stability folds; no fold is used to tune parameters.
+  # Fold boundaries are equal-duration thirds of the full observed timestamp range.
+  fold_start=ticks.timestamp.min()
+  fold_end=ticks.timestamp.max()
+  total_seconds=max((fold_end-fold_start).total_seconds(),1.0)
+  fold_edges=[fold_start, fold_start+pd.Timedelta(seconds=total_seconds/3),
+              fold_start+pd.Timedelta(seconds=2*total_seconds/3), fold_end+pd.Timedelta(microseconds=1)]
+  fold_report={}
+  for strategy,group in ledger.groupby("strategy"):
+   group=group.copy()
+   group["entry_dt"]=pd.to_datetime(group["entry_time"],utc=True)
+   fold_report[strategy]=[]
+   for fi in range(3):
+    fg=group[(group.entry_dt>=fold_edges[fi])&(group.entry_dt<fold_edges[fi+1])]
+    net=fg["net_price_units"]
+    wins=float(net[net>0].sum()); losses=float(-net[net<0].sum())
+    fold_report[strategy].append({"fold":fi+1,"start_utc":fold_edges[fi].isoformat(),
+     "end_utc":fold_edges[fi+1].isoformat(),"trade_count":int(len(fg)),
+     "net_price_units":float(net.sum()) if len(net) else 0.0,
+     "profit_factor":float(wins/losses) if losses>0 else (None if wins==0 else "INF"),
+     "win_rate_pct":float((net>0).mean()*100) if len(net) else None})
+  report["fixed_parameter_chronological_folds"]=fold_report
  data_days=(ticks.timestamp.max()-ticks.timestamp.min()).total_seconds()/86400.0
  report["coverage_days_elapsed"]=float(data_days)
  report["qualification_policy"]={
@@ -216,7 +238,7 @@ def main():
   if oosm.get("profit_factor") is None or oosm.get("profit_factor",0)<1.10: reasons.append("out-of-sample PF below 1.10")
   if oosm.get("net_price_units",0)<=0: reasons.append("out-of-sample net result is not positive")
   reasons.append("data is third-party Dukascopy, not verified PXBT-native ticks")
-  reasons.append("short sample; multi-regime and walk-forward validation absent")
+  reasons.append("short sample; multi-regime walk-forward validation not yet established")
   reasons.append("commission/swap and execution-cost sensitivity not validated")
   reasons.append("native MT5 Every Tick Based on Real Ticks reproduction absent")
   res["qualification"]={"status":"BLOCKED_RESEARCH_ONLY","passed":False,"reasons":reasons}
