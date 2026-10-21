@@ -1,4 +1,5 @@
-# AUREON Ω XAUUSD Strategy Suite — Research Configuration v1
+# AUREON Ω XAUUSD Strategy Suite — Research Configuration v1.1
+# A+ is a qualification target, not a performance claim. Research remains DEMO_ONLY.
 # Candidate parameters are hypotheses until validated on native MT5 real ticks.
 common:
   symbol: XAUUSD
@@ -15,6 +16,14 @@ common:
   cooldown_minutes: 30
   stop_atr_multiple: 1.5
   reward_risk: 1.5
+  max_entry_spread_atr: 0.15
+  max_margin_use_percent: 50.0
+  min_free_margin_percent: 50.0
+  risk_sizing_method: OrderCalcProfit
+  require_strict_account_trade_mode_demo: true
+  reject_min_lot_if_over_risk_budget: true
+  persistent_daily_loss_and_peak_dd_locks: true
+  no_same_bar_reentry: true
   preserve_frozen_v212: true
   benchmark_v212_reported_pf: 2.58
   benchmark_v217_reported_pf: 2.48
@@ -47,4 +56,7 @@ strategies:
 leaderboard:
   primary_sort: profit_factor_descending
   required_metrics: [net_profit_after_costs, profit_factor, max_equity_drawdown_percent, recovery_factor, trade_count, average_trade_after_costs, out_of_sample_profit_factor]
-  reject_if: [missing_real_tick_provenance, unmodeled_spread_commission_or_slippage, fewer_than_100_closed_trades_for_primary_rank, out_of_sample_profit_factor_below_1.0]
+  reject_if: [missing_real_tick_provenance, unmodeled_spread_commission_or_slippage, fewer_than_100_closed_trades_for_primary_rank, out_of_sample_profit_factor_below_1.0, missing_cost_stress_test, missing_walk_forward_test, unresolved_lookahead_bias, nonpositive_net_expectancy, drawdown_limit_breach]
+  required_validation: [native_MT5_Every_Tick_Based_On_Real_Ticks, spread_slippage_commission_swap_stress, chronological_train_validation_test, walk_forward, parameter_sensitivity, bootstrap_or_monte_carlo_trade_order, independent_reproduction]
+  status_labels: [UNVERIFIED, RESEARCH_ONLY, QUALIFIED_DEMO, BLOCKED]
+  promotion_rule: Never promote on in-sample PF alone; require all gates and human review; live remains BLOCKED.
