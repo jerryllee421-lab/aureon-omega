@@ -6,8 +6,6 @@
 #property strict
 #property version   "1.00"
 #property description "AUREON XAUUSD strategy comparison EA; demo-only research"
-#include <Trade/Trade.mqh>
-CTrade trade;
 
 enum ENUM_AUREON_STRATEGY { STRAT_M5_MEAN_REVERSION=0, STRAT_H4_BREAKOUT=1, STRAT_SESSION_BREAKOUT=2, STRAT_DAILY_CRT=3 };
 input ENUM_AUREON_STRATEGY InpStrategy=STRAT_M5_MEAN_REVERSION;
@@ -113,12 +111,31 @@ bool PlaceTrade(int direction,double atr,string tag)
    int stops=(int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
    if(MathAbs(entry-stop)<stops*_Point || MathAbs(target-entry)<stops*_Point) return false;
    double lots=LotsForRisk(entry,stop); if(lots<=0) return false;
-   trade.SetExpertMagicNumber(InpMagic); trade.SetDeviationInPoints(InpDeviationPoints); trade.SetTypeFillingBySymbol(_Symbol);
-   bool ok=false;
-   if(direction>0 && InpAllowLong) ok=trade.Buy(lots,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),tag);
-   if(direction<0 && InpAllowShort) ok=trade.Sell(lots,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),tag);
-   if(ok){ g_tradesToday++; g_lastTradeTime=TimeCurrent(); Print("AUREON_ENTRY strategy=",EnumToString(InpStrategy)," side=",direction," lots=",lots," tag=",tag); }
-   else Print("AUREON_ORDER_REJECT retcode=",trade.ResultRetcode()," desc=",trade.ResultRetcodeDescription());
+   if((direction>0 && !InpAllowLong)||(direction<0 && !InpAllowShort)) return false;
+   MqlTradeRequest request={};
+   MqlTradeResult result={};
+   request.action=TRADE_ACTION_DEAL;
+   request.symbol=_Symbol;
+   request.magic=InpMagic;
+   request.volume=lots;
+   request.type=(direction>0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
+   request.price=NormalizeDouble(entry,_Digits);
+   request.sl=NormalizeDouble(stop,_Digits);
+   request.tp=NormalizeDouble(target,_Digits);
+   request.deviation=(ulong)InpDeviationPoints;
+   request.comment=StringSubstr(tag,0,31);
+   long filling=SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
+   if((filling & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC) request.type_filling=ORDER_FILLING_IOC;
+   else if((filling & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK) request.type_filling=ORDER_FILLING_FOK;
+   else request.type_filling=ORDER_FILLING_RETURN;
+   if(!OrderSend(request,result))
+   {
+      Print("AUREON_ORDER_SEND_FAILED error=",GetLastError()," retcode=",result.retcode);
+      return false;
+   }
+   bool ok=(result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_DONE_PARTIAL || result.retcode==TRADE_RETCODE_PLACED);
+   if(ok){ g_tradesToday++; g_lastTradeTime=TimeCurrent(); Print("AUREON_ENTRY strategy=",EnumToString(InpStrategy)," side=",direction," lots=",lots," tag=",tag," order=",result.order," deal=",result.deal); }
+   else Print("AUREON_ORDER_REJECT retcode=",result.retcode," comment=",result.comment);
    return ok;
 }
 bool MeanReversionSignal(int &side,double &atr)
@@ -185,7 +202,7 @@ int OnInit()
    hEMA=iMA(_Symbol,PERIOD_M5,InpMeanEMA,0,MODE_EMA,PRICE_CLOSE); hRSI=iRSI(_Symbol,PERIOD_M5,InpRSIPeriod,PRICE_CLOSE);
    hATR=iATR(_Symbol,PERIOD_M5,14); hADX=iADX(_Symbol,PERIOD_M5,14);
    if(hEMA==INVALID_HANDLE||hRSI==INVALID_HANDLE||hATR==INVALID_HANDLE||hADX==INVALID_HANDLE){ Print("Indicator initialization failed."); return INIT_FAILED; }
-   trade.SetExpertMagicNumber(InpMagic); g_dayKey=DayKey(TimeCurrent()); g_dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY); g_peakEquity=g_dayStartEquity;
+   g_dayKey=DayKey(TimeCurrent()); g_dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY); g_peakEquity=g_dayStartEquity;
    Print("AUREON Strategy Suite v1.00 ready. Strategy=",EnumToString(InpStrategy)," symbol=",_Symbol," execution=M5 DEMO ONLY; live blocked.");
    return INIT_SUCCEEDED;
 }
