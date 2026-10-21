@@ -137,7 +137,8 @@ calendar_nonempty = sorted({x["date"] for x in calendar_inventory if x["rows"] >
 calendar_empty = sorted({x["date"] for x in calendar_inventory if x["rows"] == 0})
 calendar_missing_files = sorted(set(calendar_dates) - {x["date"] for x in calendar_inventory})
 calendar_missing_quote_dates = sorted(set(calendar_dates) - set(calendar_nonempty))
-archive_name_mismatch = [x["archive"] for x in archive_summaries if not re.search(r"2025-\d{2}", x["archive"])]
+archive_name_mismatch = [x["archive"] for x in archive_summaries if not re.fullmatch(r"xauusd-ticks-2025-(0[1-9]|1[0-2])\\.zip", x["archive"])]
+archive_naming_note = "Archive filenames are monthly labels only; verify member timestamp ranges because the published data windows may roll across month boundaries."
 coverage = {
     "calendar_year": "2025",
     "expected_calendar_days": len(calendar_dates),
@@ -149,8 +150,9 @@ coverage = {
     "first_date_with_quotes": min(calendar_nonempty) if calendar_nonempty else None,
     "last_date_with_quotes": max(calendar_nonempty) if calendar_nonempty else None,
     "complete_calendar_file_coverage": not calendar_missing_files,
-    "archive_names_follow_calendar_months": not archive_name_mismatch,
-    "archive_names_not_matching_calendar_month": archive_name_mismatch,
+    "archive_filenames_match_monthly_label_pattern": not archive_name_mismatch,
+    "archive_filenames_not_matching_monthly_label_pattern": archive_name_mismatch,
+    "archive_naming_note": archive_naming_note,
     "note": "Empty weekend/market-closure files are not automatically data defects; dates without files are reported separately."
 }
 (OUT / "calendar-coverage.json").write_text(json.dumps(coverage, indent=2), encoding="utf-8")
