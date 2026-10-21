@@ -79,8 +79,12 @@ def replay(b,name,split):
  # Construct fully closed HTF bars once. Their availability timestamp is the bar close.
  h4=x.resample("4h",label="left",closed="left").agg({"open":"first","high":"max","low":"min","close":"last"}).dropna()
  h4.index=h4.index+pd.Timedelta(hours=4)
+ h1=x.resample("1h",label="left",closed="left").agg({"open":"first","high":"max","low":"min","close":"last"}).dropna()
+ h1.index=h1.index+pd.Timedelta(hours=1)
  d1=x.resample("1D",label="left",closed="left").agg({"open":"first","high":"max","low":"min","close":"last"}).dropna()
  d1.index=d1.index+pd.Timedelta(days=1)
+ d1["ema20"]=d1.close.ewm(span=20,adjust=False).mean()
+ d1["ema50"]=d1.close.ewm(span=50,adjust=False).mean()
  trades=[]; pos=None; last_exit_i=-10**9; last_entry_time=None
  for i in range(30,len(x)-1):
   r=x.iloc[i]; t=x.index[i]
@@ -122,6 +126,47 @@ def replay(b,name,split):
     prev=avail.iloc[-1]
     if r.low<prev.low and prev.low<r.close<prev.high and r.close>r.open: side=1
     elif r.high>prev.high and prev.low<r.close<prev.high and r.close<r.open: side=-1
+  elif name=="h1_breakout":
+   avail=h1.loc[h1.index<=t]
+   if len(avail)>20:
+    cur=avail.iloc[-1]; prior=avail.iloc[-21:-1]
+    if cur.close>prior.high.max()+.1*r.atr: side=1
+    elif cur.close<prior.low.min()-.1*r.atr: side=-1
+  elif name=="amd_session":
+   # UTC proxy: accumulation 00:00-06:00; trade sweep/reclaim during 07:00-16:00.
+   day=t.floor("D")
+   acc=x.loc[(x.index>=day)&(x.index<day+pd.Timedelta(hours=6))]
+   if 7<=t.hour<16 and len(acc):
+    ahi=float(acc.high.max()); alo=float(acc.low.min())
+    if r.low<alo and r.close>alo and r.close>r.open: side=1
+    elif r.high>ahi and r.close<ahi and r.close<r.open: side=-1
+  elif name=="fvg_scalper":
+   # Three-candle imbalance, then closed-bar rejection into the gap; no future bars used.
+   if i>=3:
+    older=x.iloc[i-3]
+    formed=x.iloc[i-1]
+    if formed.low>older.high:
+     gap_lo=float(older.high); gap_hi=float(formed.low)
+     if r.low<=gap_hi and r.close>=(gap_lo+gap_hi)/2 and r.close>r.open: side=1
+    elif formed.high<older.low:
+     gap_lo=float(formed.high); gap_hi=float(older.low)
+     if r.high>=gap_lo and r.close<=(gap_lo+gap_hi)/2 and r.close<r.open: side=-1
+  elif name=="gold_trap":
+   # False break of the prior 12 completed M5 bars; requires close back inside the range.
+   prior=x.iloc[i-12:i]
+   if len(prior)==12:
+    hi=float(prior.high.max()); lo=float(prior.low.min())
+    upper_wick=float(r.high-max(r.open,r.close))
+    lower_wick=float(min(r.open,r.close)-r.low)
+    if r.high>hi and r.close<hi and upper_wick>=.20*r.atr and r.close<r.open: side=-1
+    elif r.low<lo and r.close>lo and lower_wick>=.20*r.atr and r.close>r.open: side=1
+  elif name=="daily_swing":
+   avail=d1.loc[d1.index<=t]
+   if len(avail)>=50:
+    d=avail.iloc[-1]
+    prev=x.iloc[i-1]
+    if d.close>d.ema20 and d.ema20>d.ema50 and prev.close<=prev.ema and r.close>r.ema: side=1
+    elif d.close<d.ema20 and d.ema20<d.ema50 and prev.close>=prev.ema and r.close<r.ema: side=-1
   elif name=="session_vwap_ema":
    day=t.floor("D"); sess=x.loc[(x.index>=day)&(x.index<=t)]
    vol=sess.tick_volume.clip(lower=0); denom=float(vol.sum())
@@ -174,7 +219,7 @@ def main():
  if len(b)<100: raise RuntimeError("Insufficient M5 bars: "+str(len(b)))
  split=b.index[int(len(b)*.7)]; report["m5_bars"]=int(len(b)); report["train_oos_split_utc"]=split.isoformat()
  ledgers=[]; results=[]
- for name in ("m5_mean_reversion","h4_breakout","session_breakout","daily_crt","session_vwap_ema"):
+ for name in ("m5_mean_reversion","h4_breakout","h1_breakout","session_breakout","daily_crt","session_vwap_ema","amd_session","fvg_scalper","gold_trap","daily_swing"):
   res,td=replay(b,name,split); results.append(res)
   if len(td): ledgers.append(td)
  # Explicitly separate exploratory replay from strategy qualification.
