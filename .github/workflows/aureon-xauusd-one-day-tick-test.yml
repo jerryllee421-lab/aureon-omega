@@ -1,0 +1,119 @@
+name: AUREON XAUUSD One-Day Tick Test
+
+on:
+  push:
+    branches: [feature/adaptive-prediction-engine]
+    paths:
+      - ".github/workflows/aureon-xauusd-one-day-tick-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tick-smoke-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download published October tick archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/xauusd-dukascopy-ticks-2026-10-01-to-2026-10-20-6439b55/xauusd-ticks-2026-10.zip"
+          curl --fail --location --retry 4 --retry-all-errors "$URL" -o /tmp/xauusd-ticks.zip
+          echo "d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0  /tmp/xauusd-ticks.zip" | sha256sum --check
+      - name: Install validator
+        run: python -m pip install --disable-pip-version-check pyarrow pandas
+      - name: Validate and run one-day bid/ask tick smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          import pandas as pd
+          import pyarrow.parquet as pq
+
+          archive = Path("/tmp/xauusd-ticks.zip")
+          with zipfile.ZipFile(archive) as z:
+              bad = z.testzip()
+              if bad:
+                  raise SystemExit(f"ZIP integrity failure: {bad}")
+              members = [n for n in z.namelist() if n.lower().endswith(".parquet")]
+              if not members:
+                  raise SystemExit("No Parquet files in archive")
+              candidates = []
+              for name in members:
+                  raw = z.read(name)
+                  tmp = Path("/tmp") / Path(name).name
+                  tmp.write_bytes(raw)
+                  table = pq.read_table(tmp)
+                  cols = set(table.column_names)
+                  if not {"time", "bid", "ask"}.issubset(cols):
+                      raise SystemExit(f"Missing required time/bid/ask columns: {name}")
+                  if table.num_rows:
+                      candidates.append((name, tmp, table.num_rows))
+              if not candidates:
+                  raise SystemExit("No non-empty tick files")
+              # Choose the most recent fully dated, non-empty daily file in the archive.
+              candidates.sort(key=lambda x: x[0])
+              name, path, rows = candidates[-1]
+              table = pq.read_table(path, columns=["time", "bid", "ask"])
+              df = table.to_pandas()
+              t = pd.to_datetime(df["time"], utc=True, errors="coerce")
+              if t.isna().any():
+                  # Handle numeric epoch timestamps with seconds or milliseconds.
+                  vals = pd.to_numeric(df["time"], errors="coerce")
+                  unit = "ms" if vals.dropna().median() > 10**11 else "s"
+                  t = pd.to_datetime(vals, unit=unit, utc=True, errors="coerce")
+              df["timestamp_utc"] = t
+              df["bid"] = pd.to_numeric(df["bid"], errors="coerce")
+              df["ask"] = pd.to_numeric(df["ask"], errors="coerce")
+              df = df.dropna(subset=["timestamp_utc","bid","ask"]).sort_values("timestamp_utc")
+              if df.empty:
+                  raise SystemExit("No parseable ticks after timestamp conversion")
+              if (df["bid"] <= 0).any() or (df["ask"] <= 0).any():
+                  raise SystemExit("Non-positive bid/ask quote")
+              if (df["ask"] < df["bid"]).any():
+                  raise SystemExit("Ask below bid")
+              # A tick feed must be timestamp ordered. Report duplicates, don't silently discard.
+              deltas = df["timestamp_utc"].diff().dt.total_seconds().dropna()
+              if (deltas < 0).any():
+                  raise SystemExit("Timestamp order failure")
+              spread = df["ask"] - df["bid"]
+              day = df["timestamp_utc"].dt.strftime("%Y-%m-%d").mode().iat[0]
+              report = {
+                  "test_type": "one-day raw tick feed smoke test; NOT MT5 Strategy Tester",
+                  "archive_sha256": "d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0",
+                  "selected_member": name,
+                  "selected_utc_day": day,
+                  "ticks_read": int(len(df)),
+                  "first_tick_utc": df["timestamp_utc"].iloc[0].isoformat(),
+                  "last_tick_utc": df["timestamp_utc"].iloc[-1].isoformat(),
+                  "nonpositive_quotes": int(((df["bid"] <= 0) | (df["ask"] <= 0)).sum()),
+                  "ask_below_bid": int((df["ask"] < df["bid"]).sum()),
+                  "timestamp_regressions": int((deltas < 0).sum()),
+                  "duplicate_timestamp_rows": int(df["timestamp_utc"].duplicated().sum()),
+                  "spread_price_units": {
+                    "median": float(spread.median()),
+                    "p95": float(spread.quantile(.95)),
+                    "p99": float(spread.quantile(.99)),
+                    "max": float(spread.max())
+                  },
+                  "unique_minutes": int(df["timestamp_utc"].dt.floor("min").nunique()),
+                  "pass": bool(len(df) > 0 and (df["bid"] > 0).all() and (df["ask"] >= df["bid"]).all() and not (deltas < 0).any())
+              }
+              Path("test-results/one-day-tick-smoke-test.json").write_text(json.dumps(report, indent=2)+"\n")
+              print(json.dumps(report, indent=2))
+              if not report["pass"]:
+                  raise SystemExit("Tick smoke test failed")
+          PY
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-xauusd-one-day-tick-smoke-test
+          path: test-results/
