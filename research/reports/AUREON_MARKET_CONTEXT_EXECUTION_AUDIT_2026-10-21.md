@@ -34,9 +34,13 @@ The existing 20-day third-party Dukascopy archive is insufficient to infer stabl
 5. **Sample/provenance:** archive is third-party Dukascopy, only about 20 days, and not verified PXBTTrading-1 native ticks.
 6. **Broker economics:** commission, swap, contract size, tick value and ZAR conversion remain unverified.
 
+## CI validation diagnosis
+
+The first CI attempt passed the application tests/build and Python syntax checks, then failed at the new Python unit-test step because the workflow environment had not installed pandas (and the replay also requires NumPy). This was a test-environment dependency omission, not a demonstrated strategy failure. The workflow now installs pandas, NumPy and PyArrow before running the regression tests. The corrected run is pending; do not treat it as passed until GitHub reports success.
+
 ## Next investigation sequence
 
-1. Run CI regression tests for this cost-timing correction.
+1. Confirm the dependency-corrected CI regression run passes.
 2. Implement quote-level execution: enter on first eligible tick after the completed M5 signal, buy at ask/sell at bid, and evaluate stop/target against executable quotes in chronological order.
 3. Add causal regime labels computed only from completed bars: volatility percentile, trend strength/slope, range-vs-expansion, and session. Freeze the definitions before evaluating.
 4. Report per-strategy and pooled trade expectancy by regime/session/direction, with sample counts and uncertainty; mark thin cells inconclusive.
