@@ -31,6 +31,15 @@ jobs:
         run: |
           curl --fail --location --retry 3 --output xauusd-ticks-2026-10.zip "https://github.com/jerryllee421-lab/aureon-omega/releases/download/xauusd-dukascopy-ticks-2026-10-01-to-2026-10-20-6439b55/xauusd-ticks-2026-10.zip"
           echo "d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0  xauusd-ticks-2026-10.zip" | sha256sum --check
+      - name: Inspect archive layout
+        run: |
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile("xauusd-ticks-2026-10.zip") as z:
+              for x in z.infolist()[:300]:
+                  print(f"{x.file_size}\t{x.filename}")
+              print("TOTAL_MEMBERS", len(z.infolist()))
+          PY
       - name: Audit archive and replay strategies
         env:
           TICK_ARCHIVE: xauusd-ticks-2026-10.zip
