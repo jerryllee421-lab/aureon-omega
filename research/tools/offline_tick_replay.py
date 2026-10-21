@@ -77,7 +77,10 @@ def load():
 def bars(t):
  d=t.set_index("timestamp"); m=((d.bid+d.ask)/2)
  b=m.resample("5min").ohlc()
- b["spread"]=d.assign(s=d.ask-d.bid).s.resample("5min").mean()
+ spread=d.assign(s=d.ask-d.bid).s
+ b["spread"]=spread.resample("5min").mean()
+ b["spread_open"]=spread.resample("5min").first()
+ b["spread_max"]=spread.resample("5min").max()
  b["tick_volume"]=d.bid.resample("5min").count()
  return b.dropna()
 def replay(b,name,split):
@@ -120,7 +123,9 @@ def replay(b,name,split):
    if ex is not None:
     gross=(ex-pos["entry"])*pos["side"]
     # Mid-price entry/exit, so charge full quoted spread + two-sided slippage.
-    cost=0.5*(float(pos["entry_spread"])+float(r.spread))+0.70
+    # Exit spread uses the full exit bar's maximum as a conservative cost bound;
+    # exact exit-time spread requires tick-level fill simulation.
+    cost=0.5*(float(pos["entry_spread"])+float(r.spread_max))+0.70
     trades.append({"strategy":name,"entry_time":str(pos["time"]),"exit_time":str(t),"net_price_units":gross-cost,"gross_price_units":gross,"cost_price_units":cost,"reason":why})
     pos=None; last_exit_i=i
   if pos or i-last_exit_i<6 or not np.isfinite(r.atr) or r.atr<=0 or not np.isfinite(r.rsi): continue
@@ -199,11 +204,14 @@ def replay(b,name,split):
     elif r.close<vwap and r.close<r.ema and prev.close>=prev.ema: side=-1
   if side:
    # Entry is next bar midpoint; costs are charged separately once at entry and exit.
-   entry=float(x.open.iloc[i+1]); entry_spread=float(x.spread.iloc[i+1]); stop=1.5*float(r.atr)
+   entry=float(x.open.iloc[i+1]); entry_spread=float(x.spread_open.iloc[i+1])
+   # Entry spread is known from the first quote of the entry bar, not its future average.
+   if not np.isfinite(entry_spread) or entry_spread<0 or entry_spread>0.80: continue
+   stop=1.5*float(r.atr)
    pos={"side":side,"entry":entry,"entry_spread":entry_spread,"sl":entry-side*stop,"tp":entry+side*stop*1.5,"time":x.index[i+1]}
  if pos:
   r=x.iloc[-1]; gross=(float(r.close)-pos["entry"])*pos["side"]
-  cost=0.5*(float(pos["entry_spread"])+float(r.spread))+0.70
+  cost=0.5*(float(pos["entry_spread"])+float(r.spread_max))+0.70
   trades.append({"strategy":name,"entry_time":str(pos["time"]),"exit_time":str(x.index[-1]),"net_price_units":gross-cost,"gross_price_units":gross,"cost_price_units":cost,"reason":"END_OF_DATA_MARK"})
  td=pd.DataFrame(trades)
  if td.empty: return {"strategy":name,"trade_count":0,"note":"No trades; no performance conclusion"},td
@@ -212,7 +220,7 @@ def replay(b,name,split):
   eq=d.net_price_units.cumsum(); dd=(eq.cummax()-eq).max()
   return {"trade_count":int(len(d)),"net_price_units":float(d.net_price_units.sum()),"profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((d.net_price_units>0).mean()*100),"max_trade_sequence_drawdown_price_units":float(dd),"average_net_price_units":float(d.net_price_units.mean())}
  dates=pd.to_datetime(td.entry_time,utc=True)
- return {"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":0.35,"spread_cap_price_units":0.80,"commission":0,"spread_cost":"half of entry spread plus half of exit spread for mid-price P/L; plus two-sided slippage (0.35 per side)"},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing assumes stop first when both hit","session uses UTC; broker timezone/DST unverified","VWAP is M5 tick-count-weighted typical-price proxy, not exchange volume","synthetic M5 OHLC aggregation cannot establish true tick fill order"]},td
+ return {"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":0.35,"spread_cap_price_units":0.80,"commission":0,"spread_cost":"half of first-quote entry spread plus half of maximum spread in the exit bar (conservative bound); plus two-sided slippage (0.35 per side)"},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing assumes stop first when both hit","session uses UTC; broker timezone/DST unverified","VWAP is M5 tick-count-weighted typical-price proxy, not exchange volume","synthetic M5 OHLC aggregation cannot establish true tick fill order","entry uses first quote spread; exit spread uses maximum spread in exit bar as conservative bound, not exact exit-time quote"]},td
 
 def main():
  if not ARCHIVE.exists(): raise FileNotFoundError("Tick archive missing: "+str(ARCHIVE))
