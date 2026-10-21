@@ -4,7 +4,7 @@
 //| DEMO-only research EA; not certified for live trading.            |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.00"
+#property version   "1.01"
 #property description "AUREON XAUUSD strategy comparison EA; demo-only research"
 
 enum ENUM_AUREON_STRATEGY { STRAT_M5_MEAN_REVERSION=0, STRAT_H4_BREAKOUT=1, STRAT_SESSION_BREAKOUT=2, STRAT_DAILY_CRT=3 };
@@ -40,6 +40,7 @@ datetime g_lastM5Bar=0,g_lastH4Processed=0,g_lastTradeTime=0;
 int g_dayKey=-1,g_tradesToday=0;
 double g_dayStartEquity=0.0,g_peakEquity=0.0;
 bool g_riskLocked=false;
+string g_statePrefix="";
 
 int DayKey(datetime t){ MqlDateTime d; TimeToStruct(t,d); return d.year*10000+d.mon*100+d.day; }
 bool IsDemoAccount()
@@ -61,10 +62,27 @@ bool GetClosedM5(MqlRates &bar){ MqlRates r[1]; if(CopyRates(_Symbol,PERIOD_M5,1
 void UpdateRiskState()
 {
    int key=DayKey(TimeCurrent()); double equity=AccountInfoDouble(ACCOUNT_EQUITY);
-   if(key!=g_dayKey){ g_dayKey=key; g_dayStartEquity=equity; g_tradesToday=0; g_riskLocked=false; g_peakEquity=equity; }
+   // Persist locks and peak equity across EA/terminal restarts for this account, symbol and magic.
+   string lockKey=g_statePrefix+"LOCK";
+   string peakKey=g_statePrefix+"PEAK";
+   if(GlobalVariableCheck(peakKey)) g_peakEquity=MathMax(g_peakEquity,GlobalVariableGet(peakKey));
+   if(g_peakEquity<=0.0) g_peakEquity=equity;
    if(equity>g_peakEquity) g_peakEquity=equity;
+   GlobalVariableSet(peakKey,g_peakEquity);
+   if(GlobalVariableCheck(lockKey) && GlobalVariableGet(lockKey)>0.5) g_riskLocked=true;
+   if(key!=g_dayKey)
+   {
+      g_dayKey=key; g_dayStartEquity=equity; g_tradesToday=0;
+      // A daily rollover does not clear an already-triggered peak drawdown lock.
+      string dayKeyName=g_statePrefix+"DAY";
+      string dayEqName=g_statePrefix+"DAYEQ";
+      if(GlobalVariableCheck(dayKeyName) && (int)GlobalVariableGet(dayKeyName)==key && GlobalVariableCheck(dayEqName))
+         g_dayStartEquity=GlobalVariableGet(dayEqName);
+      else { GlobalVariableSet(dayKeyName,(double)key); GlobalVariableSet(dayEqName,equity); }
+   }
    if(g_dayStartEquity>0 && equity<=g_dayStartEquity*(1.0-InpDailyLossLimitPct/100.0)) g_riskLocked=true;
    if(g_peakEquity>0 && equity<=g_peakEquity*(1.0-InpMaxPeakDrawdownPct/100.0)) g_riskLocked=true;
+   if(g_riskLocked) GlobalVariableSet(lockKey,1.0);
 }
 bool CanTrade()
 {
@@ -202,8 +220,14 @@ int OnInit()
    hEMA=iMA(_Symbol,PERIOD_M5,InpMeanEMA,0,MODE_EMA,PRICE_CLOSE); hRSI=iRSI(_Symbol,PERIOD_M5,InpRSIPeriod,PRICE_CLOSE);
    hATR=iATR(_Symbol,PERIOD_M5,14); hADX=iADX(_Symbol,PERIOD_M5,14);
    if(hEMA==INVALID_HANDLE||hRSI==INVALID_HANDLE||hATR==INVALID_HANDLE||hADX==INVALID_HANDLE){ Print("Indicator initialization failed."); return INIT_FAILED; }
-   g_dayKey=DayKey(TimeCurrent()); g_dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY); g_peakEquity=g_dayStartEquity;
-   Print("AUREON Strategy Suite v1.00 ready. Strategy=",EnumToString(InpStrategy)," symbol=",_Symbol," execution=M5 DEMO ONLY; live blocked.");
+   g_statePrefix=StringFormat("AUR_%I64d_%s_%I64u_",AccountInfoInteger(ACCOUNT_LOGIN),_Symbol,InpMagic);
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   g_dayKey=-1;
+   if(GlobalVariableCheck(g_statePrefix+"PEAK")) g_peakEquity=GlobalVariableGet(g_statePrefix+"PEAK");
+   if(g_peakEquity<=0.0) g_peakEquity=equity;
+   if(GlobalVariableCheck(g_statePrefix+"LOCK") && GlobalVariableGet(g_statePrefix+"LOCK")>0.5) g_riskLocked=true;
+   UpdateRiskState();
+   Print("AUREON Strategy Suite v1.01 ready. Strategy=",EnumToString(InpStrategy)," symbol=",_Symbol," execution=M5 DEMO ONLY; live blocked; persistent drawdown lock enabled.");
    return INIT_SUCCEEDED;
 }
 void OnDeinit(const int reason){ if(hEMA!=INVALID_HANDLE)IndicatorRelease(hEMA); if(hRSI!=INVALID_HANDLE)IndicatorRelease(hRSI); if(hATR!=INVALID_HANDLE)IndicatorRelease(hATR); if(hADX!=INVALID_HANDLE)IndicatorRelease(hADX); }
