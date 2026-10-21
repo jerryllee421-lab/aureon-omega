@@ -94,8 +94,12 @@ def replay(b,name,split):
  tr=pd.concat([x.high-x.low,(x.high-c.shift()).abs(),(x.low-c.shift()).abs()],axis=1).max(axis=1)
  x["atr"]=tr.ewm(alpha=1/14,adjust=False).mean()
  x["adx"]=np.nan
- plus_dm=x.high.diff(); minus_dm=-x.low.diff()
- plus_dm=plus_dm.where((plus_dm>minus_dm)&(plus_dm>0),0.0); minus_dm=minus_dm.where((minus_dm>plus_dm)&(minus_dm>0),0.0)
+ raw_plus_dm=x.high.diff()
+ raw_minus_dm=-x.low.diff()
+ # Compare raw directional moves before masking either series. Mutating +DM first
+ # would otherwise change the condition used to calculate -DM and bias ADX.
+ plus_dm=raw_plus_dm.where((raw_plus_dm>raw_minus_dm)&(raw_plus_dm>0),0.0)
+ minus_dm=raw_minus_dm.where((raw_minus_dm>raw_plus_dm)&(raw_minus_dm>0),0.0)
  atr_wilder=tr.ewm(alpha=1/14,adjust=False).mean().replace(0,np.nan)
  pdi=100*plus_dm.ewm(alpha=1/14,adjust=False).mean()/atr_wilder
  mdi=100*minus_dm.ewm(alpha=1/14,adjust=False).mean()/atr_wilder
