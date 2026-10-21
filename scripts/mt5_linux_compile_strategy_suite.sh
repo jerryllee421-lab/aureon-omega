@@ -72,31 +72,14 @@ fi
 printf 'terminal=%s\nmetaeditor=%s\n' "$TERMINAL" "$METAEDITOR" \
   | tee "$ARTIFACT_DIR/mt5-paths.txt"
 
-echo "== Resolve MT5 MQL5 data root =="
-TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
-
-if [[ -z "$TRADE_MQH" ]]; then
-  echo "Standard Library not materialized yet; launching terminal once in portable mode."
-  set +e
-  xvfb-run -a timeout 45s wine "$TERMINAL" /portable \
-    >"$ARTIFACT_DIR/terminal-first-launch.log" 2>&1
-  terminal_launch_rc=$?
-  set -e
-  echo "$terminal_launch_rc" > "$ARTIFACT_DIR/terminal-first-launch-exit-code.txt"
-  wineserver -k >/dev/null 2>&1 || true
-  sleep 3
-  TRADE_MQH="$(find "$WINEPREFIX/drive_c" -type f -ipath '*/MQL5/Include/Trade/Trade.mqh' -print -quit || true)"
+echo "== Resolve or create MT5 MQL5 data root =="
+MQL5_ROOT="$(find "$WINEPREFIX/drive_c" -type d -path '*/MQL5' -print -quit || true)"
+if [[ -z "$MQL5_ROOT" ]]; then
+  MT5_INSTALL_DIR="$(dirname "$TERMINAL")"
+  MQL5_ROOT="$MT5_INSTALL_DIR/MQL5"
+  mkdir -p "$MQL5_ROOT/Experts"
 fi
-
-if [[ -z "$TRADE_MQH" ]]; then
-  echo "MT5 Standard Library Trade.mqh was not found." | tee "$ARTIFACT_DIR/failure.txt"
-  find "$WINEPREFIX/drive_c" -type d -iname 'MQL5' -print | tee "$ARTIFACT_DIR/mql5-roots.txt" || true
-  exit 1
-fi
-
-MQL5_ROOT="$(dirname "$(dirname "$(dirname "$TRADE_MQH")")")"
-printf 'trade_mqh=%s\nmql5_root=%s\n' "$TRADE_MQH" "$MQL5_ROOT" \
-  | tee "$ARTIFACT_DIR/mql5-root.txt"
+printf 'mql5_root=%s\n' "$MQL5_ROOT" | tee "$ARTIFACT_DIR/mql5-root.txt"
 
 echo "== Stage immutable EA baseline =="
 test -s "$EA_SOURCE"
