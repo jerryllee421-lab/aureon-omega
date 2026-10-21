@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - research/tools/offline_tick_replay.py
+      - research/tools/daily_crt_0900_sweep.py
       - .github/workflows/aureon-offline-tick-replay.yml
     branches:
       - research/xauusd-strategy-suite-20261021
@@ -46,6 +47,13 @@ jobs:
           TICK_ARCHIVE: xauusd-ticks-2026-10.zip
           EXPECTED_SHA256: d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0
         run: python research/tools/offline_tick_replay.py
+      - name: Run 09:00 CRT setup and parameter sweep
+        env:
+          TICK_ARCHIVE: xauusd-ticks-2026-10.zip
+          EXPECTED_SHA256: d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0
+          CRT_SESSION_HOUR_UTC: '7'
+          CRT_WINDOW_MINUTES: '120'
+        run: python research/tools/daily_crt_0900_sweep.py
       - name: Upload research report and trade ledger
         if: always()
         uses: actions/upload-artifact@v4
