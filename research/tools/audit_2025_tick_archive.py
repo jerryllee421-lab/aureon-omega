@@ -74,6 +74,7 @@ def audit_frame(df, archive, member):
 reports = []
 archive_summaries = []
 errors = []
+file_date_inventory = []
 for month in MONTHS:
     path = ROOT / f"xauusd-ticks-{month}.zip"
     if not path.exists():
@@ -98,6 +99,9 @@ for month in MONTHS:
                         frame = load_member(zf, name)
                         if frame is not None:
                             reports.append(audit_frame(frame, path.name, name))
+                            dm = re.search(r"(20\\d{2}-\\d{2}-\\d{2})", name)
+                            if dm:
+                                file_date_inventory.append({"date": dm.group(1), "archive": path.name, "rows": int(len(frame)), "member": name})
                             found += 1
                     except Exception as e:
                         errors.append(f"READ_ERROR:{path.name}:{name}:{type(e).__name__}:{e}")
@@ -126,8 +130,34 @@ with (OUT / "table-audit.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=keys); w.writeheader()
         for r in reports: w.writerow({k: json.dumps(v) if isinstance(v, (list, dict)) else v for k,v in r.items()})
 valid = [r for r in reports if r.get("schema_status") == "OK"]
+all_dates = sorted({x["date"] for x in file_date_inventory})
+calendar_dates = pd.date_range("2025-01-01", "2025-12-31", freq="D").strftime("%Y-%m-%d").tolist()
+calendar_inventory = [x for x in file_date_inventory if x["date"].startswith("2025-")]
+calendar_nonempty = sorted({x["date"] for x in calendar_inventory if x["rows"] > 0})
+calendar_empty = sorted({x["date"] for x in calendar_inventory if x["rows"] == 0})
+calendar_missing_files = sorted(set(calendar_dates) - {x["date"] for x in calendar_inventory})
+calendar_missing_quote_dates = sorted(set(calendar_dates) - set(calendar_nonempty))
+archive_name_mismatch = [x["archive"] for x in archive_summaries if not re.search(r"2025-\\d{2}", x["archive"])]
+coverage = {
+    "calendar_year": "2025",
+    "expected_calendar_days": len(calendar_dates),
+    "daily_files_for_2025": len(calendar_inventory),
+    "dates_with_quotes": len(calendar_nonempty),
+    "empty_daily_files": len(calendar_empty),
+    "missing_daily_files": calendar_missing_files,
+    "dates_without_quotes_including_expected_market_closures": calendar_missing_quote_dates,
+    "first_date_with_quotes": min(calendar_nonempty) if calendar_nonempty else None,
+    "last_date_with_quotes": max(calendar_nonempty) if calendar_nonempty else None,
+    "complete_calendar_file_coverage": not calendar_missing_files,
+    "archive_names_follow_calendar_months": not archive_name_mismatch,
+    "archive_names_not_matching_calendar_month": archive_name_mismatch,
+    "note": "Empty weekend/market-closure files are not automatically data defects; dates without files are reported separately."
+}
+(OUT / "calendar-coverage.json").write_text(json.dumps(coverage, indent=2), encoding="utf-8")
+(OUT / "daily-file-inventory.json").write_text(json.dumps(file_date_inventory, indent=2), encoding="utf-8")
 summary = {
     "scope": "Published third-party Dukascopy XAUUSD archive; not PrimeXBT-native tick data",
+    "calendar_coverage": coverage,
     "expected_months": MONTHS,
     "archives_found": len(archive_summaries),
     "tables_found": len(reports),
@@ -138,9 +168,9 @@ summary = {
     "negative_spread_rows": sum(r.get("negative_spread_rows", 0) for r in valid),
     "duplicate_quote_rows": sum(r.get("duplicate_quote_rows", 0) for r in valid),
     "errors": errors,
-    "qualification": "AUDIT_ONLY_NOT_BROKER_CERTIFIED" if not errors and len(archive_summaries) == 12 and valid else "BLOCKED_INCOMPLETE_OR_UNRECOGNIZED",
+    "qualification": "AUDIT_ONLY_NOT_BROKER_CERTIFIED" if not errors and len(archive_summaries) == 12 and valid and coverage["complete_calendar_file_coverage"] else "BLOCKED_INCOMPLETE_COVERAGE_OR_UNRECOGNIZED",
 }
 (OUT / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 print(json.dumps(summary, indent=2))
-if errors or len(archive_summaries) != 12 or not valid:
+if errors or len(archive_summaries) != 12 or not valid or not coverage["complete_calendar_file_coverage"]:
     raise SystemExit(2)
