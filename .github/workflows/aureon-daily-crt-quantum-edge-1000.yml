@@ -1,0 +1,40 @@
+name: AUREON Daily CRT Quantum Edge 1000
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  daily-crt-quantum-edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout isolated CRT research branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/daily-crt-quantum-edge-1000-20261021
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pandas numpy pyarrow
+      - name: Download and verify tick archive
+        run: |
+          curl --fail --location --retry 3 --output xauusd-ticks-2026-10.zip "https://github.com/jerryllee421-lab/aureon-omega/releases/download/xauusd-dukascopy-ticks-2026-10-01-to-2026-10-20-6439b55/xauusd-ticks-2026-10.zip"
+          echo "d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0  xauusd-ticks-2026-10.zip" | sha256sum --check
+      - name: Run focused 1,000-configuration Daily CRT sweep
+        env:
+          TICK_ARCHIVE: xauusd-ticks-2026-10.zip
+          EXPECTED_SHA256: d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0
+        run: python research/tools/daily_crt_quantum_edge_1000.py
+      - name: Upload CRT leaderboard and trade ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-daily-crt-quantum-edge-1000
+          path: research-output/daily_crt_quantum_edge_*
+          if-no-files-found: warn
+          retention-days: 30
