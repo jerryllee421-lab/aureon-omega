@@ -258,9 +258,9 @@ bool SessionVWAPEMASignal(int &side,double &atr)
 {
    side=0;
    if(!ReadValue(hATR,0,1,atr)) return false;
-   MqlRates b[3]; ArraySetAsSeries(b,true);
+   MqlRates b[]; ArraySetAsSeries(b,true);
    if(CopyRates(_Symbol,PERIOD_M5,1,3,b)!=3) return false;
-   double ema1[2]; ArraySetAsSeries(ema1,true);
+   double ema1[]; ArraySetAsSeries(ema1,true);
    if(CopyBuffer(hEMA,0,1,2,ema1)!=2) return false;
    MqlDateTime dt; TimeToStruct(b[0].time,dt);
    MqlDateTime start=dt; start.hour=InpVWAPStartHour; start.min=0; start.sec=0;
