@@ -1,0 +1,235 @@
+name: AUREON MT5 Real-Tick Archive
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/adaptive-prediction-engine
+    paths:
+      - '.github/workflows/aureon-mt5-real-tick-archive.yml'
+      - 'scripts/mt5/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aureon-xauusd-real-tick-archive
+  cancel-in-progress: true
+
+jobs:
+  compile-exporter:
+    name: Compile research-only MQL5 exporter
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and install official MT5 for MetaEditor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer
+          $proc = Start-Process -FilePath $installer -ArgumentList @('/auto', '/path:C:\AUREON_MT5') -PassThru -Wait
+          $meta = 'C:\AUREON_MT5\MetaEditor64.exe'
+          if (!(Test-Path $meta)) {
+            Get-ChildItem C:\ -Filter MetaEditor64.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 10 FullName
+            throw 'Official installer did not provide MetaEditor64.exe at the expected path.'
+          }
+          New-Item -ItemType Directory -Force -Path 'C:\AUREON_MT5\MQL5\Experts\AUREON' | Out-Null
+          Copy-Item 'scripts\mt5\AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5' 'C:\AUREON_MT5\MQL5\Experts\AUREON\'
+
+      - name: Compile exporter and verify zero errors
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = 'C:\AUREON_MT5\MetaEditor64.exe'
+          $source = 'C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5'
+          $log = 'C:\AUREON_MT5\exporter-compile.log'
+          $p = Start-Process -FilePath $meta -ArgumentList @("/compile:$source", "/log:$log") -PassThru
+          try { Wait-Process -Id $p.Id -Timeout 120 } catch { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'MetaEditor compile timed out.' }
+          if (!(Test-Path $log)) { throw 'MetaEditor compile log was not created.' }
+          $content = Get-Content $log -Raw
+          Write-Output $content
+          if (!(Test-Path 'C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5')) {
+            throw 'Compiled EX5 is missing.'
+          }
+          if ($content -notmatch '(?i)0 errors') { throw 'Compile log does not confirm zero errors.' }
+          New-Item -ItemType Directory -Force -Path 'artifact' | Out-Null
+          Copy-Item $source 'artifact\'
+          Copy-Item 'C:\AUREON_MT5\MQL5\Experts\AUREON\AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5' 'artifact\'
+          Copy-Item $log 'artifact\exporter-compile.log'
+
+      - name: Upload compiled exporter for Linux/Wine run
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-mql5-exporter
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 3
+
+  export-real-ticks:
+    name: Export 740 days of MT5 XAUUSD real ticks (demo-only)
+    needs: compile-exporter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      WINEARCH: win64
+      WINEDEBUG: -all
+      MT5_INSTALLER_URL: https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download compiled exporter
+        uses: actions/download-artifact@v4
+        with:
+          name: aureon-mql5-exporter
+          path: ${{ runner.temp }}/aureon-exporter
+
+      - name: Validate demo-only secrets
+        shell: bash
+        env:
+          MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+          MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$MT5_DEMO_LOGIN" || { echo "Missing repository secret MT5_DEMO_LOGIN"; exit 1; }
+          test -n "$MT5_DEMO_PASSWORD" || { echo "Missing repository secret MT5_DEMO_PASSWORD"; exit 1; }
+          [[ "$MT5_DEMO_LOGIN" =~ ^[0-9]+$ ]] || { echo "MT5_DEMO_LOGIN must be numeric"; exit 1; }
+          echo "Secret presence and server checks passed; values are not printed."
+
+      - name: Install Wine and utilities
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wine xvfb xauth cabextract winbind curl ca-certificates p7zip-full zip unzip
+          wine --version
+
+      - name: Initialize isolated Wine prefix
+        run: |
+          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
+          mkdir -p "$WINEPREFIX"
+          xvfb-run -a timeout 180s wineboot -u
+          wineserver -w || true
+
+      - name: Install official MT5 terminal and stage exporter
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
+          curl --fail --location --retry 5 --retry-delay 3 "$MT5_INSTALLER_URL" -o "$RUNNER_TEMP/mt5setup.exe"
+          sha256sum "$RUNNER_TEMP/mt5setup.exe" > "$RUNNER_TEMP/mt5-installer.sha256"
+          xvfb-run -a timeout 180s wine "$RUNNER_TEMP/mt5setup.exe" /auto /path:"C:\\AUREON_MT5" || true
+          # Installer may auto-launch the GUI terminal; stop it here to avoid waiting on an interactive process.
+          wineserver -k || true
+          sleep 2
+          TERMINAL="$(find "$WINEPREFIX/drive_c" -type f -iname terminal64.exe -print -quit)"
+          test -n "$TERMINAL" || { echo "Official MT5 terminal executable missing after install"; exit 1; }
+          INSTALL_ROOT="$(dirname "$TERMINAL")"
+          mkdir -p "$INSTALL_ROOT/MQL5/Experts/AUREON"
+          cp "$RUNNER_TEMP/aureon-exporter/AUREON_XAUUSD_REAL_TICK_EXPORTER.mq5" "$INSTALL_ROOT/MQL5/Experts/AUREON/"
+          cp "$RUNNER_TEMP/aureon-exporter/AUREON_XAUUSD_REAL_TICK_EXPORTER.ex5" "$INSTALL_ROOT/MQL5/Experts/AUREON/"
+          echo "TERMINAL=$TERMINAL" >> "$GITHUB_ENV"
+          echo "INSTALL_ROOT=$INSTALL_ROOT" >> "$GITHUB_ENV"
+          echo "MQL5_ROOT=$INSTALL_ROOT/MQL5" >> "$GITHUB_ENV"
+
+      - name: Run exporter with isolated DEMO credentials
+        shell: bash
+        env:
+          MT5_DEMO_LOGIN: ${{ secrets.MT5_DEMO_LOGIN }}
+          MT5_DEMO_PASSWORD: ${{ secrets.MT5_DEMO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$RUNNER_TEMP/aureon-mt5-wine"
+          CONFIG="$RUNNER_TEMP/mt5-demo-export.ini"
+          {
+            printf '[Common]\r\nLogin=%s\r\nPassword=%s\r\nServer=PXBTTrading-1\r\nKeepPrivate=1\r\n' "$MT5_DEMO_LOGIN" "$MT5_DEMO_PASSWORD"
+            printf '[Experts]\r\nEnabled=1\r\nAllowLiveTrading=0\r\nAllowDllImport=0\r\n\r\n[StartUp]\r\nSymbol=XAUUSD\r\nPeriod=M1\r\nExpert=AUREON\\AUREON_XAUUSD_REAL_TICK_EXPORTER\r\n'
+          } > "$CONFIG"
+          chmod 600 "$CONFIG"
+          unset MT5_DEMO_LOGIN MT5_DEMO_PASSWORD
+          echo "Launching MT5 terminal in portable mode with DEMO-only account config."
+          # Keep the virtual display alive independently; detached xvfb-run can tear
+          # down its X server before the terminal has finished initializing.
+          Xvfb :97 -screen 0 1280x900x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/xvfb.pid"
+          export DISPLAY=:97
+          for i in $(seq 1 20); do
+            [[ -S /tmp/.X11-unix/X97 ]] && break
+            sleep 1
+          done
+          test -S /tmp/.X11-unix/X97 || { echo "Virtual display failed to initialize"; cat "$RUNNER_TEMP/xvfb.log"; exit 1; }
+          wine "$TERMINAL" /portable "/config:$(winepath -w "$CONFIG")" > "$RUNNER_TEMP/terminal.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/terminal.pid"
+          sleep 10
+          if ! kill -0 "$(cat "$RUNNER_TEMP/terminal.pid")" 2>/dev/null; then
+            echo "MT5 terminal exited immediately after launch."
+            cat "$RUNNER_TEMP/terminal.log" || true
+            cat "$RUNNER_TEMP/xvfb.log" || true
+            exit 1
+          fi
+          COMMON_FILES=""
+          for i in $(seq 1 19800); do
+            if [[ -z "$COMMON_FILES" ]]; then
+              COMMON_FILES="$(find "$WINEPREFIX/drive_c/users" -type d -path '*/MetaQuotes/Terminal/Common/Files/AUREON_XAUUSD_Ticks' -print -quit || true)"
+            fi
+            if [[ -z "$COMMON_FILES" && -d "$INSTALL_ROOT/MQL5/Files/AUREON_XAUUSD_Ticks" ]]; then
+              COMMON_FILES="$INSTALL_ROOT/MQL5/Files/AUREON_XAUUSD_Ticks"
+            fi
+            if [[ -n "$COMMON_FILES" && -s "$COMMON_FILES/DONE.flag" ]]; then
+              echo "COMMON_FILES=$COMMON_FILES" >> "$GITHUB_ENV"
+              echo "Exporter completion marker found."; exit 0
+            fi
+            if [[ "$i" -eq 240 && ( -z "$COMMON_FILES" || ! -s "$COMMON_FILES/manifest.csv" ) ]]; then
+              echo "Exporter did not initialize within 240 seconds; refusing to wait for the full job timeout."
+              echo "=== terminal process ==="
+              ps -ef | grep -Ei 'terminal64|metatrader' | grep -v grep || true
+              echo "=== terminal stdout/stderr ==="
+              tail -n 160 "$RUNNER_TEMP/terminal.log" || true
+              echo "=== latest MT5 logs ==="
+              find "$WINEPREFIX/drive_c" -type f \( -path '*/MQL5/Logs/*' -o -path '*/Logs/*' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -8 | cut -d' ' -f2- | while IFS= read -r logfile; do
+                echo "--- $logfile"
+                tail -n 100 "$logfile" 2>/dev/null | sed -E 's/^(Password=).*/\1[REDACTED]/I' || true
+              done
+              echo "=== candidate exporter output directories ==="
+              find "$WINEPREFIX/drive_c" -type d -name 'AUREON_XAUUSD_Ticks' -print 2>/dev/null || true
+              echo "=== startup config (password withheld) ==="
+              sed -E 's/^(Password=).*/\1[REDACTED]/I' "$CONFIG" || true
+              exit 1
+            fi
+            if grep -q 'AUREON_EXPORT_FATAL' "$RUNNER_TEMP/terminal.log" 2>/dev/null; then
+              echo "Exporter reported fatal error."; tail -n 120 "$RUNNER_TEMP/terminal.log" || true; exit 1
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for MT5 tick export."; tail -n 120 "$RUNNER_TEMP/terminal.log" || true; exit 1
+
+      - name: Validate coverage and package monthly archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$COMMON_FILES/DONE.flag"
+          test -s "$COMMON_FILES/manifest.csv"
+          mkdir -p release_assets
+          cp "$COMMON_FILES/manifest.csv" release_assets/mt5_tick_daily_manifest.csv
+          cp "$COMMON_FILES/status.txt" release_assets/mt5_tick_coverage_status.txt
+          cp "$RUNNER_TEMP/aureon-exporter/exporter-compile.log" release_assets/exporter_compile.log
+          cp "$RUNNER_TEMP/mt5-installer.sha256" release_assets/mt5_installer.sha256
+          python3 scripts/mt5/package_real_ticks.py --source "$COMMON_FILES" --out release_assets --min-days 730
+          find release_assets -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          sha256sum release_assets/* > release_assets/SHA256SUMS.txt
+
+      - name: Publish persistent GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: xauusd-real-ticks-${{ github.run_id }}
+          name: "AUREON XAUUSD MT5 Real Ticks — run ${{ github.run_id }}"
+          body: |
+            Source: MT5 CopyTicksRange with COPY_TICKS_ALL from the PXBTTrading-1 DEMO terminal.
+            Requested span: 740 calendar days. Coverage validation passed before publication.
+            Market-data acquisition only; no orders are sent. No account credentials are included.
+            Archives are split by UTC month and include SHA-256 metadata.
+          draft: false
+          prerelease: false
+          files: release_assets/*
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,203 @@
+name: AUREON Dukascopy XAUUSD Tick Archive
+# Acquisition pipeline revision: 2026-10-20; push/manual runs acquire data, PR runs validate only.
+
+on:
+  push:
+    branches: [feature/adaptive-prediction-engine]
+    paths:
+      - ".github/workflows/aureon-dukascopy-ticks.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/aureon-dukascopy-ticks.yml"
+  workflow_dispatch:
+    inputs:
+      date_from:
+        description: "Start date UTC (YYYY-MM-DD)"
+        required: true
+        default: "2024-10-01"
+        type: string
+      date_to:
+        description: "End date UTC (YYYY-MM-DD)"
+        required: true
+        default: "2024-10-31"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  # Keep PR validation in a separate group so a queued PR run cannot cancel data acquisition.
+  group: ${{ github.event_name == 'pull_request' && format('aureon-dukascopy-ticks-pr-{0}', github.event.pull_request.number) || format('aureon-dukascopy-ticks-run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  download:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install resumable, rate-limited Dukascopy downloader
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/duka-venv"
+          "$RUNNER_TEMP/duka-venv/bin/python" -m pip install --upgrade pip dukascopy-downloader pyarrow
+          echo "$RUNNER_TEMP/duka-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/duka-venv/bin/duka" --help
+          "$RUNNER_TEMP/duka-venv/bin/duka" download --help
+
+      - name: Validate dates and download tick history in resumable monthly chunks
+        id: archive
+        shell: bash
+        env:
+          DATE_FROM: ${{ inputs.date_from }}
+          DATE_TO: ${{ inputs.date_to }}
+        run: |
+          set -euo pipefail
+          # On push events there are no workflow_dispatch inputs. Acquire the current
+          # UTC month-to-date by default; manual dispatch retains the explicit dates.
+          if [[ -z "${DATE_FROM:-}" || -z "${DATE_TO:-}" ]]; then
+            DATE_FROM="$(date -u +%Y-%m-01)"
+            DATE_TO="$(date -u +%F)"
+            export DATE_FROM DATE_TO
+          fi
+          python3 - <<'PY'
+          from datetime import date
+          import os, re
+          a, b = os.environ["DATE_FROM"], os.environ["DATE_TO"]
+          if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", b):
+              raise SystemExit("Dates must use YYYY-MM-DD")
+          start, end = date.fromisoformat(a), date.fromisoformat(b)
+          span = (end - start).days
+          if span < 0 or span > 30 or end < start:
+              raise SystemExit("Date range must contain at most 31 inclusive calendar days.")
+          PY
+          TAG="xauusd-dukascopy-ticks-${DATE_FROM}-to-${DATE_TO}-${GITHUB_SHA:0:7}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "date_from=$DATE_FROM" >> "$GITHUB_OUTPUT"
+          echo "date_to=$DATE_TO" >> "$GITHUB_OUTPUT"
+          ROOT="$RUNNER_TEMP/dukascopy-data"
+          mkdir -p "$ROOT" tick_archive/months
+          cursor="$DATE_FROM"
+          while [[ "$cursor" < "$DATE_TO" || "$cursor" == "$DATE_TO" ]]; do
+            month_start="$(date -u -d "$cursor" +%Y-%m-01)"
+            next_month="$(date -u -d "$month_start +1 month" +%F)"
+            period_end="$(date -u -d "$next_month -1 day" +%F)"
+            if [[ "$period_end" > "$DATE_TO" ]]; then period_end="$DATE_TO"; fi
+            period="$(date -u -d "$cursor" +%Y-%m)"
+            echo "::group::Download XAUUSD ticks $cursor to $period_end"
+            duka download XAUUSD --tf tick --from "$cursor" --to "$period_end" --side BOTH --data-dir "$ROOT" --rate 3 --retries 12
+            python3 - "$ROOT" "tick_archive/months/xauusd-ticks-$period.zip" "$cursor" "$period_end" <<'PY'
+          import json, sys, zipfile
+          from pathlib import Path
+          import pyarrow as pa
+          import pyarrow.compute as pc
+          import pyarrow.parquet as pq
+          src, out, start, end = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+          files = sorted(p for p in src.rglob("*.parquet") if p.is_file() and start <= p.stem[:10] <= end)
+          if not files:
+              raise SystemExit(f"No Parquet tick files found for {start}..{end}; fail closed")
+          required = {"time", "bid", "ask"}
+          rows_total, first_tick, last_tick = 0, None, None
+          nonempty_files, empty_files = 0, []
+          with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=3) as zf:
+              for p in files:
+                  pf = pq.ParquetFile(p)
+                  names = set(pf.schema_arrow.names)
+                  if not required.issubset(names):
+                      raise SystemExit(f"Tick schema missing {required - names} in {p}")
+                  table = pq.read_table(p, columns=["time", "bid", "ask"])
+                  if table.num_rows == 0:
+                      # Empty weekend/holiday files can be legitimate. Record them and
+                      # exclude them from the tick archive; never silently treat them as ticks.
+                      empty_files.append(p.name)
+                      continue
+                  if pc.any(pc.is_null(table["time"])).as_py():
+                      raise SystemExit(f"Null tick timestamp in {p}")
+                  if pc.any(pc.less_equal(table["bid"], 0)).as_py() or pc.any(pc.less_equal(table["ask"], 0)).as_py():
+                      raise SystemExit(f"Non-positive quote in {p}")
+                  if pc.any(pc.less(table["ask"], table["bid"])).as_py():
+                      raise SystemExit(f"Ask below bid in {p}")
+                  times = table["time"].to_pylist()
+                  if any(times[i] < times[i-1] for i in range(1, len(times))):
+                      raise SystemExit(f"Out-of-order timestamps in {p}")
+                  lo, hi = pc.min(table["time"]).as_py(), pc.max(table["time"]).as_py()
+                  lo, hi = str(lo), str(hi)
+                  first_tick = lo if first_tick is None or lo < first_tick else first_tick
+                  last_tick = hi if last_tick is None or hi > last_tick else last_tick
+                  rows_total += table.num_rows
+                  nonempty_files += 1
+                  zf.write(p, arcname=str(p.relative_to(src)))
+          if rows_total <= 0 or nonempty_files == 0:
+              raise SystemExit(f"No non-empty tick data found for {start}..{end}; fail closed")
+          with zipfile.ZipFile(out) as zf:
+              bad = zf.testzip()
+              if bad:
+                  raise SystemExit(f"Corrupt archive member: {bad}")
+          validation = {"file":out.name,"tick_count":rows_total,"daily_files":nonempty_files,"empty_daily_files":len(empty_files),"empty_file_names":empty_files,"coverage_start_utc":first_tick,"coverage_end_utc":last_tick,"bid_ask_validated":True,"timestamps_ordered_per_file":True}
+          out.with_suffix(".validation.json").write_text(json.dumps(validation, indent=2) + "\n", encoding="utf-8")
+          print(f"Validated {out.name}: {rows_total} ticks across {len(files)} daily Parquet file(s), {out.stat().st_size} bytes")
+          PY
+            echo "::endgroup::"
+            cursor="$next_month"
+          done
+
+          python3 - "$DATE_FROM" "$DATE_TO" "$TAG" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          from datetime import date
+          start, end, tag = sys.argv[1:]
+          archives=[]
+          for p in sorted(Path("tick_archive/months").glob("*.zip")):
+              with p.open("rb") as f:
+                  h=hashlib.sha256()
+                  for chunk in iter(lambda:f.read(1024*1024), b""):
+                      h.update(chunk)
+              validation_path=p.with_suffix(".validation.json")
+              if not validation_path.exists():
+                  raise SystemExit(f"Missing tick validation report: {validation_path}")
+              details=json.loads(validation_path.read_text(encoding="utf-8"))
+              archives.append({"file":p.name,"sha256":h.hexdigest(),"bytes":p.stat().st_size,**details})
+          if not archives:
+              raise SystemExit("No archives produced")
+          total_ticks=sum(int(a["tick_count"]) for a in archives)
+          if total_ticks <= 0 or not all(a.get("bid_ask_validated") for a in archives):
+              raise SystemExit("Tick validation failed")
+          manifest={
+            "dataset_id":"AUREON_XAUUSD_DUKASCOPY_HISTORICAL_TICKS",
+            "symbol":"XAUUSD",
+            "source_provider":"Dukascopy historical market data via dukascopy-downloader",
+            "source_type":"third-party historical bid/ask tick feed; NOT PXBTTrading-1 broker ticks",
+            "timestamp_timezone":"UTC",
+            "date_from_utc":start,
+            "date_to_utc_inclusive":end,
+            "requested_calendar_span_days":(date.fromisoformat(end)-date.fromisoformat(start)).days,
+            "archive_count":len(archives),
+            "tick_count":total_ticks,
+            "actual_coverage_start_utc":min(a["coverage_start_utc"] for a in archives),
+            "actual_coverage_end_utc":max(a["coverage_end_utc"] for a in archives),
+            "bid_ask_validated":True,
+            "archives":archives,
+            "integrity":"SHA-256 per ZIP; consumers must re-verify",
+            "created_by_workflow":os.environ.get("GITHUB_WORKFLOW",""),
+            "release_tag":tag
+          }
+          Path("tick_archive/manifest.json").write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
+          print(json.dumps({"archive_count":len(archives),"requested_span_days":manifest["requested_calendar_span_days"],"tag":tag},indent=2))
+          PY
+
+      - name: Publish monthly archives as GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.archive.outputs.tag }}"
+          gh release create "$TAG" tick_archive/months/*.zip tick_archive/manifest.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "AUREON XAUUSD Dukascopy ticks ${{ steps.archive.outputs.date_from }} to ${{ steps.archive.outputs.date_to }}" \
+            --notes "Third-party Dukascopy XAUUSD historical ticks. This is not PXBTTrading-1 broker history and is not by itself an MT5 Strategy Tester real-tick import. Verify manifest SHA-256 values and tick schema before use. No trading is performed."
