@@ -16,7 +16,7 @@ permissions:
 jobs:
   candidate-sweep:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 45 # bounded exploratory batch
     steps:
       - name: Checkout candidate sweep branch
         uses: actions/checkout@v4
