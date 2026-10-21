@@ -9,6 +9,10 @@ on:
       - research/tools/recover_2025_01_01_19_dukascopy_ticks.py
   workflow_dispatch:
 
+concurrency:
+  group: aureon-xauusd-january-recovery
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
