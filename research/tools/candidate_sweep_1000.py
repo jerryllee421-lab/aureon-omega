@@ -36,6 +36,27 @@ def indicators(b):
   ids=ix.values; vv=x.tick_volume.iloc[ids].clip(lower=0).to_numpy(); typ=((x.high+x.low+x.close)/3).iloc[ids].to_numpy()
   denom=np.cumsum(vv); num=np.cumsum(typ*vv)
   x.iloc[ids,x.columns.get_loc("vwap")]=np.divide(num,denom,out=np.full(len(ids),np.nan),where=denom>0)
+ # Precompute completed higher-timeframe and session levels before running candidate loops.
+ h4=x.resample("4h",label="left",closed="left").agg({"high":"max","low":"min","close":"last"}).dropna()
+ h4.index+=pd.Timedelta(hours=4)
+ h4["prior20_high"]=h4.high.shift(1).rolling(20,min_periods=20).max()
+ h4["prior20_low"]=h4.low.shift(1).rolling(20,min_periods=20).min()
+ x["h4_prior_high"]=h4.prior20_high.reindex(x.index,method="ffill")
+ x["h4_prior_low"]=h4.prior20_low.reindex(x.index,method="ffill")
+ d1=x.resample("1D",label="left",closed="left").agg({"high":"max","low":"min","close":"last"}).dropna()
+ d1["prev_d1_high"]=d1.high.shift(1); d1["prev_d1_low"]=d1.low.shift(1)
+ day_key=x.index.floor("D")
+ x["prev_d1_high"]=day_key.map(d1.prev_d1_high.to_dict()).to_numpy()
+ x["prev_d1_low"]=day_key.map(d1.prev_d1_low.to_dict()).to_numpy()
+ hours=x.index.hour; day_group=x.index.floor("D")
+ sess_mask=hours<7
+ sess=x.loc[sess_mask].groupby(day_group[sess_mask]).agg(session_high=("high","max"),session_low=("low","min"))
+ or_mask=(hours>=13)&(hours<14)
+ opening=x.loc[or_mask].groupby(day_group[or_mask]).agg(or_high=("high","max"),or_low=("low","min"))
+ x["session_high"]=day_key.map(sess.session_high.to_dict()).to_numpy()
+ x["session_low"]=day_key.map(sess.session_low.to_dict()).to_numpy()
+ x["or_high"]=day_key.map(opening.or_high.to_dict()).to_numpy()
+ x["or_low"]=day_key.map(opening.or_low.to_dict()).to_numpy()
  return x
 def htf_levels(x):
  h4=x.resample("4h",label="left",closed="left").agg({"high":"max","low":"min","close":"last"}).dropna(); h4.index+=pd.Timedelta(hours=4)
@@ -53,20 +74,14 @@ def signal(x,i,fam,entrymode):
   if r.adx>25: return 0
   return 1 if r.close<r.ema20-1.25*atr and r.rsi<=30 and bull else (-1 if r.close>r.ema20+1.25*atr and r.rsi>=70 and bear else 0)
  if fam=="H4 Breakout":
-  prior=x.iloc[max(0,i-240):i]
-  if len(prior)<40:return 0
-  return 1 if r.close>prior.high.max()+.1*atr else (-1 if r.close<prior.low.min()-.1*atr else 0)
+  if not np.isfinite(r.h4_prior_high) or not np.isfinite(r.h4_prior_low): return 0
+  return 1 if r.close>r.h4_prior_high+.1*atr else (-1 if r.close<r.h4_prior_low-.1*atr else 0)
  if fam=="Session Breakout":
-  day=t.floor("D"); rg=x.loc[(x.index>=day)&(x.index<day+pd.Timedelta(hours=7))]
-  if not 7<=t.hour<17 or rg.empty:return 0
-  return 1 if r.close>rg.high.max()+.1*atr else (-1 if r.close<rg.low.min()-.1*atr else 0)
+  if not 7<=t.hour<17 or not np.isfinite(r.session_high) or not np.isfinite(r.session_low):return 0
+  return 1 if r.close>r.session_high+.1*atr else (-1 if r.close<r.session_low-.1*atr else 0)
  if fam=="Daily CRT":
-  day=t.floor("D"); prev=x.loc[x.index<day]
-  if prev.empty:return 0
-  # Last fully completed daily candle, not today's partial data.
-  pdaily=prev.resample("1D").agg({"high":"max","low":"min","close":"last"}).dropna()
-  if pdaily.empty:return 0
-  ph,pl=pdaily.high.iloc[-1],pdaily.low.iloc[-1]
+  ph,pl=r.prev_d1_high,r.prev_d1_low
+  if not np.isfinite(ph) or not np.isfinite(pl):return 0
   return 1 if r.low<pl and r.close>pl and r.close<ph and bull else (-1 if r.high>ph and r.close<ph and r.close>pl and bear else 0)
  if fam=="Session VWAP + EMA":
   return 1 if r.close>r.vwap and r.close>r.ema20 and p.close<=p.ema20 and bull else (-1 if r.close<r.vwap and r.close<r.ema20 and p.close>=p.ema20 and bear else 0)
@@ -82,9 +97,8 @@ def signal(x,i,fam,entrymode):
  if fam=="Trend Pullback":
   return 1 if r.ema20>r.ema50 and r.low<=r.ema20 and r.close>r.ema20 and bull else (-1 if r.ema20<r.ema50 and r.high>=r.ema20 and r.close<r.ema20 and bear else 0)
  if fam=="Opening Range Breakout":
-  day=t.floor("D"); rg=x.loc[(x.index>=day+pd.Timedelta(hours=13))&(x.index<day+pd.Timedelta(hours=14))]
-  if t.hour<14 or t.hour>=18 or rg.empty:return 0
-  return 1 if r.close>rg.high.max() and bull else (-1 if r.close<rg.low.min() and bear else 0)
+  if t.hour<14 or t.hour>=18 or not np.isfinite(r.or_high) or not np.isfinite(r.or_low):return 0
+  return 1 if r.close>r.or_high and bull else (-1 if r.close<r.or_low and bear else 0)
  if fam=="Volatility Expansion":
   if not np.isfinite(r.atr_med) or r.atr_med<=0:return 0
   w=x.iloc[max(0,i-20):i]
