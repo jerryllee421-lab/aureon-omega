@@ -77,13 +77,19 @@ void UpdateRiskState()
    {
       g_dayKey=key; g_tradesToday=0;
       if(GlobalVariableCheck(dayKeyName) && (int)GlobalVariableGet(dayKeyName)==key && GlobalVariableCheck(dayEqName))
+      {
          g_dayStartEquity=GlobalVariableGet(dayEqName);
+         string tradesKey=g_statePrefix+"TRADES";
+         if(GlobalVariableCheck(tradesKey)) g_tradesToday=(int)GlobalVariableGet(tradesKey);
+      }
       else
       {
          g_dayStartEquity=equity;
+         g_tradesToday=0;
          GlobalVariableSet(dayKeyName,(double)key);
          GlobalVariableSet(dayEqName,equity);
          GlobalVariableSet(dayLockName,0.0);
+         GlobalVariableSet(g_statePrefix+"TRADES",0.0);
       }
    }
    bool dailyLocked=(GlobalVariableCheck(dayLockName) && GlobalVariableGet(dayLockName)>0.5);
@@ -167,7 +173,14 @@ bool PlaceTrade(int direction,double atr,string tag)
       return false;
    }
    bool ok=(result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_DONE_PARTIAL || result.retcode==TRADE_RETCODE_PLACED);
-   if(ok){ g_tradesToday++; g_lastTradeTime=TimeCurrent(); Print("AUREON_ENTRY strategy=",EnumToString(InpStrategy)," side=",direction," lots=",lots," tag=",tag," order=",result.order," deal=",result.deal); }
+   if(ok)
+   {
+      g_tradesToday++;
+      g_lastTradeTime=TimeCurrent();
+      GlobalVariableSet(g_statePrefix+"TRADES",(double)g_tradesToday);
+      GlobalVariableSet(g_statePrefix+"LASTTRADE",(double)g_lastTradeTime);
+      Print("AUREON_ENTRY strategy=",EnumToString(InpStrategy)," side=",direction," lots=",lots," tag=",tag," order=",result.order," deal=",result.deal);
+   }
    else Print("AUREON_ORDER_REJECT retcode=",result.retcode," comment=",result.comment);
    return ok;
 }
@@ -239,6 +252,7 @@ int OnInit()
    double equity=AccountInfoDouble(ACCOUNT_EQUITY);
    g_dayKey=-1;
    if(GlobalVariableCheck(g_statePrefix+"PEAK")) g_peakEquity=GlobalVariableGet(g_statePrefix+"PEAK");
+   if(GlobalVariableCheck(g_statePrefix+"LASTTRADE")) g_lastTradeTime=(datetime)GlobalVariableGet(g_statePrefix+"LASTTRADE");
    if(g_peakEquity<=0.0) g_peakEquity=equity;
    if(GlobalVariableCheck(g_statePrefix+"PEAKLOCK") && GlobalVariableGet(g_statePrefix+"PEAKLOCK")>0.5) g_riskLocked=true;
    UpdateRiskState();
