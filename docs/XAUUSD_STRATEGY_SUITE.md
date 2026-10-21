@@ -36,3 +36,18 @@ These are reproducible starting hypotheses, not evidence of optimality. Session 
 - Daily risk state is in-memory and resets on EA initialization; this version does not persist a daily lock across terminal restarts.
 - Single active position per symbol and one selected strategy per test.
 - Daily CRT uses a strict sweep-and-close-back-inside rule. Alternate CRT variants must be tested separately.
+
+
+## Windows real-tick batch runner
+A Windows runner is available at `scripts/run_xauusd_real_tick_suite.ps1`. It compiles the EA in the selected MT5 data folder, writes four independent Strategy Tester configurations, and invokes each test with `Model=4` (Every tick based on real ticks). It does not embed a broker login or request secrets.
+
+Example (use the actual terminal/data paths and dates for which broker tick history is present):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_xauusd_real_tick_suite.ps1 `
+  -TerminalPath "C:\Path\To\MT5\terminal64.exe" `
+  -Mql5ExpertsPath "C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\<instance>\MQL5\Experts" `
+  -FromDate "2026-10-20" -ToDate "2026-10-20" -Symbol "XAUUSD"
+```
+
+The runner writes reports and a manifest under `research/mt5/strategy-suite-runs`. A report's existence is not proof of complete real-tick coverage. Confirm the tester journal, broker symbol, date coverage, spread/commission assumptions, and report metrics before ranking. A one-day run is a smoke test, not sufficient evidence for a strategy-performance claim.
