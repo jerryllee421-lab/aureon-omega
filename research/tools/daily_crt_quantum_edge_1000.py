@@ -77,19 +77,18 @@ def measure(trades):
     dd=float(np.max(peak-eq)) if len(eq) else 0.0
     return {"trade_count":len(a),"net_price_units":float(a.sum()),"profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((a>0).mean()*100),"avg_r":float(r.mean()),"max_drawdown_r":dd}
 
-def run_one(x,cfg,start_i=0,end_i=None):
-    """Replay one isolated segment. end_i is exclusive; no trade may cross a split."""
+def run_one(records,cfg,start_i=0,end_i=None):
+    """Replay one isolated segment over cached namedtuples; no trade crosses a split."""
     trades=[]; pos=None; last_exit=-10**9
-    if end_i is None: end_i=len(x)
-    end_i=max(0,min(int(end_i),len(x)))
+    n=len(records)
+    if end_i is None: end_i=n
+    end_i=max(0,min(int(end_i),n))
     start_i=max(80,int(start_i))
-    # Leave the final bar for marking open positions; entries use next-bar open.
-    for i in range(start_i,min(end_i-1,len(x)-1)):
-        r=x.iloc[i]; t=x.index[i]
+    # Cached namedtuples avoid millions of slow pandas Series allocations across 1,000 configs.
+    for i in range(start_i,min(end_i-1,n-1)):
+        r=records[i]; t=r.Index
         if pos is not None:
             ex=None; reason=""
-            # Stop gaps fill at the worse bar open, not at an unattainable stop price.
-            # If stop and target are both touched intrabar, stop-first remains conservative.
             if pos["side"]==1 and r.low<=pos["sl"]:
                 ex=min(float(pos["sl"]),float(r.open)); reason="SL_GAP" if float(r.open)<pos["sl"] else "SL"
             elif pos["side"]==1 and r.high>=pos["tp"]: ex=pos["tp"]; reason="TP"
@@ -98,8 +97,7 @@ def run_one(x,cfg,start_i=0,end_i=None):
             elif pos["side"]==-1 and r.low<=pos["tp"]: ex=pos["tp"]; reason="TP"
             if ex is not None:
                 gross=(float(ex)-pos["entry"])*pos["side"]
-                cost=pos["spread"]+float(r.spread)+0.70
-                net=gross-cost
+                net=gross-pos["spread"]-float(r.spread)-0.70
                 trades.append({"entry_time":pos["time"],"net":net,"r":net/pos["risk"],"reason":reason})
                 pos=None; last_exit=i
         if pos is not None or i-last_exit<cfg["cooldown"]: continue
@@ -110,7 +108,7 @@ def run_one(x,cfg,start_i=0,end_i=None):
         ref=cfg["reference"]
         hi,lo=(r.d1h,r.d1l) if ref=="D1" else ((r.h4h,r.h4l) if ref=="H4" else (r.ash,r.asl))
         if not np.isfinite(hi) or not np.isfinite(lo) or hi<=lo: continue
-        p=x.iloc[i-1]; bull=r.close>r.open; bear=r.close<r.open
+        bull=r.close>r.open; bear=r.close<r.open
         body=abs(float(r.close-r.open)); rng=max(float(r.high-r.low),1e-9)
         if cfg["candle"]=="body_35":
             bull=bull and body/rng>=0.35; bear=bear and body/rng>=0.35
@@ -129,10 +127,11 @@ def run_one(x,cfg,start_i=0,end_i=None):
             long=long and r.ema20>r.ema50; short=short and r.ema20<r.ema50
         side=1 if long else (-1 if short else 0)
         if not side: continue
-        entry=float(x.open.iloc[i+1]); spr=float(x.spread.iloc[i+1]); dist=cfg["stop_atr"]*float(r.atr)
-        pos={"side":side,"entry":entry,"spread":spr,"sl":entry-side*dist,"tp":entry+side*dist*cfg["rr"],"risk":dist,"time":x.index[i+1]}
+        nxt=records[i+1]
+        entry=float(nxt.open); spr=float(nxt.spread); dist=cfg["stop_atr"]*float(r.atr)
+        pos={"side":side,"entry":entry,"spread":spr,"sl":entry-side*dist,"tp":entry+side*dist*cfg["rr"],"risk":dist,"time":nxt.Index}
     if pos and end_i>0:
-        r=x.iloc[end_i-1]
+        r=records[end_i-1]
         gross=(float(r.close)-pos["entry"])*pos["side"]
         net=gross-pos["spread"]-float(r.spread)-0.70
         trades.append({"entry_time":pos["time"],"net":net,"r":net/pos["risk"],"reason":"SEGMENT_END_MARK"})
@@ -153,13 +152,13 @@ def main():
     date_range=pd.date_range(ticks.timestamp.min().normalize(),ticks.timestamp.max().normalize(),freq="D",tz="UTC")
     observed_set=set(observed_dates)
     missing_weekdays=[d.strftime("%Y-%m-%d") for d in date_range if d.weekday()<5 and d.strftime("%Y-%m-%d") not in observed_set]
-    cfgs=configs(); rows=[]; ledger=[]
+    records=list(x.itertuples()); cfgs=configs(); rows=[]; ledger=[]
     for c in cfgs:
         # Run each segment independently to prevent boundary-crossing trades and
         # position/cooldown state from leaking across the chronological split.
-        trades=run_one(x,c,0,len(x))
-        ins=run_one(x,c,0,split_idx)
-        oos_trades=run_one(x,c,split_idx,len(x))
+        trades=run_one(records,c,0,len(records))
+        ins=run_one(records,c,0,split_idx)
+        oos_trades=run_one(records,c,split_idx,len(records))
         met={"all":measure(trades),"in_sample":measure(ins),"out_of_sample":measure(oos_trades)}
         allm=met["all"]; oos=met["out_of_sample"]; numeric_reasons=[]
         if allm["trade_count"]<100: numeric_reasons.append("fewer than 100 total trades")
