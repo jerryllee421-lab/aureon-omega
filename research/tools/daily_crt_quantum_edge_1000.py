@@ -84,9 +84,13 @@ def run_one(x,cfg,start_i=0,end_i=None):
         r=x.iloc[i]; t=x.index[i]
         if pos is not None:
             ex=None; reason=""
-            if pos["side"]==1 and r.low<=pos["sl"]: ex=pos["sl"]; reason="SL"
+            # Stop gaps fill at the worse bar open, not at an unattainable stop price.
+            # If stop and target are both touched intrabar, stop-first remains conservative.
+            if pos["side"]==1 and r.low<=pos["sl"]:
+                ex=min(float(pos["sl"]),float(r.open)); reason="SL_GAP" if float(r.open)<pos["sl"] else "SL"
             elif pos["side"]==1 and r.high>=pos["tp"]: ex=pos["tp"]; reason="TP"
-            elif pos["side"]==-1 and r.high>=pos["sl"]: ex=pos["sl"]; reason="SL"
+            elif pos["side"]==-1 and r.high>=pos["sl"]:
+                ex=max(float(pos["sl"]),float(r.open)); reason="SL_GAP" if float(r.open)>pos["sl"] else "SL"
             elif pos["side"]==-1 and r.low<=pos["tp"]: ex=pos["tp"]; reason="TP"
             if ex is not None:
                 gross=(float(ex)-pos["entry"])*pos["side"]
@@ -98,8 +102,7 @@ def run_one(x,cfg,start_i=0,end_i=None):
         if not np.isfinite(r.atr) or r.atr<=0 or not np.isfinite(r.spread) or r.spread<0 or r.spread>0.80: continue
         if cfg["session"]=="london_ny" and not (7<=t.hour<17): continue
         if cfg["session"]=="ny_core" and not (12<=t.hour<20): continue
-        if cfg["adx_max"] and ("adx" in x) and np.isfinite(r.adx) and r.adx>cfg["adx_max"]: continue
-        if cfg["trend"]=="ema50" and not (r.close>r.ema50 or r.close<r.ema50): continue
+        if cfg["adx_max"] and (not np.isfinite(r.adx) or r.adx>cfg["adx_max"]): continue
         ref=cfg["reference"]
         hi,lo=(r.d1h,r.d1l) if ref=="D1" else ((r.h4h,r.h4l) if ref=="H4" else (r.ash,r.asl))
         if not np.isfinite(hi) or not np.isfinite(lo) or hi<=lo: continue
@@ -140,6 +143,12 @@ def main():
     b=base.bars(ticks)
     if len(b)<100: raise RuntimeError("Insufficient M5 bars")
     x=prepare(b); split_idx=int(len(x)*.7); split=x.index[split_idx]
+    # Report weekday date coverage explicitly; missing weekdays can indicate archive gaps
+    # but may also be holidays/partial market closures and require source-level review.
+    observed_dates=sorted(set(ticks.timestamp.dt.strftime("%Y-%m-%d")))
+    date_range=pd.date_range(ticks.timestamp.min().normalize(),ticks.timestamp.max().normalize(),freq="D",tz="UTC")
+    observed_set=set(observed_dates)
+    missing_weekdays=[d.strftime("%Y-%m-%d") for d in date_range if d.weekday()<5 and d.strftime("%Y-%m-%d") not in observed_set]
     cfgs=configs(); rows=[]; ledger=[]
     for c in cfgs:
         # Run each segment independently to prevent boundary-crossing trades and
@@ -165,9 +174,9 @@ def main():
     df=df.sort_values(["oos_pf_sort","oos_net_sort","oos_trades_sort"],ascending=False)
     df.drop(columns=["oos_pf_sort","oos_net_sort","oos_trades_sort"]).to_csv(OUT/"daily_crt_quantum_edge_1000.csv",index=False)
     pd.DataFrame(ledger).to_csv(OUT/"daily_crt_quantum_edge_trade_ledger.csv",index=False)
-    report={"experiment":"Daily CRT Quantum Edge 1,000-configuration sweep","candidate_count":len(rows),"archive_sha256":actual,"raw_tick_rows":raw,"clean_tick_rows":len(ticks),"m5_bars":len(x),"start_utc":ticks.timestamp.min().isoformat(),"end_utc":ticks.timestamp.max().isoformat(),"split_utc":split.isoformat(),"data_provenance":"Dukascopy third-party; not verified PXBT-native","execution_model":"M5 OHLC replay with next-bar-open entries; stop-first if stop and target occur in same bar","approval":"ALL BLOCKED_RESEARCH_ONLY pending native MT5 real-tick reproduction, longer complete data, broker costs, walk-forward and robustness validation","top_10":df.head(10).drop(columns=["oos_pf_sort","oos_net_sort","oos_trades_sort"]).to_dict(orient="records")}
+    report={"experiment":"Daily CRT Quantum Edge 1,000-configuration sweep","candidate_count":len(rows),"archive_sha256":actual,"raw_tick_rows":raw,"clean_tick_rows":len(ticks),"m5_bars":len(x),"start_utc":ticks.timestamp.min().isoformat(),"end_utc":ticks.timestamp.max().isoformat(),"observed_utc_dates":observed_dates,"missing_weekday_dates_review_required":missing_weekdays,"split_utc":split.isoformat(),"data_provenance":"Dukascopy third-party; not verified PXBT-native","execution_model":"M5 OHLC replay with next-bar-open entries; stop-first if stop and target occur in same bar","approval":"ALL BLOCKED_RESEARCH_ONLY pending native MT5 real-tick reproduction, longer complete data, broker costs, walk-forward and robustness validation","top_10":df.head(10).drop(columns=["oos_pf_sort","oos_net_sort","oos_trades_sort"]).to_dict(orient="records")}
     (OUT/"daily_crt_quantum_edge_1000.json").write_text(json.dumps(report,indent=2,default=str))
-    md=["# Daily CRT Quantum Edge — 1,000 configuration sweep","","**Status: research-only; no candidate approved.**","","- Configurations: 1,000 distinct sampled combinations from the defined Cartesian parameter space.","- Archive SHA-256: "+actual,"- Data: third-party Dukascopy, not verified broker-native ticks.","- Replay: M5 OHLC; not MT5 Every Tick Based on Real Ticks.","- Split: "+split.isoformat(),"","## Top 10 exploratory candidates",""]
+    md=["# Daily CRT Quantum Edge — 1,000 configuration sweep","","**Status: research-only; no candidate approved.**","","- Configurations: 1,000 distinct sampled combinations from the defined Cartesian parameter space.","- Archive SHA-256: "+actual,"- Data: third-party Dukascopy, not verified broker-native ticks.","- Replay: M5 OHLC; not MT5 Every Tick Based on Real Ticks.","- Split: "+split.isoformat(),"- Observed UTC dates: "+", ".join(observed_dates),"- Missing weekdays requiring source/holiday review: "+(", ".join(missing_weekdays) if missing_weekdays else "none"),"","## Top 10 exploratory candidates",""]
     for n,(_,r) in enumerate(df.head(10).iterrows(),1):
         md += [f"{n}. **{r['candidate_id']}** — {r['reference']} / stop {r['stop_atr']} ATR / RR {r['rr']} / trend {r['trend']} / session {r['session']}",f"   - OOS PF: {r['out_of_sample']['profit_factor']}; OOS net: {r['out_of_sample']['net_price_units']:.3f} price units; OOS trades: {r['out_of_sample']['trade_count']}", "   - Status: BLOCKED_RESEARCH_ONLY"]
     md += ["","## Mandatory caveats","", "All rankings are exploratory and subject to multiple-testing/selection bias. The top 10 are not certified winners. Costs are approximated; commissions, swap, contract sizing, broker timezone, native tick sequencing, walk-forward and stress tests remain outstanding."]
