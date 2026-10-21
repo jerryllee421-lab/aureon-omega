@@ -99,7 +99,7 @@ to_windows_c_path() {
     return 1
   fi
   relative="${relative//\//\\}"
-  printf 'C:\\\\%s' "$relative"
+  printf 'C:\\%s' "$relative"
 }
 EA_WIN="$(to_windows_c_path "$EA_DEST")"
 MQL5_WIN="$(to_windows_c_path "$MQL5_ROOT")"
