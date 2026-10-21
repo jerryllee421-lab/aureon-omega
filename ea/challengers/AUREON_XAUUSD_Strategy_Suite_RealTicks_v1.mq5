@@ -4,10 +4,10 @@
 //| DEMO-only research EA; not certified for live trading.            |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.01"
-#property description "AUREON XAUUSD strategy comparison EA; demo-only research"
+#property version   "1.10"
+#property description "AUREON XAUUSD research suite: guarded execution, risk-based sizing, five strategy modules; DEMO ONLY"
 
-enum ENUM_AUREON_STRATEGY { STRAT_M5_MEAN_REVERSION=0, STRAT_H4_BREAKOUT=1, STRAT_SESSION_BREAKOUT=2, STRAT_DAILY_CRT=3 };
+enum ENUM_AUREON_STRATEGY { STRAT_M5_MEAN_REVERSION=0, STRAT_H4_BREAKOUT=1, STRAT_SESSION_BREAKOUT=2, STRAT_DAILY_CRT=3, STRAT_SESSION_VWAP_EMA=4 };
 input ENUM_AUREON_STRATEGY InpStrategy=STRAT_M5_MEAN_REVERSION;
 input ulong InpMagic=20261021;
 input double InpRiskPercent=0.25;
@@ -25,12 +25,19 @@ input double InpRSILow=30.0;
 input double InpRSIHigh=70.0;
 input double InpMeanDeviationATR=1.25;
 input double InpADXMaxForMeanReversion=25.0;
+input bool InpUseRegimeFilter=true;
+input double InpMaxEntrySpreadATR=0.15;
+input double InpMaxMarginUsePercent=50.0;
+input double InpMinFreeMarginPercent=50.0;
 input int InpH4Lookback=20;
 input double InpBreakoutBufferATR=0.10;
 input int InpAsianStartHour=0;
 input int InpAsianEndHour=7;
 input int InpSessionTradeStartHour=7;
 input int InpSessionTradeEndHour=17;
+input bool InpVWAPUseTickVolume=true;
+input int InpVWAPStartHour=0;
+input int InpVWAPEndHour=23;
 input bool InpRequireDemoAccount=true;
 input bool InpAllowLong=true;
 input bool InpAllowShort=true;
@@ -45,9 +52,8 @@ string g_statePrefix="";
 int DayKey(datetime t){ MqlDateTime d; TimeToStruct(t,d); return d.year*10000+d.mon*100+d.day; }
 bool IsDemoAccount()
 {
-   if((ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO) return true;
-   string server=AccountInfoString(ACCOUNT_SERVER); StringToLower(server);
-   return StringFind(server,"demo")>=0;
+   // Fail closed: server naming is not proof of account mode.
+   return ((ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO);
 }
 bool IsNewBar(ENUM_TIMEFRAMES tf,datetime &last)
 {
@@ -126,24 +132,31 @@ double NormalizeVolume(double lots)
 }
 double LotsForRisk(double entry,double stop)
 {
+   // Use broker-native profit calculation for one lot; avoids assuming tick-value linearity.
    double riskMoney=AccountInfoDouble(ACCOUNT_EQUITY)*InpRiskPercent/100.0;
-   double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
-   double tickValue=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE_LOSS);
-   if(tickValue<=0) tickValue=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
-   double distance=MathAbs(entry-stop);
-   if(riskMoney<=0 || tickSize<=0 || tickValue<=0 || distance<=0) return 0.0;
-   double lossPerLot=(distance/tickSize)*tickValue; if(lossPerLot<=0) return 0.0;
-   double rawLots=riskMoney/lossPerLot;
+   double lossOneLot=0.0;
+   ENUM_ORDER_TYPE type=(stop<entry ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
+   if(!OrderCalcProfit(type,_Symbol,1.0,entry,stop,lossOneLot)) return 0.0;
+   lossOneLot=MathAbs(lossOneLot);
+   if(riskMoney<=0.0 || lossOneLot<=0.0) return 0.0;
+   double rawLots=riskMoney/lossOneLot;
    double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
-   if(rawLots<minLot) return 0.0;
+   if(rawLots<minLot) return 0.0; // Never round a risk budget upward to broker minimum.
    double lots=NormalizeVolume(rawLots);
-   if(lots<minLot || lossPerLot*lots>riskMoney*1.001) return 0.0;
+   double modeledLoss=0.0;
+   if(lots<minLot || !OrderCalcProfit(type,_Symbol,lots,entry,stop,modeledLoss)) return 0.0;
+   if(MathAbs(modeledLoss)>riskMoney*1.0001) return 0.0;
    return lots;
 }
 bool PlaceTrade(int direction,double atr,string tag)
 {
    if(!CanTrade() || atr<=0) return false;
    MqlTick tick; if(!SymbolInfoTick(_Symbol,tick)) return false;
+   double liveSpread=tick.ask-tick.bid;
+   if(liveSpread<=0.0 || (InpMaxEntrySpreadATR>0.0 && liveSpread>atr*InpMaxEntrySpreadATR)) return false;
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY), margin=AccountInfoDouble(ACCOUNT_MARGIN), free=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   if(equity<=0.0 || free<=0.0 || free/equity*100.0<InpMinFreeMarginPercent) return false;
+   if(margin>0.0 && margin/equity*100.0>InpMaxMarginUsePercent) return false;
    double entry=(direction>0?tick.ask:tick.bid);
    double stop=(direction>0?entry-atr*InpStopATR:entry+atr*InpStopATR);
    double target=(direction>0?entry+(entry-stop)*InpRewardRisk:entry-(stop-entry)*InpRewardRisk);
@@ -236,13 +249,45 @@ bool DailyCRTSignal(int &side,double &atr)
 {
    side=0; if(!ReadValue(hATR,0,1,atr)) return false;
    MqlRates d[1],b; if(CopyRates(_Symbol,PERIOD_D1,1,1,d)!=1||!GetClosedM5(b)) return false;
-   if(b.low<d[0].low&&b.close>d[0].low&&b.close<d[0].high&&b.close>b.open) side=1;
-   else if(b.high>d[0].high&&b.close<d[0].high&&b.close>d[0].low&&b.close<b.open) side=-1;
+   // Require a genuine sweep and close back inside the prior completed daily range.
+   if(b.low<d[0].low && b.close>d[0].low && b.close<d[0].high && b.close>b.open) side=1;
+   else if(b.high>d[0].high && b.close<d[0].high && b.close>d[0].low && b.close<b.open) side=-1;
+   return true;
+}
+bool SessionVWAPEMASignal(int &side,double &atr)
+{
+   side=0;
+   if(!ReadValue(hATR,0,1,atr)) return false;
+   MqlRates b[3]; ArraySetAsSeries(b,true);
+   if(CopyRates(_Symbol,PERIOD_M5,1,3,b)!=3) return false;
+   double ema1[2]; ArraySetAsSeries(ema1,true);
+   if(CopyBuffer(hEMA,0,1,2,ema1)!=2) return false;
+   MqlDateTime dt; TimeToStruct(b[0].time,dt);
+   MqlDateTime start=dt; start.hour=InpVWAPStartHour; start.min=0; start.sec=0;
+   MqlDateTime finish=dt; finish.hour=InpVWAPEndHour; finish.min=59; finish.sec=59;
+   datetime from=StructToTime(start), to=StructToTime(finish);
+   if(to<from) return false;
+   MqlRates m1[]; ArraySetAsSeries(m1,false);
+   int n=CopyRates(_Symbol,PERIOD_M1,from,b[0].time,m1);
+   if(n<=0) return false;
+   double sumPV=0.0,sumV=0.0;
+   for(int i=0;i<n;i++)
+   {
+      double typical=(m1[i].high+m1[i].low+m1[i].close)/3.0;
+      double vol=(InpVWAPUseTickVolume ? (double)m1[i].tick_volume : 1.0);
+      if(vol<=0.0) continue;
+      sumPV+=typical*vol; sumV+=vol;
+   }
+   if(sumV<=0.0) return false;
+   double vwap=sumPV/sumV;
+   // Closed-bar cross confirmation: price must cross EMA in the direction of session VWAP.
+   if(b[0].close>vwap && b[0].close>ema1[0] && b[1].close<=ema1[1]) side=1;
+   else if(b[0].close<vwap && b[0].close<ema1[0] && b[1].close>=ema1[1]) side=-1;
    return true;
 }
 int OnInit()
 {
-   if(InpRiskPercent<=0||InpRiskPercent>1.0||InpDailyLossLimitPct<=0||InpMaxPeakDrawdownPct<=0||InpMaxTradesPerDay<1||InpH4Lookback<2||InpAsianStartHour<0||InpAsianStartHour>23||InpAsianEndHour<0||InpAsianEndHour>23||InpSessionTradeStartHour<0||InpSessionTradeStartHour>23||InpSessionTradeEndHour<0||InpSessionTradeEndHour>23)
+   if(InpRiskPercent<=0||InpRiskPercent>1.0||InpDailyLossLimitPct<=0||InpMaxPeakDrawdownPct<=0||InpMaxTradesPerDay<1||InpH4Lookback<2||InpAsianStartHour<0||InpAsianStartHour>23||InpAsianEndHour<0||InpAsianEndHour>23||InpSessionTradeStartHour<0||InpSessionTradeStartHour>23||InpSessionTradeEndHour<0||InpSessionTradeEndHour>23||InpVWAPStartHour<0||InpVWAPStartHour>23||InpVWAPEndHour<0||InpVWAPEndHour>23||InpMaxEntrySpreadATR<0||InpMaxMarginUsePercent<=0||InpMinFreeMarginPercent<0)
    { Print("Invalid risk or strategy inputs."); return INIT_PARAMETERS_INCORRECT; }
    if(InpRequireDemoAccount&&!IsDemoAccount()){ Print("LIVE BLOCKED: AUREON research EA requires a DEMO account."); return INIT_FAILED; }
    hEMA=iMA(_Symbol,PERIOD_M5,InpMeanEMA,0,MODE_EMA,PRICE_CLOSE); hRSI=iRSI(_Symbol,PERIOD_M5,InpRSIPeriod,PRICE_CLOSE);
@@ -256,7 +301,7 @@ int OnInit()
    if(g_peakEquity<=0.0) g_peakEquity=equity;
    if(GlobalVariableCheck(g_statePrefix+"PEAKLOCK") && GlobalVariableGet(g_statePrefix+"PEAKLOCK")>0.5) g_riskLocked=true;
    UpdateRiskState();
-   Print("AUREON Strategy Suite v1.01 ready. Strategy=",EnumToString(InpStrategy)," symbol=",_Symbol," execution=M5 DEMO ONLY; live blocked; persistent drawdown lock enabled.");
+   Print("AUREON Strategy Suite v1.10 ready. Strategy=",EnumToString(InpStrategy)," symbol=",_Symbol," execution=M5; DEMO ONLY; strict account-mode gate; risk sizing via OrderCalcProfit; live blocked.");
    return INIT_SUCCEEDED;
 }
 void OnDeinit(const int reason){ if(hEMA!=INVALID_HANDLE)IndicatorRelease(hEMA); if(hRSI!=INVALID_HANDLE)IndicatorRelease(hRSI); if(hATR!=INVALID_HANDLE)IndicatorRelease(hATR); if(hADX!=INVALID_HANDLE)IndicatorRelease(hADX); }
@@ -270,6 +315,7 @@ void OnTick()
       case STRAT_H4_BREAKOUT: valid=H4BreakoutSignal(side,atr); break;
       case STRAT_SESSION_BREAKOUT: valid=SessionBreakoutSignal(side,atr); break;
       case STRAT_DAILY_CRT: valid=DailyCRTSignal(side,atr); break;
+      case STRAT_SESSION_VWAP_EMA: valid=SessionVWAPEMASignal(side,atr); break;
    }
    if(valid&&side!=0) PlaceTrade(side,atr,EnumToString(InpStrategy));
 }
