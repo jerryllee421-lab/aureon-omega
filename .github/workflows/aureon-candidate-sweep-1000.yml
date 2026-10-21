@@ -2,13 +2,6 @@ name: AUREON 1,000 Candidate XAUUSD Sweep
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - research/tools/candidate_sweep_1000.py
-      - research/tools/offline_tick_replay.py
-      - .github/workflows/aureon-candidate-sweep-1000.yml
-    branches:
-      - research/xauusd-1000-candidate-sweep-20261021
 
 permissions:
   contents: read
