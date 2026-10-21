@@ -28,7 +28,7 @@ class StrategyIntelligenceTests(unittest.TestCase):
         self.assertFalse(out.trade_authorized.any())
 
     def test_insufficient_history_abstains(self):
-        out = score_candidates(build_candidates(self.bars(80)))
+        out = score_candidates(build_candidates(self.bars(40)))
         self.assertTrue((out.decision == "ABSTAIN_WARMUP").all())
 
     def test_rejects_missing_features(self):
