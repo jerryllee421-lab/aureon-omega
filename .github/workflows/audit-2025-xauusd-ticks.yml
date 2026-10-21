@@ -1,0 +1,49 @@
+name: AUREON Audit 2025 XAUUSD Tick Archive
+
+on:
+  push:
+    branches:
+      - research/xauusd-strategy-suite-20261021
+    paths:
+      - .github/workflows/audit-2025-xauusd-ticks.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-2025:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/xauusd-strategy-suite-20261021
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install audit dependencies
+        run: python -m pip install --upgrade pip pandas pyarrow
+      - name: Download monthly archives and audit integrity, coverage and schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-input audit-output
+          for month in {01..12}; do
+            file="xauusd-ticks-2025-${month}.zip"
+            url="https://github.com/jerryllee421-lab/aureon-omega/releases/download/xauusd-dukascopy-ticks-2024-10-20-to-2026-10-20/${file}"
+            echo "Downloading ${file}"
+            curl --fail --location --retry 3 --retry-delay 2 --output "audit-input/${file}" "${url}"
+          done
+          sha256sum audit-input/*.zip | tee audit-output/monthly-sha256.txt
+          python research/tools/audit_2025_tick_archive.py
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-xauusd-2025-tick-audit
+          path: audit-output/
+          if-no-files-found: error
+          retention-days: 90
