@@ -55,3 +55,20 @@ The split is chronological, at 70% of the derived M5 bar series. No candidate pa
 4. Obtain broker-specific symbol specs, commission/swap and tick-size/value details.
 5. Reproduce the shortlisted candidate in MT5 Strategy Tester with **Every Tick Based on Real Ticks**, DEMO configuration and the same date range.
 6. Preserve frozen V2.12 unchanged as the control. No LIVE enablement.
+
+
+## Refreshed cost-stress findings
+
+The refreshed workflow completed successfully at [run 39668917410](https://github.com/jerryllee421-lab/aureon-omega/actions/runs/39668917410). The additional audit reports 124,917 quotes with spread above 0.80 and 3,244 above 2.00 price units; the maximum spread is 12.564. There are 13 gaps longer than 60 seconds and the largest weekday gap below 24 hours is 3,606.1 seconds. Gap classification is a diagnostic only; those long gaps still need timestamp-level inspection before treating them as outages rather than source/session behavior.
+
+Cost stress on the **same fixed trade decisions**:
+
+| Strategy | 1.0× net | 1.5× net | 2.0× net | PF at 2.0× |
+|---|---:|---:|---:|---:|
+| Daily CRT | +18.99 | -21.05 | -61.09 | 0.71 |
+| H4 breakout | -5.60 | -15.34 | -25.08 | 0.63 |
+| Session breakout | -245.57 | -285.44 | -325.31 | 0.16 |
+| Session VWAP + EMA | -292.87 | -402.57 | -512.26 | 0.29 |
+| M5 mean reversion | +15.27 | +14.28 | +13.28 | N/A (one trade) |
+
+**Interpretation:** Daily CRT's small positive full-sample net disappears at 1.5× modeled costs, while the two negative strategies deteriorate further. The one-trade mean-reversion result is not evidence of robustness. This stress test multiplies recorded cost estimates without changing fill prices, signals, spread filters, or stop/target sequencing; it is a sensitivity check, not a full execution-cost simulation.
