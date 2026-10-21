@@ -24,7 +24,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Validate research Python syntax
-        run: python -m py_compile research/fvg_v211.py research/run_research.py research/mirror_m1.py research/resample_validate.py research/tools/offline_tick_replay.py research/tools/quote_execution.py research/tools/smc_intraday_candidates.py research/tools/strategy_intelligence.py
+        run: python -m py_compile research/fvg_v211.py research/run_research.py research/mirror_m1.py research/resample_validate.py research/tools/offline_tick_replay.py research/tools/quote_execution.py research/tools/smc_intraday_candidates.py research/tools/strategy_intelligence.py research/tools/smc_variant_evaluation.py
       - name: Install tick research test dependencies
         run: python -m pip install --disable-pip-version-check pandas numpy pyarrow
       - name: Test offline tick replay parsing guards
@@ -35,3 +35,5 @@ jobs:
         run: python -m unittest research.tests.test_smc_intraday_candidates
       - name: Test context-aware strategy intelligence
         run: python -m unittest research.tests.test_strategy_intelligence
+      - name: Test SMC variant evaluation harness
+        run: python -m unittest research.tests.test_smc_variant_evaluation
