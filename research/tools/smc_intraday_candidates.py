@@ -144,15 +144,27 @@ def build_candidates(
                 tl_down[i] = closes[i] < projected and (i == 0 or closes[i-1] >= va + (vb-va)*(i-1-a)/(b-a))
     x["trendline_break_up"], x["trendline_break_down"] = tl_up, tl_down
 
+    # Liquidity sweep/reclaim: only levels confirmed before the current bar.
+    # Sweeping a prior high then closing below it is a bearish (buy-side) sweep;
+    # sweeping a prior low then closing above it is a bullish (sell-side) sweep.
+    x["buy_side_sweep_reclaim"] = (
+        prev_h.notna() & (x.high > prev_h) & (x.close < prev_h)
+    ).fillna(False)
+    x["sell_side_sweep_reclaim"] = (
+        prev_l.notna() & (x.low < prev_l) & (x.close > prev_l)
+    ).fillna(False)
+
     # Separate raw setup families so they can be ablated independently.
     x["smc_long"] = (x.choch_up | x.bos_up) & x.displacement_up
     x["smc_short"] = (x.choch_down | x.bos_down) & x.displacement_down
+    x["sweep_reclaim_long"] = x.sell_side_sweep_reclaim & (x.displacement_up | x.choch_up)
+    x["sweep_reclaim_short"] = x.buy_side_sweep_reclaim & (x.displacement_down | x.choch_down)
     x["sr_reversal_long"] = x.near_support & (x.pinbar_up | x.bullish_engulfing)
     x["sr_reversal_short"] = x.near_resistance & (x.pinbar_down | x.bearish_engulfing)
     x["trendline_long"] = x.trendline_break_up & x.displacement_up
     x["trendline_short"] = x.trendline_break_down & x.displacement_down
     x["pattern_long"] = x.bullish_engulfing | x.pinbar_up
     x["pattern_short"] = x.bearish_engulfing | x.pinbar_down
-    x["candidate_long"] = x.smc_long | x.sr_reversal_long | x.trendline_long
-    x["candidate_short"] = x.smc_short | x.sr_reversal_short | x.trendline_short
+    x["candidate_long"] = x.smc_long | x.sweep_reclaim_long | x.sr_reversal_long | x.trendline_long
+    x["candidate_short"] = x.smc_short | x.sweep_reclaim_short | x.sr_reversal_short | x.trendline_short
     return x
