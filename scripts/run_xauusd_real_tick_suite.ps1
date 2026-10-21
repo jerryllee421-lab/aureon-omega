@@ -88,7 +88,7 @@ foreach ($test in $tests) {
   $params = [ordered]@{}; foreach ($key in $common.Keys) { $params[$key] = $common[$key] }
   $params["InpStrategy"] = $test.Strategy
   foreach ($key in $test.Params.Keys) { $params[$key] = $test.Params[$key] }
-  $testerProfiles = Join-Path (Split-Path (Split-Path $Mql5ExpertsPath -Parent) -Parent) "MQL5\\Profiles\\Tester"
+  $testerProfiles = Join-Path (Split-Path (Split-Path $Mql5ExpertsPath -Parent) -Parent) "MQL5\Profiles\Tester"
   New-Item -ItemType Directory -Force -Path $testerProfiles | Out-Null
   $setName = $test.Name + ".set"
   $setPath = Join-Path $testerProfiles $setName
