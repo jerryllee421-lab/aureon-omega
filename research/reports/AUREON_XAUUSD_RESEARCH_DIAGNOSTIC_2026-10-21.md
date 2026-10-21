@@ -81,3 +81,42 @@ Code review found that the prior replay charged the full entry spread plus the f
 The replay now also emits three equal-duration chronological stability folds with fixed parameters, trade count, net and PF. These are diagnostics, not independently optimized walk-forward models. The short sample may leave folds underpowered. Review the refreshed artifact before drawing updated conclusions.
 
 Approval remains blocked until the refreshed report is checked, cost assumptions are validated against PXBT symbol economics, and native MT5 real-tick testing is complete.
+
+
+## Corrected replay results (run 39669297901, 2026-10-21)
+
+The corrected replay completed successfully and verified the archive SHA-256. These results supersede the earlier strategy and cost-stress tables above because the spread accounting changed.
+
+| Strategy | Trades | Net price units | PF | OOS trades | OOS net | OOS PF | Decision |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Daily CRT | 43 | +43.97 | 1.28 | 13 | -10.13 | 0.82 | Research only; OOS negative |
+| H4 breakout | 11 | +0.29 | 1.01 | 4 | -32.31 | 0.00 | Research only; OOS adverse, tiny sample |
+| M5 mean reversion | 1 | +15.92 | N/A | 0 | 0.00 | N/A | No conclusion; one trade only |
+| Session breakout | 45 | -221.45 | 0.28 | 13 | -75.09 | 0.19 | Reject current formulation for this sample |
+| Session VWAP + EMA | 119 | -224.83 | 0.59 | 35 | -103.96 | 0.41 | Reject current formulation for this sample |
+
+### Three chronological fixed-parameter folds
+
+Daily CRT net results were +38.78 (PF 1.69; 16 trades), +21.94 (PF 1.70; 11 trades), then -16.75 (PF 0.76; 16 trades). The third period reversed the apparent positive edge. This is a stability warning, not proof of a permanent failure.
+
+Session breakout was negative in all three folds: -90.72 (PF 0.28), -19.39 (PF 0.52), and -111.34 (PF 0.23). Session VWAP + EMA was negative in all three: -103.73 (PF 0.46), -61.12 (PF 0.65), and -59.98 (PF 0.66). H4 breakout and M5 mean reversion have too few trades for fold-level inference.
+
+### Corrected cost sensitivity (same trade decisions)
+
+| Strategy | 1.0× net | 1.5× net | 2.0× net | PF at 2.0× |
+|---|---:|---:|---:|---:|
+| Daily CRT | +43.97 | +16.43 | -11.11 | 0.94 |
+| H4 breakout | +0.29 | -6.50 | -13.30 | 0.78 |
+| Session breakout | -221.45 | -249.26 | -277.07 | 0.21 |
+| Session VWAP + EMA | -224.83 | -300.50 | -376.17 | 0.41 |
+| M5 mean reversion | +15.92 | +15.25 | +14.57 | N/A (one trade) |
+
+### Engineering decision
+
+- **No candidate qualifies.** All strategies fail one or more sample-size, out-of-sample, provenance, cost, and/or native-MT5 requirements.
+- Daily CRT is the only candidate with positive full-sample net and PF above 1.2, but its 13-trade OOS segment is negative and its latest chronological fold is negative. Do not optimize it on this same holdout; preserve it as a research hypothesis and test it on new data.
+- Session breakout and VWAP + EMA are consistently negative across folds; stop parameter-chasing this short sample. Any redesign must be treated as a new version and evaluated on a fresh holdout.
+- The offline replay CI succeeded: [run 39669297901](https://github.com/jerryllee421-lab/aureon-omega/actions/runs/39669297901). The validation workflow's run was cancelled by concurrency after npm test, npm build and Python syntax checks had each completed successfully; do not count that run as a completed overall CI pass.
+- Archive remains third-party Dukascopy, not verified PXBT-native ticks. Native MT5 “Every Tick Based on Real Ticks” testing and verified contract costs remain mandatory.
+
+**Status unchanged: DEMO ONLY; LIVE BLOCKED; frozen V2.12 untouched.**
