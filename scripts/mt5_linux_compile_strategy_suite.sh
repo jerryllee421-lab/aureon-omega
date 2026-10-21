@@ -97,11 +97,14 @@ printf '%s\n' "$EA_WIN" > "$ARTIFACT_DIR/ea-windows-path.txt"
 printf '%s\n' "$MQL5_WIN" > "$ARTIFACT_DIR/mql5-windows-path.txt"
 
 set +e
-xvfb-run -a timeout 480s wine "$METAEDITOR" /compile:"$EA_WIN" /include:"$MQL5_WIN" /log \
+RAW_LOG_WIN="$(winepath -w "$EA_DEST" | sed 's/\\.mq5$/.log/')"
+xvfb-run -a timeout 480s wine "$METAEDITOR" "/compile:$EA_WIN" "/include:$MQL5_WIN" "/log:$RAW_LOG_WIN" \
   >"$ARTIFACT_DIR/metaeditor-process.log" 2>&1
 compile_rc=$?
 set -e
 echo "$compile_rc" > "$ARTIFACT_DIR/metaeditor-exit-code.txt"
+printf 'compile_rc=%s\\nea_win=%s\\nmetaeditor=%s\\n' "$compile_rc" "$EA_WIN" "$METAEDITOR" | tee "$ARTIFACT_DIR/compile-invocation.txt"
+cat "$ARTIFACT_DIR/metaeditor-process.log" || true
 
 sleep 3
 wineserver -k >/dev/null 2>&1 || true
