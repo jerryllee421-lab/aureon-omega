@@ -14,6 +14,12 @@ def prepare(b):
     x["ema50"]=c.ewm(span=50,adjust=False).mean()
     tr=pd.concat([x.high-x.low,(x.high-c.shift()).abs(),(x.low-c.shift()).abs()],axis=1).max(axis=1)
     x["atr"]=tr.ewm(alpha=1/14,adjust=False).mean()
+    plus=x.high.diff(); minus=-x.low.diff()
+    pdm=plus.where((plus>minus)&(plus>0),0.0); mdm=minus.where((minus>plus)&(minus>0),0.0)
+    pdi=100*pdm.ewm(alpha=1/14,adjust=False).mean()/x["atr"].replace(0,np.nan)
+    mdi=100*mdm.ewm(alpha=1/14,adjust=False).mean()/x["atr"].replace(0,np.nan)
+    dx=100*(pdi-mdi).abs()/(pdi+mdi).replace(0,np.nan)
+    x["adx"]=dx.ewm(alpha=1/14,adjust=False).mean()
     # completed prior-day range only; no current-day lookahead
     d=x.resample("1D",label="left",closed="left").agg({"high":"max","low":"min"}).dropna()
     d["ph"]=d.high.shift(1); d["pl"]=d.low.shift(1)
