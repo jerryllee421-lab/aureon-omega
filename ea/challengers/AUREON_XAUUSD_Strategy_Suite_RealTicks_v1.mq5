@@ -275,7 +275,10 @@ bool SessionVWAPEMASignal(int &side,double &atr)
    datetime from=StructToTime(start);
    if(InpVWAPStartHour>InpVWAPEndHour && dt.hour<=InpVWAPEndHour) from-=86400;
    MqlRates m1[]; ArraySetAsSeries(m1,false);
-   int n=CopyRates(_Symbol,PERIOD_M1,from,b[0].time,m1);
+   // Signal is evaluated on a new M5 bar. Include every M1 candle inside the last
+   // completed M5 candle, but never include the still-forming M1 candle.
+   datetime vwapThrough=b[0].time+PeriodSeconds(PERIOD_M5)-PeriodSeconds(PERIOD_M1);
+   int n=CopyRates(_Symbol,PERIOD_M1,from,vwapThrough,m1);
    if(n<=0) return false;
    double sumPV=0.0,sumV=0.0;
    for(int i=0;i<n;i++)
@@ -287,6 +290,7 @@ bool SessionVWAPEMASignal(int &side,double &atr)
    }
    if(sumV<=0.0) return false;
    double vwap=sumPV/sumV;
+   if(!MathIsValidNumber(vwap) || vwap<=0.0) return false;
    // Closed-bar cross confirmation: price must cross EMA in the direction of session VWAP.
    if(b[0].close>vwap && b[0].close>ema1[0] && b[1].close<=ema1[1]) side=1;
    else if(b[0].close<vwap && b[0].close<ema1[0] && b[1].close>=ema1[1]) side=-1;
