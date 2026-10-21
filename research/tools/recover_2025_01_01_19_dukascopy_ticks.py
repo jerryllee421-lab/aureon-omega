@@ -6,6 +6,7 @@ Raw BI5 files are not committed; validated parquet and manifest are workflow art
 """
 from __future__ import annotations
 import hashlib, json, lzma, struct, time, urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pandas as pd
@@ -24,10 +25,10 @@ total_bytes = 0
 
 def fetch(url: str):
     global total_bytes
-    for attempt in range(5):
+    for attempt in range(3):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "AUREON-research-data-audit/1.0"})
-            with urllib.request.urlopen(req, timeout=25) as response:
+            with urllib.request.urlopen(req, timeout=8) as response:
                 body = response.read()
                 total_bytes += len(body)
                 return "OK", body, response.status
@@ -36,54 +37,58 @@ def fetch(url: str):
                 return "MISSING", b"", 404
             if e.code not in (408, 425, 429, 500, 502, 503, 504):
                 return "ERROR", b"", e.code
-            time.sleep(min(2 ** attempt, 12))
+            time.sleep(min(2 ** attempt, 4))
         except Exception:
             time.sleep(min(2 ** attempt, 12))
     return "ERROR", b"", None
 
-day = START
-while day < END:
-    day_rows = 0
-    day_hours_ok = 0
-    day_hours_empty = 0
-    day_hours_missing = 0
-    for hour in range(24):
-        url = f"{BASE}/{day.year}/{day.month-1:02d}/{day.day:02d}/{hour:02d}h_ticks.bi5"
-        status, payload, code = fetch(url)
-        count = 0
-        detail = ""
-        if status == "OK" and payload:
-            try:
-                raw = lzma.decompress(payload)
-                if len(raw) % REC.size:
-                    raise ValueError(f"decompressed bytes {len(raw)} not divisible by {REC.size}")
-                base_ms = int(datetime(day.year, day.month, day.day, hour, tzinfo=timezone.utc).timestamp() * 1000)
-                for ms, ask_i, bid_i, ask_vol, bid_vol in REC.iter_unpack(raw):
-                    ask = ask_i / PRICE_SCALE
-                    bid = bid_i / PRICE_SCALE
-                    ts = base_ms + ms
-                    if ms >= 3_600_000:
-                        raise ValueError(f"hour offset outside hour: {ms}")
-                    rows.append((ts, bid, ask, ask_vol, bid_vol))
-                    count += 1
-                day_hours_ok += 1
-            except Exception as e:
-                errors.append({"date": day.strftime("%Y-%m-%d"), "hour": hour, "url": url, "error": f"{type(e).__name__}: {e}"})
-                detail = f"DECODE_ERROR:{type(e).__name__}"
-        elif status == "OK":
-            day_hours_empty += 1
-            detail = "EMPTY"
-        elif status == "MISSING":
-            day_hours_missing += 1
-            detail = "HTTP_404_NO_DATA"
-        else:
-            errors.append({"date": day.strftime("%Y-%m-%d"), "hour": hour, "url": url, "error": f"HTTP_OR_FETCH_ERROR:{code}"})
-            detail = f"FETCH_ERROR:{code}"
-        day_rows += count
-        hourly.append({"date": day.strftime("%Y-%m-%d"), "hour_utc": hour, "status": detail or "OK", "ticks": count, "http_status": code, "bytes": len(payload)})
-        time.sleep(0.08)
-    print(f"{day:%Y-%m-%d}: ticks={day_rows:,}; hours_with_data={day_hours_ok}; empty={day_hours_empty}; missing={day_hours_missing}")
-    day += timedelta(days=1)
+def download_hour(day: datetime, hour: int):
+    date_str = day.strftime("%Y-%m-%d")
+    url = f"{BASE}/{day.year}/{day.month-1:02d}/{day.day:02d}/{hour:02d}h_ticks.bi5"
+    status, payload, code = fetch(url)
+    ticks = []
+    detail = ""
+    if status == "OK" and payload:
+        try:
+            raw = lzma.decompress(payload)
+            if len(raw) % REC.size:
+                raise ValueError(f"decompressed bytes {len(raw)} not divisible by {REC.size}")
+            base_ms = int(datetime(day.year, day.month, day.day, hour, tzinfo=timezone.utc).timestamp() * 1000)
+            for ms, ask_i, bid_i, ask_vol, bid_vol in REC.iter_unpack(raw):
+                if ms >= 3_600_000:
+                    raise ValueError(f"hour offset outside hour: {ms}")
+                ticks.append((base_ms + ms, bid_i / PRICE_SCALE, ask_i / PRICE_SCALE, ask_vol, bid_vol))
+            detail = "OK" if ticks else "EMPTY"
+        except Exception as e:
+            return date_str, hour, [], {"date": date_str, "hour_utc": hour, "status": f"DECODE_ERROR:{type(e).__name__}", "ticks": 0, "http_status": code, "bytes": len(payload)}, {"date": date_str, "hour": hour, "url": url, "error": f"{type(e).__name__}: {e}"}
+    elif status == "MISSING":
+        detail = "HTTP_404_NO_DATA"
+    elif status == "ERROR":
+        detail = f"FETCH_ERROR:{code}"
+    else:
+        detail = "EMPTY"
+    err = {"date": date_str, "hour": hour, "url": url, "error": f"HTTP_OR_FETCH_ERROR:{code}"} if status == "ERROR" else None
+    return date_str, hour, ticks, {"date": date_str, "hour_utc": hour, "status": detail, "ticks": len(ticks), "http_status": code, "bytes": len(payload)}, err
+
+tasks = [(START + timedelta(days=i), hour) for i in range((END - START).days) for hour in range(24)]
+results = []
+with ThreadPoolExecutor(max_workers=16) as pool:
+    futures = [pool.submit(download_hour, day, hour) for day, hour in tasks]
+    for future in as_completed(futures):
+        date_str, hour, ticks, record, err = future.result()
+        results.append((date_str, hour, ticks, record, err))
+        if err:
+            errors.append(err)
+        if len(results) % 48 == 0:
+            print(f"Hourly downloads processed: {len(results)}/{len(tasks)}")
+
+for date_str, hour, ticks, record, err in sorted(results, key=lambda x: (x[0], x[1])):
+    rows.extend(ticks)
+    hourly.append(record)
+for i in range((END - START).days):
+    date_str = (START + timedelta(days=i)).strftime("%Y-%m-%d")
+    day_records = [x for x in hourly if x["date"] == date_str]
+    print(f"{date_str}: ticks={sum(x['ticks'] for x in day_records):,}; hours_with_ticks={sum(x['ticks'] > 0 for x in day_records)}; empty_or_missing={sum(x['ticks'] == 0 for x in day_records)}")
 
 df = pd.DataFrame(rows, columns=["timestamp_ms_utc", "bid", "ask", "bid_volume", "ask_volume"])
 if not df.empty:
