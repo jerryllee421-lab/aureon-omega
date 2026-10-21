@@ -74,7 +74,7 @@ def replay(b,name,split):
    elif pos["side"]==-1 and r.high>=pos["sl"]: ex=pos["sl"]; why="SL"
    elif pos["side"]==-1 and r.low<=pos["tp"]: ex=pos["tp"]; why="TP"
    if ex is not None:
-    gross=(ex-pos["entry"])*pos["side"]; net=gross-2*0.35-float(r.spread)
+    gross=(ex-pos["entry"])*pos["side"]; net=gross-(float(pos["spread"])+float(r.spread))/2-2*0.35
     trades.append({"strategy":name,"entry_time":str(pos["time"]),"exit_time":str(t),"net_price_units":net,"gross_price_units":gross,"reason":why}); pos=None
   if pos or not np.isfinite(r.atr) or r.atr<=0 or not np.isfinite(r.rsi): continue
   if not np.isfinite(r.spread) or r.spread<0 or r.spread>0.80: continue
@@ -84,6 +84,7 @@ def replay(b,name,split):
    elif r.close>r.ema+1.25*r.atr and r.rsi>=70 and r.close<r.open: side=-1
   elif name=="h4_breakout":
    h=x.loc[x.index<t].resample("4h").agg({"high":"max","low":"min","close":"last"}).dropna()
+   h=h.loc[(h.index+pd.Timedelta(hours=4))<=t]
    if len(h)>21:
     if h.close.iloc[-1]>h.high.iloc[-21:-1].max()+.1*r.atr: side=1
     elif h.close.iloc[-1]<h.low.iloc[-21:-1].min()-.1*r.atr: side=-1
@@ -104,10 +105,10 @@ def replay(b,name,split):
    if r.close>r.ema and x.close.iloc[i-1]<=x.ema.iloc[i-1]: side=1
    elif r.close<r.ema and x.close.iloc[i-1]>=x.ema.iloc[i-1]: side=-1
   if side:
-   entry=float(x.open.iloc[i+1]+side*(float(r.spread)/2+.35)); stop=1.5*float(r.atr)
-   pos={"side":side,"entry":entry,"sl":entry-side*stop,"tp":entry+side*stop*1.5,"time":x.index[i+1]}
+   entry=float(x.open.iloc[i+1]); stop=1.5*float(r.atr)
+   pos={"side":side,"entry":entry,"spread":float(x.spread.iloc[i+1]),"sl":entry-side*stop,"tp":entry+side*stop*1.5,"time":x.index[i+1]}
  if pos:
-  r=x.iloc[-1]; gross=(float(r.close)-pos["entry"])*pos["side"]; trades.append({"strategy":name,"entry_time":str(pos["time"]),"exit_time":str(x.index[-1]),"net_price_units":gross-0.70-float(r.spread),"gross_price_units":gross,"reason":"END_OF_DATA_MARK"})
+  r=x.iloc[-1]; gross=(float(r.close)-pos["entry"])*pos["side"]; trades.append({"strategy":name,"entry_time":str(pos["time"]),"exit_time":str(x.index[-1]),"net_price_units":gross-(float(pos["spread"])+float(r.spread))/2-0.70,"gross_price_units":gross,"reason":"END_OF_DATA_MARK"})
  td=pd.DataFrame(trades)
  if td.empty: return {"strategy":name,"trade_count":0,"note":"No trades; no performance conclusion"},td
  def met(d):
@@ -115,7 +116,7 @@ def replay(b,name,split):
   eq=d.net_price_units.cumsum(); dd=(eq.cummax()-eq).max()
   return {"trade_count":int(len(d)),"net_price_units":float(d.net_price_units.sum()),"profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((d.net_price_units>0).mean()*100),"max_trade_sequence_drawdown_price_units":float(dd),"average_net_price_units":float(d.net_price_units.mean())}
  dates=pd.to_datetime(td.entry_time,utc=True)
- result={"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":.35,"spread_cap_price_units":.80,"commission":0},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing is conservative approximation, not tick-by-tick MT5 execution","session uses UTC; broker timezone/DST unverified","VWAP is a mid-price proxy unless volume is available"]}
+ result={"strategy":name,"all":met(td),"in_sample":met(td[dates<split]),"out_of_sample":met(td[dates>=split]),"cost_assumptions":{"slippage_per_side_price_units":.35,"spread_cap_price_units":.80,"commission":0,"spread_cost":"half entry spread plus half exit spread; entry prices are mid-price to avoid double-counting"},"limitations":["price-unit P/L only; contract sizing/account-currency conversion not modelled","bar-based stop/target sequencing is conservative approximation, not tick-by-tick MT5 execution","session uses UTC; broker timezone/DST unverified","VWAP is a mid-price proxy unless volume is available"]}
  return result,td
 def main():
  if not ARCHIVE.exists(): raise FileNotFoundError("Tick archive missing: "+str(ARCHIVE))
