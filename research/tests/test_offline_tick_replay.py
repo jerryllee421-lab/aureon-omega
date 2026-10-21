@@ -9,15 +9,15 @@ from research.tools.offline_tick_replay import parse_timestamp, decode_bi5
 
 class TimestampParsingTests(unittest.TestCase):
     def test_epoch_seconds_are_not_interpreted_as_nanoseconds(self):
-        parsed = parse_timestamp(pd.Series([1792531200]), "timestamp")
+        parsed = parse_timestamp(pd.Series([1792540800]), "timestamp")
         self.assertEqual(parsed.iloc[0], pd.Timestamp("2026-10-21T00:00:00Z"))
 
     def test_epoch_milliseconds_are_parsed(self):
-        parsed = parse_timestamp(pd.Series([1792531200000]), "timestamp")
+        parsed = parse_timestamp(pd.Series([1792540800000]), "timestamp")
         self.assertEqual(parsed.iloc[0], pd.Timestamp("2026-10-21T00:00:00Z"))
 
     def test_explicit_millisecond_column_is_parsed(self):
-        parsed = parse_timestamp(pd.Series([1792531200000]), "time_msc")
+        parsed = parse_timestamp(pd.Series([1792540800000]), "time_msc")
         self.assertEqual(parsed.iloc[0], pd.Timestamp("2026-10-21T00:00:00Z"))
 
     def test_ambiguous_small_numeric_timestamp_fails_closed(self):
