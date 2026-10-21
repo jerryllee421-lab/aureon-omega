@@ -1,4 +1,3 @@
-# Research orchestration refresh: rerun the pinned archive replay and preserve artifact evidence.
 #!/usr/bin/env python3
 """Offline XAUUSD tick archive audit and basic tick-derived strategy replay."""
 import os, json, hashlib, zipfile, pathlib, lzma, struct
@@ -155,11 +154,20 @@ def main():
  ticks,members=load(); spread=ticks.ask-ticks.bid
  bad=int((spread<0).sum()); dup=int(ticks.duplicated(["timestamp","bid","ask"]).sum())
  gaps=ticks.timestamp.diff().dt.total_seconds()
+ gap_mask=gaps>60
+ weekday_mask=ticks.timestamp.dt.dayofweek<5
+ weekday_gaps=gaps[weekday_mask & (gaps.index>0)]
+ weekday_gaps=weekday_gaps[weekday_gaps<86400]
+ spread_gt_080=int((spread>0.80).sum())
+ spread_gt_2=int((spread>2.0).sum())
  report={"archive":str(ARCHIVE),"sha256":actual,"sha256_verified":actual==EXPECTED,"files":members,"member_count":len(members),
  "tick_rows_raw":int(len(ticks)),"start_utc":ticks.timestamp.min().isoformat(),"end_utc":ticks.timestamp.max().isoformat(),
  "negative_spread_rows":bad,"duplicate_quote_rows":dup,"zero_spread_rows":int((spread==0).sum()),
- "spread_price_units":{"median":float(spread.median()),"p95":float(spread.quantile(.95)),"max":float(spread.max())},
- "gap_seconds":{"p50":float(gaps.quantile(.5)),"p95":float(gaps.quantile(.95)),"max":float(gaps.max())},
+ "spread_price_units":{"median":float(spread.median()),"p95":float(spread.quantile(.95)),"max":float(spread.max()),
+ "rows_over_0_80":spread_gt_080,"rows_over_2_00":spread_gt_2},
+ "gap_seconds":{"p50":float(gaps.quantile(.5)),"p95":float(gaps.quantile(.95)),"max":float(gaps.max()),
+ "gaps_over_60s":int(gap_mask.sum()),"gaps_over_5m":int((gaps>300).sum()),
+ "weekday_gap_max_below_24h":float(weekday_gaps.max()) if len(weekday_gaps) else None},
  "provenance":"Third-party Dukascopy archive, not verified PXBT broker-native ticks","trading_performed":False,"warnings":[]}
  ticks=ticks[(ticks.ask>=ticks.bid)&(ticks.bid>0)&(ticks.ask>0)].drop_duplicates(["timestamp","bid","ask"]).reset_index(drop=True)
  b=bars(ticks)
@@ -171,6 +179,19 @@ def main():
   if len(td): ledgers.append(td)
  # Explicitly separate exploratory replay from strategy qualification.
  report["strategy_results"]=results
+ # Cost stress replays identical trade decisions at 1.0x, 1.5x and 2.0x modeled costs.
+ # This is sensitivity analysis, not a replacement for stressed execution/fill replay.
+ if ledgers:
+  ledger=pd.concat(ledgers,ignore_index=True)
+  stress={}
+  for strategy,group in ledger.groupby("strategy"):
+   stress[strategy]={}
+   for mult in (1.0,1.5,2.0):
+    net=group["gross_price_units"]-group["cost_price_units"]*mult
+    wins=float(net[net>0].sum()); losses=float(-net[net<0].sum())
+    stress[strategy][f"{mult:.1f}x_cost"]={"trade_count":int(len(net)),"net_price_units":float(net.sum()),
+     "profit_factor":float(wins/losses) if losses>0 else None,"win_rate_pct":float((net>0).mean()*100)}
+  report["cost_stress_same_signals"]=stress
  data_days=(ticks.timestamp.max()-ticks.timestamp.min()).total_seconds()/86400.0
  report["coverage_days_elapsed"]=float(data_days)
  report["qualification_policy"]={
