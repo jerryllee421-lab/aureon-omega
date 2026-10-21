@@ -106,7 +106,7 @@ def run_scenario(ticks: pd.DataFrame, bars: pd.DataFrame, spread_cap: float,
             current_minute = minute
         elif minute != current_minute:
             # Previous candle is now closed; its decision is eligible only on this tick.
-            pending = signal_map.get(current_minute, 0)
+            pending = (signal_map.get(current_minute, 0), current_minute)
             current_minute = minute
 
         if position is not None:
@@ -133,21 +133,22 @@ def run_scenario(ticks: pd.DataFrame, bars: pd.DataFrame, spread_cap: float,
                                "net_price_units": net, "net_R": net / position["risk_distance"]})
                 position = None
 
-        if position is None and pending:
+        if position is None and pending and pending[0]:
+            pending_side, signal_minute = pending
             if spread > spread_cap:
                 rejected_spread += 1
-                pending = 0
+                pending = (0, None)
                 continue
-            side = pending
+            side = pending_side
             entry = (ask if side == 1 else bid) + (slippage_side if side == 1 else -slippage_side)
-            bar = bar_by_minute.get(current_minute)
+            bar = bar_by_minute.get(signal_minute)
             if bar is not None and pd.notna(bar.atr14) and bar.atr14 > 0:
                 risk = float(bar.atr14) * 1.5
                 position = {"side": side, "entry_time": ts.isoformat(), "entry": entry,
                             "sl": entry - side*risk, "tp": entry + side*risk*1.5,
                             "risk_distance": risk, "entry_spread": spread,
-                            "signal_bar_utc": current_minute.isoformat()}
-            pending = 0
+                            "signal_bar_utc": signal_minute.isoformat()}
+            pending = (0, None)
 
     # Force-close at final observed quote to avoid hiding open risk at sample end.
     if position is not None:
