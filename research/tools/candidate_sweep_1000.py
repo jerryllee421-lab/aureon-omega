@@ -154,7 +154,7 @@ def main():
  rows=[]; ledger=[]
  for fi,fam in enumerate(FAMILIES):
   for j in range(100):
-   entrymode=ENTRY_MODES[j%5]; stopmult=STOPS[(j//5)%5]; rr=RRS[(j//25)%4]; risk=RISKS[(j//25)%4]
+   entrymode=ENTRY_MODES[j%5]; stopmult=STOPS[(j//5)%5]; rr=RRS[(j//25)%4]; risk=RISKS[j%4]
    cid=f"XAU-{fi*100+j+1:04d}"
    res,td=evaluate(x,fam,entrymode,stopmult,rr,risk,split)
    allm=res.get("all",{}); oos=res.get("out_of_sample",{})
