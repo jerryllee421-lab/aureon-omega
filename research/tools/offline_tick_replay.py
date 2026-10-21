@@ -1,3 +1,4 @@
+# Research orchestration refresh: rerun the pinned archive replay and preserve artifact evidence.
 #!/usr/bin/env python3
 """Offline XAUUSD tick archive audit and basic tick-derived strategy replay."""
 import os, json, hashlib, zipfile, pathlib, lzma, struct
