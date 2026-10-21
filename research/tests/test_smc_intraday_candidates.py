@@ -23,7 +23,8 @@ class SMCCandidateTests(unittest.TestCase):
             "swing_high", "swing_low", "bos_up", "bos_down", "choch_up",
             "choch_down", "bullish_engulfing", "bearish_engulfing", "pinbar_up",
             "pinbar_down", "support", "resistance", "trendline_break_up",
-            "trendline_break_down", "candidate_long", "candidate_short",
+            "trendline_break_down", "buy_side_sweep_reclaim", "sell_side_sweep_reclaim",
+            "sweep_reclaim_long", "sweep_reclaim_short", "candidate_long", "candidate_short",
         }
         self.assertTrue(required.issubset(out.columns))
         self.assertEqual(len(out), 160)
