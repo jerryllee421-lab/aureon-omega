@@ -1,0 +1,40 @@
+name: AUREON 1,000 Candidate XAUUSD Sweep
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45 # bounded exploratory batch
+    steps:
+      - name: Checkout candidate sweep branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/xauusd-1000-candidate-sweep-20261021
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pandas numpy pyarrow
+      - name: Download and verify published tick archive
+        run: |
+          curl --fail --location --retry 3 --output xauusd-ticks-2026-10.zip "https://github.com/jerryllee421-lab/aureon-omega/releases/download/xauusd-dukascopy-ticks-2026-10-01-to-2026-10-20-6439b55/xauusd-ticks-2026-10.zip"
+          echo "d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0  xauusd-ticks-2026-10.zip" | sha256sum --check
+      - name: Run all 1,000 candidate configurations
+        env:
+          TICK_ARCHIVE: xauusd-ticks-2026-10.zip
+          EXPECTED_SHA256: d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0
+        run: python research/tools/candidate_sweep_1000.py
+      - name: Upload full sweep report and ledgers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-xauusd-1000-candidate-sweep
+          path: research-output/
+          if-no-files-found: warn
+          retention-days: 30
