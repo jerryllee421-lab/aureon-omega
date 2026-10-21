@@ -39,6 +39,10 @@ def prepare(b):
         pass
     am=x.loc[hours<7].groupby(x.loc[hours<7].index.floor("D")).agg(ah=("high","max"),al=("low","min"))
     x["ash"]=day.map(am.ah.to_dict()).to_numpy(); x["asl"]=day.map(am.al.to_dict()).to_numpy()
+    # Asian range is only known after the session ends at 07:00 UTC.
+    # Suppress it during the session to prevent same-session future leakage.
+    in_asia=(hours<7)
+    x.loc[in_asia,["ash","asl"]]=np.nan
     return x
 
 def configs():
@@ -157,14 +161,15 @@ def main():
         ins=run_one(x,c,0,split_idx)
         oos_trades=run_one(x,c,split_idx,len(x))
         met={"all":measure(trades),"in_sample":measure(ins),"out_of_sample":measure(oos_trades)}
-        allm=met["all"]; oos=met["out_of_sample"]; reasons=[]
-        if allm["trade_count"]<100: reasons.append("fewer than 100 total trades")
-        if oos["trade_count"]<30: reasons.append("fewer than 30 OOS trades")
-        if allm["profit_factor"] is None or allm["profit_factor"]<1.20: reasons.append("all-sample PF below 1.20")
-        if oos["profit_factor"] is None or oos["profit_factor"]<1.10: reasons.append("OOS PF below 1.10")
-        if oos["net_price_units"]<=0: reasons.append("OOS net not positive")
-        reasons += ["third-party Dukascopy archive; not PXBT-native verified ticks","M5 OHLC replay, not native MT5 real-tick execution","UTC session proxy not verified against broker server time","commission/swap and account-currency sizing not modelled","walk-forward, cost stress and multiple-testing correction pending"]
-        row={**c,"archive_sha256":actual,"raw_tick_rows":raw,"m5_bars":len(x),"split_utc":split.isoformat(),**met,"qualification":{"status":"BLOCKED_RESEARCH_ONLY","passed":False,"reasons":reasons}}
+        allm=met["all"]; oos=met["out_of_sample"]; numeric_reasons=[]
+        if allm["trade_count"]<100: numeric_reasons.append("fewer than 100 total trades")
+        if oos["trade_count"]<30: numeric_reasons.append("fewer than 30 OOS trades")
+        if allm["profit_factor"] is None or allm["profit_factor"]<1.20: numeric_reasons.append("all-sample PF below 1.20")
+        if oos["profit_factor"] is None or oos["profit_factor"]<1.10: numeric_reasons.append("OOS PF below 1.10")
+        if oos["net_price_units"]<=0: numeric_reasons.append("OOS net not positive")
+        research_blocks=["third-party Dukascopy archive; not PXBT-native verified ticks","M5 OHLC replay, not native MT5 real-tick execution","UTC session proxy not verified against broker server time","commission/swap and account-currency sizing not modelled","walk-forward, cost stress and multiple-testing correction pending"]
+        reasons=numeric_reasons+research_blocks
+        row={**c,"archive_sha256":actual,"raw_tick_rows":raw,"m5_bars":len(x),"split_utc":split.isoformat(),**met,"qualification":{"status":"BLOCKED_RESEARCH_ONLY","passed":len(numeric_reasons)==0,"numeric_gates_passed":len(numeric_reasons)==0,"numeric_reasons":numeric_reasons,"reasons":reasons}}
         rows.append(row)
         for z in trades: ledger.append({"candidate_id":c["candidate_id"],"entry_time":z["entry_time"].isoformat(),"net_price_units":z["net"],"r_multiple":z["r"],"exit_reason":z["reason"]})
     df=pd.DataFrame(rows)
