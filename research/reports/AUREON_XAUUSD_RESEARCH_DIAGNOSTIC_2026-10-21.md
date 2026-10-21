@@ -72,3 +72,12 @@ Cost stress on the **same fixed trade decisions**:
 | M5 mean reversion | +15.27 | +14.28 | +13.28 | N/A (one trade) |
 
 **Interpretation:** Daily CRT's small positive full-sample net disappears at 1.5× modeled costs, while the two negative strategies deteriorate further. The one-trade mean-reversion result is not evidence of robustness. This stress test multiplies recorded cost estimates without changing fill prices, signals, spread filters, or stop/target sequencing; it is a sensitivity check, not a full execution-cost simulation.
+
+
+## Next-level model correction (2026-10-21)
+
+Code review found that the prior replay charged the full entry spread plus the full exit spread while using mid-price P/L. The replay now charges half the entry spread plus half the exit spread, then adds two-sided slippage (0.35 price units per side). This changes the cost model; the earlier P/L/PF and cost-stress tables are historical diagnostics and should not be treated as the current ranking after the refreshed run.
+
+The replay now also emits three equal-duration chronological stability folds with fixed parameters, trade count, net and PF. These are diagnostics, not independently optimized walk-forward models. The short sample may leave folds underpowered. Review the refreshed artifact before drawing updated conclusions.
+
+Approval remains blocked until the refreshed report is checked, cost assumptions are validated against PXBT symbol economics, and native MT5 real-tick testing is complete.
