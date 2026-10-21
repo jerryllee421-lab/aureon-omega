@@ -99,7 +99,7 @@ for month in MONTHS:
                         frame = load_member(zf, name)
                         if frame is not None:
                             reports.append(audit_frame(frame, path.name, name))
-                            dm = re.search(r"(20\\d{2}-\\d{2}-\\d{2})", name)
+                            dm = re.search(r"(20\d{2}-\d{2}-\d{2})", name)
                             if dm:
                                 file_date_inventory.append({"date": dm.group(1), "archive": path.name, "rows": int(len(frame)), "member": name})
                             found += 1
@@ -137,7 +137,7 @@ calendar_nonempty = sorted({x["date"] for x in calendar_inventory if x["rows"] >
 calendar_empty = sorted({x["date"] for x in calendar_inventory if x["rows"] == 0})
 calendar_missing_files = sorted(set(calendar_dates) - {x["date"] for x in calendar_inventory})
 calendar_missing_quote_dates = sorted(set(calendar_dates) - set(calendar_nonempty))
-archive_name_mismatch = [x["archive"] for x in archive_summaries if not re.search(r"2025-\\d{2}", x["archive"])]
+archive_name_mismatch = [x["archive"] for x in archive_summaries if not re.search(r"2025-\d{2}", x["archive"])]
 coverage = {
     "calendar_year": "2025",
     "expected_calendar_days": len(calendar_dates),
