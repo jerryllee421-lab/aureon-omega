@@ -1,5 +1,6 @@
 name: AUREON Recover Missing Jan 2025 XAUUSD Ticks
 
+# Optional archival workflow only. Research pipeline does not depend on this recovery.
 on:
   push:
     branches:
