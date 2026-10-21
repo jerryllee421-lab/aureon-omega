@@ -47,9 +47,14 @@ class TickReplayRegressionTests(unittest.TestCase):
             [2000.0, 2000.1], [2000.2, 2001.0]
         )
         bars = make_bars(ticks)
-        # No signal is present in this short fixture, so no trade can be opened.
+        # Force a valid prior-bar signal; the next tick's spread must reject it.
+        bars["long_signal"] = False
+        bars["short_signal"] = False
+        bars["long_signal"].iloc[0] = True
+        bars["atr14"] = 1.0
         report, trades = run_scenario(ticks, bars, 0.70, 0.0, 0.0)
         self.assertEqual(report["trades"], 0)
+        self.assertEqual(report["spread_rejected_entry_opportunities"], 1)
         self.assertEqual(trades, [])
 
     def test_empty_input_is_not_a_valid_replay(self):
