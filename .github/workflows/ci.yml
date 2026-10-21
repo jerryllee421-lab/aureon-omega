@@ -24,4 +24,6 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Validate research Python syntax
-        run: python -m py_compile research/fvg_v211.py research/run_research.py research/mirror_m1.py research/resample_validate.py
+        run: python -m py_compile research/fvg_v211.py research/run_research.py research/mirror_m1.py research/resample_validate.py research/tools/offline_tick_replay.py
+      - name: Test offline tick replay parsing guards
+        run: python -m unittest research.tests.test_offline_tick_replay
