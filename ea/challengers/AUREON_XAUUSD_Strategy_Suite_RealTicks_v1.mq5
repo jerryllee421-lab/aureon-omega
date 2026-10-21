@@ -63,26 +63,41 @@ void UpdateRiskState()
 {
    int key=DayKey(TimeCurrent()); double equity=AccountInfoDouble(ACCOUNT_EQUITY);
    // Persist locks and peak equity across EA/terminal restarts for this account, symbol and magic.
-   string lockKey=g_statePrefix+"LOCK";
    string peakKey=g_statePrefix+"PEAK";
+   string peakLockKey=g_statePrefix+"PEAKLOCK";
+   string dayKeyName=g_statePrefix+"DAY";
+   string dayEqName=g_statePrefix+"DAYEQ";
+   string dayLockName=g_statePrefix+"DAYLOCK";
    if(GlobalVariableCheck(peakKey)) g_peakEquity=MathMax(g_peakEquity,GlobalVariableGet(peakKey));
    if(g_peakEquity<=0.0) g_peakEquity=equity;
    if(equity>g_peakEquity) g_peakEquity=equity;
    GlobalVariableSet(peakKey,g_peakEquity);
-   if(GlobalVariableCheck(lockKey) && GlobalVariableGet(lockKey)>0.5) g_riskLocked=true;
+   bool peakLocked=(GlobalVariableCheck(peakLockKey) && GlobalVariableGet(peakLockKey)>0.5);
    if(key!=g_dayKey)
    {
-      g_dayKey=key; g_dayStartEquity=equity; g_tradesToday=0;
-      // A daily rollover does not clear an already-triggered peak drawdown lock.
-      string dayKeyName=g_statePrefix+"DAY";
-      string dayEqName=g_statePrefix+"DAYEQ";
+      g_dayKey=key; g_tradesToday=0;
       if(GlobalVariableCheck(dayKeyName) && (int)GlobalVariableGet(dayKeyName)==key && GlobalVariableCheck(dayEqName))
          g_dayStartEquity=GlobalVariableGet(dayEqName);
-      else { GlobalVariableSet(dayKeyName,(double)key); GlobalVariableSet(dayEqName,equity); }
+      else
+      {
+         g_dayStartEquity=equity;
+         GlobalVariableSet(dayKeyName,(double)key);
+         GlobalVariableSet(dayEqName,equity);
+         GlobalVariableSet(dayLockName,0.0);
+      }
    }
-   if(g_dayStartEquity>0 && equity<=g_dayStartEquity*(1.0-InpDailyLossLimitPct/100.0)) g_riskLocked=true;
-   if(g_peakEquity>0 && equity<=g_peakEquity*(1.0-InpMaxPeakDrawdownPct/100.0)) g_riskLocked=true;
-   if(g_riskLocked) GlobalVariableSet(lockKey,1.0);
+   bool dailyLocked=(GlobalVariableCheck(dayLockName) && GlobalVariableGet(dayLockName)>0.5);
+   if(g_dayStartEquity>0 && equity<=g_dayStartEquity*(1.0-InpDailyLossLimitPct/100.0))
+   {
+      dailyLocked=true;
+      GlobalVariableSet(dayLockName,1.0);
+   }
+   if(g_peakEquity>0 && equity<=g_peakEquity*(1.0-InpMaxPeakDrawdownPct/100.0))
+   {
+      peakLocked=true;
+      GlobalVariableSet(peakLockKey,1.0);
+   }
+   g_riskLocked=(dailyLocked || peakLocked);
 }
 bool CanTrade()
 {
@@ -225,7 +240,7 @@ int OnInit()
    g_dayKey=-1;
    if(GlobalVariableCheck(g_statePrefix+"PEAK")) g_peakEquity=GlobalVariableGet(g_statePrefix+"PEAK");
    if(g_peakEquity<=0.0) g_peakEquity=equity;
-   if(GlobalVariableCheck(g_statePrefix+"LOCK") && GlobalVariableGet(g_statePrefix+"LOCK")>0.5) g_riskLocked=true;
+   if(GlobalVariableCheck(g_statePrefix+"PEAKLOCK") && GlobalVariableGet(g_statePrefix+"PEAKLOCK")>0.5) g_riskLocked=true;
    UpdateRiskState();
    Print("AUREON Strategy Suite v1.01 ready. Strategy=",EnumToString(InpStrategy)," symbol=",_Symbol," execution=M5 DEMO ONLY; live blocked; persistent drawdown lock enabled.");
    return INIT_SUCCEEDED;
