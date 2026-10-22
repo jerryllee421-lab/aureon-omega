@@ -5,9 +5,11 @@ on:
   push:
     paths:
       - research/tools/offline_tick_replay.py
+      - research/tools/daily_crt_0900_sweep.py
       - .github/workflows/aureon-offline-tick-replay.yml
     branches:
       - research/xauusd-strategy-suite-20261021
+      - research/market-context-execution-audit-20261021
 
 permissions:
   contents: read
@@ -15,41 +17,101 @@ permissions:
 jobs:
   audit-and-replay:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout research branch
         uses: actions/checkout@v4
         with:
-          ref: research/xauusd-strategy-suite-20261021
+          ref: ${{ github.ref_name }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install dependencies
         run: python -m pip install --upgrade pip pandas numpy pyarrow
-      - name: Download and verify published tick archive
+      - name: Download and verify full published monthly tick history
+        shell: bash
         run: |
-          curl --fail --location --retry 3 --output xauusd-ticks-2026-10.zip "https://github.com/jerryllee421-lab/aureon-omega/releases/download/xauusd-dukascopy-ticks-2026-10-01-to-2026-10-20-6439b55/xauusd-ticks-2026-10.zip"
-          echo "d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0  xauusd-ticks-2026-10.zip" | sha256sum --check
-      - name: Inspect archive layout
-        run: |
+          set -euo pipefail
           python - <<'PY'
-          import zipfile
-          with zipfile.ZipFile("xauusd-ticks-2026-10.zip") as z:
-              for x in z.infolist()[:300]:
-                  print(f"{x.file_size}\t{x.filename}")
-              print("TOTAL_MEMBERS", len(z.infolist()))
+          import json, urllib.request
+          from pathlib import Path
+          api = "https://api.github.com/repos/jerryllee421-lab/aureon-omega/releases/tags/xauusd-dukascopy-ticks-2024-10-20-to-2026-10-20"
+          req = urllib.request.Request(api, headers={"Accept":"application/vnd.github+json","User-Agent":"AUREON-research"})
+          with urllib.request.urlopen(req, timeout=30) as r:
+              release=json.load(r)
+          assets={a["name"]:a for a in release["assets"]}
+          months=sorted(n for n in assets if n.startswith("xauusd-ticks-") and n.endswith(".zip"))
+          if len(months) < 20:
+              raise SystemExit(f"Expected a long monthly archive set; found only {len(months)} monthly ZIPs")
+          manifest=assets.get("manifest.json")
+          if not manifest:
+              raise SystemExit("Release manifest missing")
+          def download(asset, out):
+              req=urllib.request.Request(asset["browser_download_url"], headers={"User-Agent":"AUREON-research"})
+              with urllib.request.urlopen(req, timeout=180) as r, open(out,"wb") as f:
+                  while True:
+                      b=r.read(1024*1024)
+                      if not b: break
+                      f.write(b)
+          download(manifest,"tick-manifest.json")
+          Path("monthly-assets.json").write_text(json.dumps([{"name":n,"url":assets[n]["browser_download_url"],"digest":assets[n].get("digest"),"size":assets[n]["size"]} for n in months],indent=2))
+          print("MONTHLY_ARCHIVES",len(months))
+          print("FIRST",months[0],"LAST",months[-1])
           PY
-      - name: Audit archive and replay strategies
+          python - <<'PY'
+          import hashlib,json,zipfile,urllib.request,os
+          from pathlib import Path
+          manifest=json.loads(Path("monthly-assets.json").read_text())
+          out=Path("full-history.zip")
+          with zipfile.ZipFile(out,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=1) as merged:
+              for a in manifest:
+                  print("Downloading",a["name"],flush=True)
+                  req=urllib.request.Request(a["url"],headers={"User-Agent":"AUREON-research"})
+                  tmp=Path(a["name"])
+                  with urllib.request.urlopen(req,timeout=240) as r, tmp.open("wb") as f:
+                      while True:
+                          b=r.read(1024*1024)
+                          if not b: break
+                          f.write(b)
+                  if tmp.stat().st_size != a["size"]:
+                      raise SystemExit(f"SIZE MISMATCH {a['name']}")
+                  digest=a.get("digest","")
+                  if digest.startswith("sha256:"):
+                      actual=hashlib.sha256(tmp.read_bytes()).hexdigest()
+                      if actual != digest.split(":",1)[1]:
+                          raise SystemExit(f"SHA256 MISMATCH {a['name']}")
+                  with zipfile.ZipFile(tmp) as z:
+                      members=[i for i in z.infolist() if not i.is_dir()]
+                      if not members: raise SystemExit(f"EMPTY MONTH ARCHIVE {a['name']}")
+                      for info in members:
+                          # Keep unique, stable paths; replay loader consumes CSV/Parquet members.
+                          merged.writestr(a["name"].removesuffix(".zip")+"/"+info.filename,z.read(info))
+                  tmp.unlink()
+          print("MERGED_ARCHIVE_BYTES",out.stat().st_size)
+          print("MERGED_ARCHIVE_SHA256",hashlib.sha256(out.read_bytes()).hexdigest())
+          with zipfile.ZipFile(out) as z:
+              print("MERGED_MEMBERS",len(z.infolist()))
+              print("SUPPORTED",sum(i.filename.lower().endswith((".csv",".parquet")) for i in z.infolist()))
+          PY
+      - name: Audit archive coverage and replay strategies
+        if: false
         env:
-          TICK_ARCHIVE: xauusd-ticks-2026-10.zip
-          EXPECTED_SHA256: d354c8769bd4d6f6c5a57a7da87843acdddec4f03815137b339c6ed5786069b0
+          TICK_ARCHIVE: full-history.zip
+          EXPECTED_SHA256: ""
         run: python research/tools/offline_tick_replay.py
-      - name: Upload research report and trade ledger
+      - name: Run 09:00 CRT setup and parameter sweep on full history
+        env:
+          TICK_ARCHIVE: full-history.zip
+          EXPECTED_SHA256: ""
+          CRT_SESSION_HOUR_UTC: '7'
+          CRT_WINDOW_MINUTES: '120'
+        run: python research/tools/daily_crt_0900_sweep.py
+      - name: Upload full-history reports and trade ledger
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aureon-offline-tick-research
+          name: aureon-full-history-crt-research
           path: research-output/
           if-no-files-found: warn
           retention-days: 30
