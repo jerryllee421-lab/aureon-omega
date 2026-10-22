@@ -133,8 +133,20 @@ def main():
     if not ARCHIVE.exists(): raise FileNotFoundError(str(ARCHIVE))
     actual=sha(ARCHIVE)
     if EXPECTED and actual!=EXPECTED: raise RuntimeError("archive SHA-256 mismatch")
-    ticks,_=load()
+    ticks, members=load()
+    ticks["timestamp"]=pd.to_datetime(ticks["timestamp"],utc=True,errors="coerce")
+    ticks["bid"]=pd.to_numeric(ticks["bid"],errors="coerce")
+    ticks["ask"]=pd.to_numeric(ticks["ask"],errors="coerce")
+    ticks=ticks.dropna(subset=["timestamp","bid","ask"]).sort_values("timestamp").reset_index(drop=True)
+    raw_rows=int(len(ticks))
+    crossed=int((ticks.ask<ticks.bid).sum())
+    nonpositive=int(((ticks.bid<=0)|(ticks.ask<=0)).sum())
+    negative_spread=int(((ticks.ask-ticks.bid)<0).sum())
+    exact_duplicates=int(ticks.duplicated(["timestamp","bid","ask"]).sum())
     ticks=ticks[(ticks.ask>=ticks.bid)&(ticks.bid>0)&(ticks.ask>0)].drop_duplicates(["timestamp","bid","ask"])
+    if ticks.empty: raise RuntimeError("No valid quote rows after validation")
+    spread=(ticks.ask-ticks.bid)
+    gaps=ticks.timestamp.sort_values().diff().dt.total_seconds().dropna()
     b=bars(ticks)
     split=b.index[int(len(b)*.7)]
     rows=[]; ledgers=[]
@@ -163,6 +175,17 @@ def main():
        (z.get("oos") or {}).get("pf") if isinstance((z.get("oos") or {}).get("pf"),(int,float)) else -1,
        (z.get("oos") or {}).get("net",0)),reverse=True)
     report={"archive_sha256":actual,"provenance":"third-party Dukascopy, not PXBT-native",
+      "data_quality":{"raw_valid_timestamp_bid_ask_rows":raw_rows,"rows_after_quote_validation_and_dedup":int(len(ticks)),
+      "crossed_quotes":crossed,"nonpositive_bid_or_ask":nonpositive,"negative_spread_quotes":negative_spread,
+      "exact_duplicate_quotes_removed":exact_duplicates,"parse_errors":sum(1 for m in members if m.get("parse_error")),
+      "unsupported_schema_members":sum(1 for m in members if m.get("unsupported_schema")),
+      "archive_members":len(members),"first_quote_utc":ticks.timestamp.min().isoformat(),
+      "last_quote_utc":ticks.timestamp.max().isoformat(),"unique_quote_days":int(ticks.timestamp.dt.floor("D").nunique()),
+      "spread_price_units":{"median":round(float(spread.median()),6),"p95":round(float(spread.quantile(.95)),6),
+      "max":round(float(spread.max()),6),"over_0_80":int((spread>.8).sum()),"over_2_00":int((spread>2.0).sum())},
+      "gaps_seconds":{"over_60s":int((gaps>60).sum()),"over_5m":int((gaps>300).sum()),
+      "max":round(float(gaps.max()),3) if len(gaps) else 0.0}},
+      "bar_coverage_utc":{"first":b.index.min().isoformat(),"last":b.index.max().isoformat()},
       "session_definition":{"local_label":"09:00 SAST","assumed_utc_hour":SESSION_HOUR_UTC,
       "window_minutes":WINDOW_MINUTES,"warning":"verify historical SAST and broker server time"},
       "bars":len(b),"split_utc":split.isoformat(),"variants_tested":len(rows),
