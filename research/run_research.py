@@ -49,9 +49,16 @@ def main():
     for idx,vals in enumerate(combos):
         kw=asdict(base); kw.update(dict(zip(keys,vals))); p=Params(**kw); tr,m=run(dev,p); m["score"]=score(m,cfg["research_guardrails"]["min_trades_dev"]); rows.append({"candidate":idx,"params":kw,"dev":m})
     rows.sort(key=lambda z:z["dev"]["score"],reverse=True); finalists=rows[:min(12,len(rows))]
+    # Validation chooses the finalist. The untouched holdout is evaluated for
+    # that single candidate only, rather than being exposed for every finalist.
     for item in finalists:
-        p=Params(**item["params"]); _,item["validation"]=run(val,p); ht, item["holdout"]=run(hold,p); item["monte_carlo"]=monte_carlo(np.array([t.r for t in ht]),cfg["research_guardrails"]["monte_carlo_paths"],cfg["research_guardrails"]["random_seed"],cfg["research_guardrails"]["initial_equity"],cfg["research_guardrails"]["research_risk_percent"],cfg["research_guardrails"]["monte_carlo_max_ruin_drawdown_pct"])
-    report={"generated_at":datetime.now(timezone.utc).isoformat(),"strategy":cfg["strategy"],"source":cfg["data_source"],"execution_model":cfg["execution_model"],"rows":len(df),"period":{"first":df.time.iloc[0].isoformat(),"last":df.time.iloc[-1].isoformat()},"baseline_by_split":baseline_splits,"candidates_tested":len(rows),"finalists":finalists,"warning":"DUKASCOPY_EXTERNAL M1 bars are not native broker ticks. These BAR_CLOSE_PROXY results are not MT5 tick-equivalent; final candidates require broker-specific MT5 Every Tick Based on Real Ticks verification. Baseline metrics are reported separately for development, validation and holdout; holdout is not used to rank candidates."}
+        p=Params(**item["params"]); _,item["validation"]=run(val,p)
+        item["validation"]["score"]=score(item["validation"],cfg["research_guardrails"]["min_trades_dev"])
+    selected=max(finalists,key=lambda z:z["validation"]["score"]) if finalists else None
+    if selected is not None:
+        p=Params(**selected["params"]); hold_tr,selected["holdout"]=run(hold,p)
+        selected["monte_carlo"]=monte_carlo(np.array([t.r for t in hold_tr]),cfg["research_guardrails"]["monte_carlo_paths"],cfg["research_guardrails"]["random_seed"],cfg["research_guardrails"]["initial_equity"],cfg["research_guardrails"]["research_risk_percent"],cfg["research_guardrails"]["monte_carlo_max_ruin_drawdown_pct"])
+    report={"generated_at":datetime.now(timezone.utc).isoformat(),"strategy":cfg["strategy"],"source":cfg["data_source"],"execution_model":cfg["execution_model"],"rows":len(df),"period":{"first":df.time.iloc[0].isoformat(),"last":df.time.iloc[-1].isoformat()},"baseline_by_split":baseline_splits,"candidates_tested":len(rows),"finalists":finalists,"selected_candidate":selected["candidate"] if selected else None,"holdout_policy":"Only the validation-selected finalist is evaluated on holdout in this run.","warning":"DUKASCOPY_EXTERNAL M1 bars are not native broker ticks. These BAR_CLOSE_PROXY results are not MT5 tick-equivalent; final candidates require broker-specific MT5 Every Tick Based on Real Ticks verification. Baseline metrics are reported separately for development, validation and holdout. Candidates are ranked on development then validation; holdout metrics are emitted for the validation-selected candidate only."}
     (out/"research_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     pd.DataFrame([{**{"candidate":r["candidate"]},**{f"p_{k}":v for k,v in r["params"].items()},**{f"dev_{k}":v for k,v in r["dev"].items()}} for r in rows]).to_csv(out/"candidate_dev_results.csv",index=False)
     print(json.dumps({k:report[k] for k in ("strategy","rows","period","baseline_by_split","candidates_tested")},indent=2))
