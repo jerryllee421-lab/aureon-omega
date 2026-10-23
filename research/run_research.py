@@ -20,6 +20,11 @@ def score(m, min_trades):
     if m["trades"]<min_trades: return -1e9
     pf=min(m["profit_factor"],5); return m["expectancy_r"]*4 + math.log1p(max(pf,0)) - .06*m["max_drawdown_r"] + .001*min(m["trades"],1000)
 
+def select_validation_winner(finalists):
+    """Choose from validation metrics only; holdout must not influence selection."""
+    return max(finalists, key=lambda z: z["validation"]["score"]) if finalists else None
+
+
 def monte_carlo(rs, paths, seed, initial_equity, risk_pct, ruin_dd_pct):
     if len(rs)==0:return {"paths":0}
     rng=np.random.default_rng(seed); maxdds=[]; finals=[]
@@ -54,7 +59,7 @@ def main():
     for item in finalists:
         p=Params(**item["params"]); _,item["validation"]=run(val,p)
         item["validation"]["score"]=score(item["validation"],cfg["research_guardrails"]["min_trades_dev"])
-    selected=max(finalists,key=lambda z:z["validation"]["score"]) if finalists else None
+    selected=select_validation_winner(finalists)
     if selected is not None:
         p=Params(**selected["params"]); hold_tr,selected["holdout"]=run(hold,p)
         selected["monte_carlo"]=monte_carlo(np.array([t.r for t in hold_tr]),cfg["research_guardrails"]["monte_carlo_paths"],cfg["research_guardrails"]["random_seed"],cfg["research_guardrails"]["initial_equity"],cfg["research_guardrails"]["research_risk_percent"],cfg["research_guardrails"]["monte_carlo_max_ruin_drawdown_pct"])
