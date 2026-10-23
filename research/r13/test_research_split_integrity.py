@@ -1,6 +1,10 @@
 """Regression tests for split boundaries and research report integrity."""
 import unittest
+import sys
+from pathlib import Path
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from run_research import split
 
 
