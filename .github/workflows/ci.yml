@@ -25,6 +25,8 @@ jobs:
           python research/duka_m1.py --help > /dev/null
           python research/resample_validate.py --help > /dev/null
           python research/run_research.py --help > /dev/null
+      - name: Test R13 worker visibility policy model
+        run: python -m unittest discover -s research/r13 -p 'test_*.py' -v
       - uses: actions/setup-node@v4
         with:
           node-version: '22.18.0'
