@@ -18,7 +18,7 @@ class ResearchSplitTests(unittest.TestCase):
         self.assertLess(val.time.max(), hold.time.min())
         self.assertEqual(pd.concat([dev, val, hold]).close.tolist(), list(range(100)))
 
-    def test_invalid_split_configuration_is_not_silently_corrected(self):
+    def test_custom_valid_split_fractions_are_respected(self):
         # Current splitter uses explicit fractions; this test documents the
         # expected chronological partition for a valid configuration.
         df = pd.DataFrame({"time": pd.date_range("2025-01-01", periods=10, freq="min")})
