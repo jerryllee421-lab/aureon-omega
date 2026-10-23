@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv, io, json, os, re, zipfile, hashlib
 from pathlib import Path
 import pandas as pd
+from research.tools.timestamp_units import infer_epoch_unit
 
 ROOT = Path("audit-input")
 OUT = Path("audit-output")
@@ -46,7 +47,7 @@ def audit_frame(df, archive, member):
     if pd.api.types.is_numeric_dtype(t):
         # Infer common epoch units from median magnitude.
         med = pd.to_numeric(t, errors="coerce").dropna().median()
-        unit = "ms" if med > 1e11 else ("us" if med > 1e14 else "s")
+        unit = infer_epoch_unit(float(abs(med)))
         ts = pd.to_datetime(t, unit=unit, utc=True, errors="coerce")
     else:
         ts = pd.to_datetime(t, utc=True, errors="coerce")
