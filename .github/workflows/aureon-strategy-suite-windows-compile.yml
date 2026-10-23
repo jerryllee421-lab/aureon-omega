@@ -1,0 +1,81 @@
+name: AUREON Strategy Suite — Windows MetaEditor Compile
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/xauusd-strategy-suite-20261021
+    paths:
+      - 'ea/challengers/AUREON_XAUUSD_Strategy_Suite_RealTicks_v1.mq5'
+      - '.github/workflows/aureon-strategy-suite-windows-compile.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aureon-windows-compile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MetaTrader 5 and locate MetaEditor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+          "installer_sha256=$hash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          $installRoot = Join-Path $env:RUNNER_TEMP 'AUREON_MT5'
+          New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+          $p = Start-Process -FilePath $installer -ArgumentList @('/auto', "/path:$installRoot") -PassThru
+          $deadline = (Get-Date).AddMinutes(12)
+          $metaEditor = $null
+          while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 5
+            $metaEditor = Get-ChildItem -Path $installRoot, "$env:APPDATA\MetaQuotes\Terminal", "$env:LOCALAPPDATA\Programs" -Filter 'metaeditor64.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+            if ($metaEditor) { break }
+            if ($p.HasExited -and $p.ExitCode -ne 0) { throw "MT5 installer exited with code $($p.ExitCode)" }
+          }
+          if (-not $metaEditor) { throw 'MetaEditor64.exe was not found before timeout.' }
+          "METAEDITOR_PATH=$metaEditor" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "metaeditor_path=$metaEditor" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "MetaEditor located: $metaEditor"
+
+      - name: Compile EA and verify fresh EX5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = (Resolve-Path 'ea/challengers/AUREON_XAUUSD_Strategy_Suite_RealTicks_v1.mq5').Path
+          $artifact = Join-Path $env:GITHUB_WORKSPACE 'mt5_compile_artifact'
+          New-Item -ItemType Directory -Force -Path $artifact | Out-Null
+          $stage = Join-Path $artifact 'AUREON_XAUUSD_Strategy_Suite_RealTicks_v1.mq5'
+          Copy-Item -LiteralPath $source -Destination $stage -Force
+          $ex5 = [System.IO.Path]::ChangeExtension($stage, '.ex5')
+          $log = [System.IO.Path]::ChangeExtension($stage, '.log')
+          Remove-Item $ex5,$log -Force -ErrorAction SilentlyContinue
+          $args = "/compile:`"$stage`"", '/log'
+          $proc = Start-Process -FilePath $env:METAEDITOR_PATH -ArgumentList $args -PassThru -Wait
+          Start-Sleep -Seconds 2
+          if (-not (Test-Path -LiteralPath $log)) { throw "MetaEditor produced no compile log. Process exit: $($proc.ExitCode)" }
+          $compileText = Get-Content -LiteralPath $log -Raw
+          Copy-Item -LiteralPath $log -Destination (Join-Path $artifact 'compile.log') -Force
+          if (-not (Test-Path -LiteralPath $ex5) -or (Get-Item $ex5).Length -le 0) { throw 'Fresh EX5 was not produced.' }
+          if ($compileText -notmatch '(?i)0 errors') { throw 'Compile log does not confirm zero errors.' }
+          Get-FileHash -LiteralPath $source,$ex5 -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Out-File -FilePath (Join-Path $artifact 'hashes.txt')
+          "Compile passed: fresh EX5 created and compile log confirms zero errors." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Upload compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aureon-windows-metaeditor-compile-${{ github.run_id }}
+          path: mt5_compile_artifact
+          retention-days: 30
+          if-no-files-found: warn
