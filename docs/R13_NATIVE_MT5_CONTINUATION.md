@@ -7,7 +7,7 @@
 - The contemporaneous resource sample showed zero path-verified and zero unverified tester workers, while the MT5 parent remained alive and the native tester journal had just started a test.
 - This is consistent with delayed worker visibility; the evidence does not prove the tester worker was absent or identify the exact Windows enumeration cause.
 - The repaired external package reports a 90-second bounded startup warm-up and retains executable-path ownership checks and a no-process-termination invariant.
-- The package's Python regression suite passed 5/5 in the available Linux environment. Native Windows PowerShell and MT5 execution has not been performed here.
+- The repaired research runner passes Python syntax and CLI checks. The latest GitHub Actions run passed all 10 regression tests, npm tests, and the production build. Native Windows PowerShell and MT5 execution has not been performed here.
 
 ## Safe continuation sequence
 
