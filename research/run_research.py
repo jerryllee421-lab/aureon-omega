@@ -22,7 +22,7 @@ def score(m, min_trades):
 
 def select_validation_winner(finalists):
     """Choose from validation metrics only; holdout must not influence selection."""
-    return max(finalists, key=lambda z: z["validation"]["score"]) if finalists else None
+    eligible = [z for z in finalists if z["validation"]["score"] > -1e8]\n    return max(eligible, key=lambda z: z["validation"]["score"]) if eligible else None
 
 
 def monte_carlo(rs, paths, seed, initial_equity, risk_pct, ruin_dd_pct):
