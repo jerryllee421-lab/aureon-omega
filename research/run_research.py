@@ -35,7 +35,15 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--config",default="research/config/fvg_v211_baseline.yml"); ap.add_argument("--data",required=True); ap.add_argument("--out",default="research_results"); ap.add_argument("--max-candidates",type=int,default=120)
     args=ap.parse_args(); cfg=yaml.safe_load(Path(args.config).read_text()); df=load(Path(args.data)); dev,val,hold=split(df,cfg["splits"]); out=Path(args.out); out.mkdir(parents=True,exist_ok=True)
     base=Params(**{k:v for k,v in cfg["baseline"].items() if k in Params.__dataclass_fields__})
-    base_tr,base_m=run(df,base); trades_frame(base_tr).to_csv(out/"baseline_trades.csv",index=False)
+    # Keep the baseline strictly split-aware. A single full-sample baseline score
+    # mixes development, validation and holdout and is not a fair comparison.
+    base_dev_tr,base_dev_m=run(dev,base)
+    base_val_tr,base_val_m=run(val,base)
+    base_hold_tr,base_hold_m=run(hold,base)
+    trades_frame(base_dev_tr).to_csv(out/"baseline_development_trades.csv",index=False)
+    trades_frame(base_val_tr).to_csv(out/"baseline_validation_trades.csv",index=False)
+    trades_frame(base_hold_tr).to_csv(out/"baseline_holdout_trades.csv",index=False)
+    baseline_splits={"development":base_dev_m,"validation":base_val_m,"holdout":base_hold_m}
     grid=cfg["grid"]; keys=list(grid); combos=list(itertools.product(*(grid[k] for k in keys)))[:args.max_candidates]
     rows=[]
     for idx,vals in enumerate(combos):
@@ -43,8 +51,8 @@ def main():
     rows.sort(key=lambda z:z["dev"]["score"],reverse=True); finalists=rows[:min(12,len(rows))]
     for item in finalists:
         p=Params(**item["params"]); _,item["validation"]=run(val,p); ht, item["holdout"]=run(hold,p); item["monte_carlo"]=monte_carlo(np.array([t.r for t in ht]),cfg["research_guardrails"]["monte_carlo_paths"],cfg["research_guardrails"]["random_seed"],cfg["research_guardrails"]["initial_equity"],cfg["research_guardrails"]["research_risk_percent"],cfg["research_guardrails"]["monte_carlo_max_ruin_drawdown_pct"])
-    report={"generated_at":datetime.now(timezone.utc).isoformat(),"strategy":cfg["strategy"],"source":cfg["data_source"],"execution_model":cfg["execution_model"],"rows":len(df),"period":{"first":df.time.iloc[0].isoformat(),"last":df.time.iloc[-1].isoformat()},"baseline":base_m,"candidates_tested":len(rows),"finalists":finalists,"warning":"Python results are research approximations, not MT5 tick-equivalent results. Final candidates require MT5 real-tick verification."}
+    report={"generated_at":datetime.now(timezone.utc).isoformat(),"strategy":cfg["strategy"],"source":cfg["data_source"],"execution_model":cfg["execution_model"],"rows":len(df),"period":{"first":df.time.iloc[0].isoformat(),"last":df.time.iloc[-1].isoformat()},"baseline_by_split":baseline_splits,"candidates_tested":len(rows),"finalists":finalists,"warning":"DUKASCOPY_EXTERNAL M1 bars are not native broker ticks. These BAR_CLOSE_PROXY results are not MT5 tick-equivalent; final candidates require broker-specific MT5 Every Tick Based on Real Ticks verification. Baseline metrics are reported separately for development, validation and holdout; holdout is not used to rank candidates."}
     (out/"research_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     pd.DataFrame([{**{"candidate":r["candidate"]},**{f"p_{k}":v for k,v in r["params"].items()},**{f"dev_{k}":v for k,v in r["dev"].items()}} for r in rows]).to_csv(out/"candidate_dev_results.csv",index=False)
-    print(json.dumps({k:report[k] for k in ("strategy","rows","period","baseline","candidates_tested")},indent=2))
+    print(json.dumps({k:report[k] for k in ("strategy","rows","period","baseline_by_split","candidates_tested")},indent=2))
 if __name__=="__main__":main()
