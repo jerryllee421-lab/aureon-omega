@@ -1,0 +1,27 @@
+name: MT5 Adapter Static Validation
+
+on:
+  push:
+    paths:
+      - "mt5-adapter/**"
+      - ".github/workflows/mt5-adapter-static.yml"
+  pull_request:
+    paths:
+      - "mt5-adapter/**"
+      - ".github/workflows/mt5-adapter-static.yml"
+  workflow_dispatch:
+
+jobs:
+  static-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile adapter
+        run: python -m py_compile mt5-adapter/adapter.py
+      - name: Validate JSON configuration
+        run: python -m json.tool mt5-adapter/config/mt5_adapter.json
+      - name: Validate requirements file
+        run: test -s mt5-adapter/requirements.txt
