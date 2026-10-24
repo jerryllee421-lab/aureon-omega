@@ -45,6 +45,8 @@ if errorlevel 1 goto :fail
 "%ROOT%\.venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r "%SRC%\requirements.txt"
 if errorlevel 1 goto :fail
 echo [5/5] Installing versioned adapter and config into project root...
+if exist "%ROOT%\scripts\mt5_adapter.py" copy /Y "%ROOT%\scripts\mt5_adapter.py" "%ROOT%\backups\mt5_adapter_%RANDOM%.py.bak" >nul
+if exist "%ROOT%\AUREON_MT5_CONTROL_CENTER.cmd" copy /Y "%ROOT%\AUREON_MT5_CONTROL_CENTER.cmd" "%ROOT%\backups\mt5_control_center_%RANDOM%.cmd.bak" >nul
 copy /Y "%SRC%\adapter.py" "%ROOT%\scripts\mt5_adapter.py" >nul
 if errorlevel 1 goto :fail
 copy /Y "%SRC%\README.md" "%ROOT%\mt5-adapter\README.md" >nul
