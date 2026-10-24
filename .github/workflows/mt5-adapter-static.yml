@@ -1,4 +1,4 @@
-name: MT5 Adapter Static Validation
+name: MT5 Adapter and Ollama Static Validation
 
 on:
   push:
@@ -19,9 +19,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile adapter
-        run: python -m py_compile mt5-adapter/adapter.py
-      - name: Validate JSON configuration
-        run: python -m json.tool mt5-adapter/config/mt5_adapter.json
-      - name: Validate requirements file
-        run: test -s mt5-adapter/requirements.txt
+      - name: Compile Python adapter and local AI analyst
+        run: |
+          python -m py_compile mt5-adapter/adapter.py
+          python -m py_compile mt5-adapter/ollama_intelligence.py
+      - name: Validate JSON configurations
+        run: |
+          python -m json.tool mt5-adapter/config/mt5_adapter.json
+          python -m json.tool mt5-adapter/config/ollama_config.json
+      - name: Validate requirements and setup assets
+        run: |
+          test -s mt5-adapter/requirements.txt
+          test -s mt5-adapter/AUREON_ONE_CLICK_FULL_SETUP.cmd
+          test -s mt5-adapter/AUREON_OLLAMA_CONTROL_CENTER.cmd
+          test -s mt5-adapter/OLLAMA_RESEARCH_GUIDE.md
