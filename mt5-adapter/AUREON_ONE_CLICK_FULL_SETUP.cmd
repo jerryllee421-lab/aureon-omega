@@ -90,7 +90,22 @@ ollama list | findstr /I "qwen2.5:3b" >nul
 if errorlevel 1 (
   echo Downloading qwen2.5:3b. This is a one-time model download...
   ollama pull qwen2.5:3b
-  if errorlevel 1 goto fail
+  if errorlevel 1 (
+    echo First model download attempt failed. Checking Cloudflare R2 DNS...
+    ipconfig /flushdns >nul 2>nul
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Continue'; Resolve-DnsName 'dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com' -ErrorAction Continue | Select-Object Name,Type,IPAddress | Format-Table -AutoSize"
+    echo Retrying the model download once. Ollama may reuse any partial data.
+    ollama pull qwen2.5:3b
+    if errorlevel 1 (
+      echo.
+      echo MODEL DOWNLOAD STILL BLOCKED BY DNS OR NETWORK.
+      echo Test: nslookup dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com
+      echo If it reports no such host, try another trusted network or change your adapter DNS to 1.1.1.1 and 1.0.0.1.
+      echo On managed/work networks, check proxy or DNS filtering with the network administrator.
+      echo Then rerun this setup CMD. Do not disable Windows Firewall.
+      goto fail
+    )
+  )
 ) else (
   echo qwen2.5:3b already installed.
 )
