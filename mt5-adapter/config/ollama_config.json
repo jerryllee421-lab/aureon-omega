@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "base_url": "http://127.0.0.1:11434",
+  "model": "qwen2.5:3b",
+  "request_timeout_seconds": 180,
+  "keep_alive": 0,
+  "num_ctx": 2048,
+  "num_predict": 512,
+  "temperature": 0.1,
+  "allow_network_research": false,
+  "allow_order_execution": false,
+  "allow_strategy_parameter_writes": false,
+  "require_structured_output": true
+}
