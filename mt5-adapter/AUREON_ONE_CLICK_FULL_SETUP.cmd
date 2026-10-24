@@ -88,6 +88,9 @@ echo [8/8] Running syntax checks and non-trading health checks...
 if errorlevel 1 goto fail
 "%ROOT%\.venv\Scripts\python.exe" "%ROOT%\scripts\ollama_intelligence.py" doctor
 if errorlevel 1 goto fail
+echo Running a structured-output smoke test (synthetic input only)...
+"%ROOT%\.venv\Scripts\python.exe" "%ROOT%\scripts\ollama_intelligence.py" smoke
+if errorlevel 1 goto fail
 "%ROOT%\.venv\Scripts\python.exe" "%ROOT%\scripts\mt5_adapter.py" doctor --json
 echo.
 echo ==============================================================
