@@ -29,10 +29,28 @@ if not errorlevel 1 (
 ) else (
   where python >nul 2>nul
   if errorlevel 1 (
-    echo Python 3 was not found. Install Python 3.11 or 3.12 from python.org, enable PATH, then rerun.
-    goto :fail
+    where winget >nul 2>nul
+    if errorlevel 1 (
+      echo Python 3 and winget were not found. Install Python 3.11 or 3.12, then rerun.
+      goto :fail
+    )
+    echo Python missing. Attempting per-user Python 3.12 installation with winget...
+    winget install --id Python.Python.3.12 -e --scope user --silent --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 (
+      echo Automatic Python installation failed. Install Python 3.11 or 3.12 and rerun.
+      goto :fail
+    )
+    for /f "usebackq delims=" %%P in (`powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')" `) do set "PATH=%%P"
+    where py >nul 2>nul
+    if not errorlevel 1 (
+      set "PY=py -3"
+    ) else (
+      echo Python was installed. Close this window, open a new CMD, and rerun setup.
+      goto :fail
+    )
+  ) else (
+    set "PY=python"
   )
-  set "PY=python"
 )
 echo [3/5] Creating project-local virtual environment...
 if not exist "%ROOT%\.venv\Scripts\python.exe" (
