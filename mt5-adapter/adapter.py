@@ -265,7 +265,7 @@ def tester(args):
            f"FromDate={args.start.replace('-','.')}",f"ToDate={args.end.replace('-','.')}",
            f"ForwardMode={1 if args.forward else 0}",f"Deposit={args.deposit:.2f}",f"Currency={args.currency}",
            f"Leverage={args.leverage}","Optimization=0",f"Report={report}","ReplaceReport=1","ShutdownTerminal=1","Visual=0"]
-    ini.write_text("\\n".join(lines)+"\\n",encoding="utf-8")
+    ini.write_text("\n".join(lines)+"\n",encoding="utf-8")
     r={"timestamp_utc":now(),"terminal":str(term),"ini":str(ini),"expert":args.expert,"symbol":args.symbol,
        "period":args.period,"model":args.model,"start":args.start,"end":args.end,"report_prefix":str(report),"launched":False}
     save(REPORTS/"strategy_tester_last.json",r); print(json.dumps(r,indent=2))
