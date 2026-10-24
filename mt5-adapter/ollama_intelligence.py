@@ -75,6 +75,31 @@ def doctor(cfg):
     (REPORTS/"ollama_doctor.json").write_text(json.dumps(result,indent=2),encoding="utf-8")
     print(json.dumps(result,indent=2))
     return 0 if result.get("api_reachable") and result.get("model_available") else 2
+def smoke(cfg):
+    base=cfg["base_url"].rstrip("/")
+    payload={
+      "model":cfg["model"],
+      "messages":[{"role":"system","content":SYSTEM},
+                  {"role":"user","content":"This is a synthetic installation smoke test, not market evidence. State that evidence is insufficient, recommend research-only handling, and authorize no trades. No real market data is supplied."}],
+      "format":SCHEMA,"stream":False,"keep_alive":cfg.get("keep_alive",0),
+      "options":{"temperature":0,"num_ctx":cfg.get("num_ctx",2048),"num_predict":256}
+    }
+    try:
+        result=request_json(base+"/api/chat",payload,timeout=int(cfg.get("request_timeout_seconds",180)))
+        parsed=json.loads(result.get("message",{}).get("content",""))
+        ok=(parsed.get("trade_authorization")=="PROHIBITED" and
+            parsed.get("evidence_quality")=="INSUFFICIENT" and
+            parsed.get("status") in ("RESEARCH_ONLY","WATCH","BLOCKED"))
+        report={"timestamp_utc":datetime.now(timezone.utc).isoformat(),"model":cfg["model"],
+                "smoke_test":"PASS" if ok else "FAIL","synthetic_test_only":True,
+                "analysis":parsed,"orders_sent":False,"trade_authorization":"PROHIBITED"}
+        REPORTS.mkdir(parents=True,exist_ok=True)
+        (REPORTS/"ollama_smoke_test.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+        print(json.dumps(report,indent=2))
+        return 0 if ok else 3
+    except Exception as e:
+        print(json.dumps({"smoke_test":"FAIL","error":str(e),"orders_sent":False},indent=2),file=sys.stderr)
+        return 3
 def analyze(args,cfg):
     evidence=safe_input(args.input)
     base=cfg["base_url"].rstrip("/")
@@ -112,6 +137,7 @@ def main():
     ap=argparse.ArgumentParser(description="AUREON Ollama local research intelligence (no trade execution)")
     sub=ap.add_subparsers(dest="cmd",required=True)
     sub.add_parser("doctor",help="Check local Ollama API and configured model")
+    sub.add_parser("smoke",help="Run a synthetic structured-output test; no market data or trades")
     a=sub.add_parser("analyze",help="Analyze a local JSON evidence report")
     a.add_argument("--input",required=True,help="Path to an existing JSON report")
     args=ap.parse_args()
@@ -119,7 +145,9 @@ def main():
         cfg=load_config()
         if not cfg.get("enabled",False):
             print("BLOCKED: Ollama intelligence disabled in config."); return 4
-        return doctor(cfg) if args.cmd=="doctor" else analyze(args,cfg)
+        if args.cmd=="doctor": return doctor(cfg)
+        if args.cmd=="smoke": return smoke(cfg)
+        return analyze(args,cfg)
     except Exception as e:
         print("BLOCKED:",str(e),file=sys.stderr); return 2
 if __name__=="__main__":
