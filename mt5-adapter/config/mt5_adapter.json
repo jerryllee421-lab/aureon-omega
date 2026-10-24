@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "project": "AUREON OMEGA",
+  "terminal_path": "",
+  "quote_max_age_seconds": 30,
+  "symbols": {
+    "XAUUSD": ["XAUUSD", "GOLD", "XAUUSD.", "XAUUSDm"]
+  },
+  "execution": {
+    "allow_demo_orders": false,
+    "allow_live_orders": false,
+    "max_volume_lots": 0.01,
+    "max_risk_percent": 0.25,
+    "max_spread_points": 0,
+    "deviation_points": 20,
+    "magic": 604241
+  },
+  "strategy_tester": {
+    "default_model": "real_ticks",
+    "default_period": "M1",
+    "optimization": false
+  },
+  "safety": {
+    "unknown_values_fail_closed": true,
+    "require_stop_loss_and_take_profit": true,
+    "require_fresh_quote": true,
+    "require_order_check": true,
+    "require_typed_confirmation": true,
+    "never_store_broker_passwords": true
+  }
+}
