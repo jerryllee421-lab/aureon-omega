@@ -22,9 +22,35 @@ if not exist "%SRC%" mkdir "%SRC%"
 echo [1/8] Downloading AUREON adapter and Ollama integration...
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $b='%BASE%'; $d='%SRC%'; $files=@('adapter.py','requirements.txt','README.md','AUREON_MT5_CONTROL_CENTER.cmd','config\mt5_adapter.json','ollama_intelligence.py','AUREON_OLLAMA_CONTROL_CENTER.cmd','config\ollama_config.json','OLLAMA_RESEARCH_GUIDE.md'); foreach($f in $files){$p=Join-Path $d $f; New-Item -ItemType Directory -Force -Path (Split-Path $p) | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri ($b+'/'+$f.Replace('\','/')) -OutFile $p}; Write-Host 'Download complete.'"
 if errorlevel 1 goto fail
-echo [2/8] Locating a valid Python installation...
+echo [2/8] Locating a working Python 3.11+ executable...
 set "PYEXE="
-for /f "usebackq delims=" %%P in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $c=@(); $c+=Get-Command python.exe -All | ForEach-Object { $_.Source }; $c+=Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python*\python.exe'),(Join-Path $env:ProgramFiles 'Python*\python.exe'),(Join-Path ${env:ProgramFiles(x86)} 'Python*\python.exe') -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }; foreach($p in ($c | Select-Object -Unique)){ if($p -and (Test-Path -LiteralPath $p)){ try { $v=& $p -c 'import sys; print("%d.%d" %% (sys.version_info.major,sys.version_info.minor))' 2>$null; if($LASTEXITCODE -eq 0 -and $v -match '^(3)\.(1[1-9]|[2-9][0-9])
+for %%V in (314 313 312 311) do if not defined PYEXE if exist "%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe"
+for %%V in (314 313 312 311) do if not defined PYEXE if exist "%ProgramFiles%\Python%%V\python.exe" set "PYEXE=%ProgramFiles%\Python%%V\python.exe"
+if not defined PYEXE (
+  for /f "delims=" %%P in ('where python 2^>nul') do if not defined PYEXE set "PYEXE=%%P"
+)
+if defined PYEXE (
+  "%PYEXE%" -c "import sys; assert sys.version_info >= (3,11)" >nul 2>nul
+  if errorlevel 1 set "PYEXE="
+)
+if not defined PYEXE (
+  echo No working Python 3.11+ installation was found.
+  where winget >nul 2>nul
+  if errorlevel 1 goto fail
+  echo Installing Python 3.12 for the current Windows user...
+  winget install --id Python.Python.3.12 -e --scope user --silent --accept-package-agreements --accept-source-agreements
+  if errorlevel 1 goto fail
+  echo Python installed. Close this window, open a new CMD, and rerun setup.
+  goto fail
+)
+echo Using Python: "%PYEXE%"
+"%PYEXE%" --version
+if errorlevel 1 goto fail
+echo [3/8] Creating project-local Python environment...
+if not exist "%ROOT%\.venv\Scripts\python.exe" (
+  "%PYEXE%" -m venv "%ROOT%\.venv"
+  if errorlevel 1 goto fail
+)
 echo [4/8] Installing MT5 adapter requirements...
 "%ROOT%\.venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r "%SRC%\requirements.txt"
 if errorlevel 1 goto fail
