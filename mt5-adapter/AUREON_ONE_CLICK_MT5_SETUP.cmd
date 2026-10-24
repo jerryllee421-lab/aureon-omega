@@ -20,7 +20,7 @@ for %%D in (config logs reports data data\broker data\market runtime scripts res
 set "SRC=%ROOT%\runtime\mt5-adapter-source"
 if not exist "%SRC%" mkdir "%SRC%"
 echo [1/5] Downloading versioned adapter files...
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $b='%BASE%'; $d='%SRC%'; $files=@('adapter.py','requirements.txt','README.md','config\mt5_adapter.json'); foreach($f in $files){$p=Join-Path $d $f; New-Item -ItemType Directory -Force -Path (Split-Path $p) | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri ($b+'/'+$f.Replace('\','/')) -OutFile $p}; Write-Host 'Source files downloaded.'"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $b='%BASE%'; $d='%SRC%'; $files=@('adapter.py','requirements.txt','README.md','AUREON_MT5_CONTROL_CENTER.cmd','config\mt5_adapter.json'); foreach($f in $files){$p=Join-Path $d $f; New-Item -ItemType Directory -Force -Path (Split-Path $p) | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri ($b+'/'+$f.Replace('\','/')) -OutFile $p}; Write-Host 'Source files downloaded.'"
 if errorlevel 1 goto :fail
 echo [2/5] Locating Python...
 where py >nul 2>nul
@@ -48,6 +48,8 @@ echo [5/5] Installing versioned adapter and config into project root...
 copy /Y "%SRC%\adapter.py" "%ROOT%\scripts\mt5_adapter.py" >nul
 if errorlevel 1 goto :fail
 copy /Y "%SRC%\README.md" "%ROOT%\mt5-adapter\README.md" >nul
+if errorlevel 1 goto :fail
+copy /Y "%SRC%\AUREON_MT5_CONTROL_CENTER.cmd" "%ROOT%\AUREON_MT5_CONTROL_CENTER.cmd" >nul
 if errorlevel 1 goto :fail
 if not exist "%ROOT%\config\mt5_adapter.json" (
   copy /Y "%SRC%\config\mt5_adapter.json" "%ROOT%\config\mt5_adapter.json" >nul
