@@ -65,7 +65,7 @@ if not exist "%ROOT%\config\mt5_adapter.json" copy /Y "%SRC%\config\mt5_adapter.
 echo [6/6] Running Python syntax and non-trading adapter health checks...
 "%ROOT%\.venv\Scripts\python.exe" -m py_compile "%ROOT%\scripts\mt5_adapter.py"
 if errorlevel 1 goto fail
-"%ROOT%\.venv\Scripts\python.exe" "%ROOT%\scripts\mt5_adapter.py" doctor --json
+"%ROOT%\.venv\Scripts\python.exe" "%ROOT%\scripts\mt5_adapter.py" doctor
 if errorlevel 1 echo WARNING: MT5 doctor reported a connection or terminal issue. Review the report below.
 echo.
 echo ==============================================================
