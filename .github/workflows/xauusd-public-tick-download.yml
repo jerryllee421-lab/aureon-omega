@@ -44,82 +44,128 @@ jobs:
       matrix:
         year: ${{ fromJson(needs.resolve.outputs.years) }}
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: "22"
-      - name: Install Dukascopy downloader
-        run: |
-          npm install --global dukascopy-node
-          dukascopy-node --version || true
-      - name: Download XAUUSD tick data by month
-        shell: bash
+          python-version: "3.12"
+      - name: Download raw hourly ticks from public datafeed (resume-safe)
         env:
           YEAR: ${{ matrix.year }}
         run: |
-          set -euo pipefail
-          mkdir -p "tick-data/XAUUSD/$YEAR" "manifests"
-          python3 - <<'PY' > /tmp/months.txt
-          import calendar, os
-          y=int(os.environ["YEAR"])
-          from datetime import date, datetime, timezone
-          now=datetime.now(timezone.utc).date()
-          last_month=12 if y < now.year else now.month
-          for m in range(1,last_month+1):
-              last=calendar.monthrange(y,m)[1]
-              end_day=min(last, now.day) if y==now.year and m==now.month else last
-              if date(y,m,1)>now: continue
-              print(f"{y}-{m:02d}-01 {y}-{m:02d}-{end_day:02d}")
-          PY
-          while read -r from to; do
-            echo "Downloading XAUUSD ticks $from to $to UTC"
-            npx --yes dukascopy-node -i xauusd -from "$from" -to "$to" -t tick -f csv -dir "tick-data/XAUUSD/$YEAR" -bs 1 -bp 1000
-          done < /tmp/months.txt
-      - name: Validate and write manifest
-        shell: bash
-        env:
-          YEAR: ${{ matrix.year }}
-        run: |
-          python3 - <<'PY'
-          import csv, hashlib, json, os
+          python - <<'PY'
+          import csv, datetime as dt, hashlib, json, lzma, os, random, struct, time, urllib.error, urllib.request
           from pathlib import Path
-          root=Path("tick-data/XAUUSD")/os.environ["YEAR"]
-          files=sorted(p for p in root.rglob("*.csv") if p.stat().st_size>0)
-          if not files:
-              raise SystemExit("FAIL: no non-empty tick CSV files downloaded")
-          total_bytes=0; rows=0; first=None; last=None; hashes=[]
+          year=int(os.environ["YEAR"])
+          root=Path("tick-data/XAUUSD")/str(year)
+          root.mkdir(parents=True,exist_ok=True)
+          # Dukascopy's public BI5 archive is independent of the jetta WAF-backed API.
+          # Store each UTC hour separately so retries/resumes never discard completed hours.
+          start=dt.datetime(year,1,1,tzinfo=dt.timezone.utc)
+          now=dt.datetime.now(dt.timezone.utc)
+          end=min(dt.datetime(year+1,1,1,tzinfo=dt.timezone.utc), now.replace(minute=0,second=0,microsecond=0))
+          total_hours=int((end-start).total_seconds()//3600)
+          completed=0; ticks=0; failures=[]
+          headers={"User-Agent":"AUREON-research-data/1.0 (historical research)"}
+          for n in range(total_hours):
+              hour=start+dt.timedelta(hours=n)
+              out=root/f"{hour:%Y%m%d_%H}.csv"
+              if out.exists() and out.stat().st_size>30:
+                  completed+=1
+                  continue
+              url=f"http://datafeed.dukascopy.com/datafeed/XAUUSD/{hour.year}/{hour.month-1:02d}/{hour.day:02d}/{hour.hour:02d}h_ticks.bi5"
+              data=None
+              for attempt in range(5):
+                  try:
+                      req=urllib.request.Request(url,headers=headers)
+                      with urllib.request.urlopen(req,timeout=25) as resp:
+                          data=resp.read()
+                      break
+                  except urllib.error.HTTPError as e:
+                      if e.code==404:
+                          data=b""; break
+                      if e.code not in (429,500,502,503,504):
+                          failures.append({"hour":hour.isoformat(),"error":f"HTTP {e.code}"})
+                          break
+                  except Exception as e:
+                      err=str(e)
+                  time.sleep(min(30,2**attempt)+random.random())
+              if data is None:
+                  failures.append({"hour":hour.isoformat(),"error":locals().get("err","retry limit")})
+                  continue
+              rows=[]
+              if data:
+                  try:
+                      raw=lzma.decompress(data)
+                      if len(raw)%20:
+                          raise ValueError(f"unexpected BI5 payload length {len(raw)}")
+                      base=int(hour.timestamp()*1000)
+                      for pos in range(0,len(raw),20):
+                          ms,ask,bid,av,bv=struct.unpack_from(">iii ff",raw,pos)
+                          rows.append((base+ms,ask/1000.0,bid/1000.0,av,bv))
+                  except Exception as e:
+                      failures.append({"hour":hour.isoformat(),"error":f"decode: {e}"})
+                      continue
+              tmp=out.with_suffix(".csv.tmp")
+              with tmp.open("w",newline="",encoding="utf-8") as f:
+                  w=csv.writer(f); w.writerow(["timestamp","askPrice","bidPrice","askVolume","bidVolume"]); w.writerows(rows)
+              tmp.replace(out)
+              completed+=1; ticks+=len(rows)
+              if completed%100==0:
+                  print(f"Progress {completed}/{total_hours} hours; this-run ticks={ticks}; failures={len(failures)}",flush=True)
+          # Keep retryable failures in an artifact even if a year is incomplete.
+          report={"schema":"aureon.public_tick_download.v2","symbol":"XAUUSD","source":"Dukascopy public datafeed BI5 hourly archive","year":year,"requested_hours":total_hours,"completed_hours":completed,"new_ticks_decoded":ticks,"failed_hours":failures}
+          Path("manifests").mkdir(exist_ok=True)
+          Path(f"manifests/XAUUSD_ticks_{year}_download_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+          print(json.dumps({k:v for k,v in report.items() if k!="failed_hours"}|{"failed_hour_count":len(failures)},indent=2))
+          if failures:
+              raise SystemExit(f"FAIL: {len(failures)} hourly downloads/decodes failed; partial data and report retained for retry")
+          PY
+      - name: Validate tick files and write integrity manifest
+        if: always()
+        env:
+          YEAR: ${{ matrix.year }}
+        run: |
+          python - <<'PY'
+          import csv,hashlib,json,os
+          from pathlib import Path
+          year=os.environ["YEAR"]; root=Path("tick-data/XAUUSD")/year
+          files=sorted(root.glob("*.csv")); total=0; size=0; first=None; last=None; manifest_files=[]
           for p in files:
-              h=hashlib.sha256()
+              h=hashlib.sha256(); count=0
               with p.open("rb") as f:
                   for b in iter(lambda:f.read(1024*1024),b""): h.update(b)
-              digest=h.hexdigest(); hashes.append({"file":str(p),"bytes":p.stat().st_size,"sha256":digest})
-              total_bytes+=p.stat().st_size
-              with p.open("r",newline="",encoding="utf-8-sig") as f:
+              with p.open(newline="",encoding="utf-8") as f:
                   reader=csv.DictReader(f)
-                  if not reader.fieldnames or "timestamp" not in reader.fieldnames:
-                      raise SystemExit(f"FAIL: unexpected CSV header in {p}: {reader.fieldnames}")
+                  expected={"timestamp","askPrice","bidPrice","askVolume","bidVolume"}
+                  if not reader.fieldnames or not expected.issubset(reader.fieldnames): raise SystemExit(f"Bad schema: {p}")
                   for row in reader:
-                      try: ts=int(float(row["timestamp"]))
-                      except Exception: continue
-                      rows+=1
-                      first=ts if first is None else min(first,ts)
-                      last=ts if last is None else max(last,ts)
-          if rows==0: raise SystemExit("FAIL: CSVs contained zero parseable ticks")
-          manifest={"schema":"aureon.public_tick_download.v1","symbol":"XAUUSD","source":"Dukascopy public historical tick feed","year":int(os.environ["YEAR"]),"timeframe":"tick","timestamp_unit":"unix milliseconds (verified from source format)","files":len(files),"rows":rows,"bytes":total_bytes,"first_timestamp_ms":first,"last_timestamp_ms":last,"files_manifest":hashes}
+                      ts=int(row["timestamp"]); ask=float(row["askPrice"]); bid=float(row["bidPrice"])
+                      if ask < bid: raise SystemExit(f"ask<bid: {p} timestamp={ts}")
+                      first=ts if first is None else min(first,ts); last=ts if last is None else max(last,ts); count+=1
+              total+=count; size+=p.stat().st_size
+              manifest_files.append({"file":str(p),"bytes":p.stat().st_size,"rows":count,"sha256":h.hexdigest()})
+          report_path=Path(f"manifests/XAUUSD_ticks_{year}_download_report.json")
+          report=json.loads(report_path.read_text()) if report_path.exists() else {}
+          manifest={"schema":"aureon.public_tick_download.v2","symbol":"XAUUSD","source":"Dukascopy public datafeed BI5 hourly archive","year":int(year),"timestamp_unit":"unix milliseconds UTC","files":len(files),"ticks":total,"bytes":size,"first_timestamp_ms":first,"last_timestamp_ms":last,"completed_hours":report.get("completed_hours"),"requested_hours":report.get("requested_hours"),"failed_hours":report.get("failed_hours",[]),"files_manifest":manifest_files}
           Path("manifests").mkdir(exist_ok=True)
-          out=Path("manifests")/f"XAUUSD_ticks_{os.environ['YEAR']}_manifest.json"
-          out.write_text(json.dumps(manifest,indent=2),encoding="utf-8")
-          print(json.dumps({k:v for k,v in manifest.items() if k!="files_manifest"},indent=2))
+          Path(f"manifests/XAUUSD_ticks_{year}_manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
+          print(json.dumps({k:v for k,v in manifest.items() if k!="files_manifest" and k!="failed_hours"}|{"failed_hour_count":len(manifest["failed_hours"])},indent=2))
           PY
-      - name: Package year dataset
+      - name: Package partial or complete year for resumable recovery
+        if: always()
+        env:
+          YEAR: ${{ matrix.year }}
         run: |
-          tar -czf "XAUUSD_ticks_${{ matrix.year }}.tar.gz" "tick-data/XAUUSD/${{ matrix.year }}" "manifests/XAUUSD_ticks_${{ matrix.year }}_manifest.json"
-          sha256sum "XAUUSD_ticks_${{ matrix.year }}.tar.gz" > "XAUUSD_ticks_${{ matrix.year }}.tar.gz.sha256"
+          mkdir -p artifacts
+          tar -czf "artifacts/XAUUSD_ticks_${YEAR}.tar.gz" "tick-data/XAUUSD/${YEAR}" "manifests" || true
+          sha256sum "artifacts/XAUUSD_ticks_${YEAR}.tar.gz" > "artifacts/XAUUSD_ticks_${YEAR}.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: XAUUSD-REAL-TICKS-${{ matrix.year }}
+          name: XAUUSD-PUBLIC-TICKS-${{ matrix.year }}
           path: |
-            XAUUSD_ticks_${{ matrix.year }}.tar.gz
-            XAUUSD_ticks_${{ matrix.year }}.tar.gz.sha256
+            artifacts/XAUUSD_ticks_${{ matrix.year }}.tar.gz
+            artifacts/XAUUSD_ticks_${{ matrix.year }}.tar.gz.sha256
             manifests/XAUUSD_ticks_${{ matrix.year }}_manifest.json
+            manifests/XAUUSD_ticks_${{ matrix.year }}_download_report.json
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
