@@ -1,7 +1,11 @@
 {
-  "id": "xauusd-public-ticks-2025-2026-20261027-retry1",
-  "purpose": "Download public Dukascopy XAUUSD raw tick history for calendar year 2025 and 2026 year-to-date in GitHub Actions using direct BI5 feed with resumable hourly chunks; archive partial/complete artifacts with SHA-256 manifests.",
-  "years": [2025, 2026],
+  "id": "xauusd-public-ticks-optimized-v3-20261027",
+  "purpose": "Retry XAUUSD 2025 and 2026 YTD tick retrieval using HTTPS BI5 source, four bounded workers, compressed hourly CSV cache, strict validation, and integrity manifests.",
+  "years": [
+    2025,
+    2026
+  ],
   "created_at_utc": "2026-10-27",
-  "note": "Public Dukascopy ticks are independent market-feed data, not PXBTTrading-1 broker-native MT5 tick cache."
+  "note": "Public Dukascopy ticks are independent market-feed data, not PXBTTrading-1 broker-native MT5 tick cache.",
+  "pipeline_version": 3
 }
