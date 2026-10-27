@@ -1,0 +1,125 @@
+name: AUREON XAUUSD Historical Tick Download
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: Calendar year to download
+        required: true
+        type: choice
+        options: ["2025", "2026"]
+        default: "2025"
+  push:
+    branches: [main]
+    paths:
+      - "research/tick_requests/*.json"
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      years: ${{ steps.set.outputs.years }}
+    steps:
+      - id: set
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_YEAR: ${{ inputs.year }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "years=[\"$INPUT_YEAR\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'years=["2025","2026"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  download:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        year: ${{ fromJson(needs.resolve.outputs.years) }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Dukascopy downloader
+        run: |
+          npm install --global dukascopy-node
+          dukascopy-node --version || true
+      - name: Download XAUUSD tick data by month
+        shell: bash
+        env:
+          YEAR: ${{ matrix.year }}
+        run: |
+          set -euo pipefail
+          mkdir -p "tick-data/XAUUSD/$YEAR" "manifests"
+          python3 - <<'PY' > /tmp/months.txt
+          import calendar, os
+          y=int(os.environ["YEAR"])
+          from datetime import date, datetime, timezone
+          now=datetime.now(timezone.utc).date()
+          last_month=12 if y < now.year else now.month
+          for m in range(1,last_month+1):
+              last=calendar.monthrange(y,m)[1]
+              end_day=min(last, now.day) if y==now.year and m==now.month else last
+              if date(y,m,1)>now: continue
+              print(f"{y}-{m:02d}-01 {y}-{m:02d}-{end_day:02d}")
+          PY
+          while read -r from to; do
+            echo "Downloading XAUUSD ticks $from to $to UTC"
+            npx --yes dukascopy-node -i xauusd -from "$from" -to "$to" -t tick -f csv -dir "tick-data/XAUUSD/$YEAR" -bs 1 -bp 1000
+          done < /tmp/months.txt
+      - name: Validate and write manifest
+        shell: bash
+        env:
+          YEAR: ${{ matrix.year }}
+        run: |
+          python3 - <<'PY'
+          import csv, hashlib, json, os
+          from pathlib import Path
+          root=Path("tick-data/XAUUSD")/os.environ["YEAR"]
+          files=sorted(p for p in root.rglob("*.csv") if p.stat().st_size>0)
+          if not files:
+              raise SystemExit("FAIL: no non-empty tick CSV files downloaded")
+          total_bytes=0; rows=0; first=None; last=None; hashes=[]
+          for p in files:
+              h=hashlib.sha256()
+              with p.open("rb") as f:
+                  for b in iter(lambda:f.read(1024*1024),b""): h.update(b)
+              digest=h.hexdigest(); hashes.append({"file":str(p),"bytes":p.stat().st_size,"sha256":digest})
+              total_bytes+=p.stat().st_size
+              with p.open("r",newline="",encoding="utf-8-sig") as f:
+                  reader=csv.DictReader(f)
+                  if not reader.fieldnames or "timestamp" not in reader.fieldnames:
+                      raise SystemExit(f"FAIL: unexpected CSV header in {p}: {reader.fieldnames}")
+                  for row in reader:
+                      try: ts=int(float(row["timestamp"]))
+                      except Exception: continue
+                      rows+=1
+                      first=ts if first is None else min(first,ts)
+                      last=ts if last is None else max(last,ts)
+          if rows==0: raise SystemExit("FAIL: CSVs contained zero parseable ticks")
+          manifest={"schema":"aureon.public_tick_download.v1","symbol":"XAUUSD","source":"Dukascopy public historical tick feed","year":int(os.environ["YEAR"]),"timeframe":"tick","timestamp_unit":"unix milliseconds (verified from source format)","files":len(files),"rows":rows,"bytes":total_bytes,"first_timestamp_ms":first,"last_timestamp_ms":last,"files_manifest":hashes}
+          Path("manifests").mkdir(exist_ok=True)
+          out=Path("manifests")/f"XAUUSD_ticks_{os.environ['YEAR']}_manifest.json"
+          out.write_text(json.dumps(manifest,indent=2),encoding="utf-8")
+          print(json.dumps({k:v for k,v in manifest.items() if k!="files_manifest"},indent=2))
+          PY
+      - name: Package year dataset
+        run: |
+          tar -czf "XAUUSD_ticks_${{ matrix.year }}.tar.gz" "tick-data/XAUUSD/${{ matrix.year }}" "manifests/XAUUSD_ticks_${{ matrix.year }}_manifest.json"
+          sha256sum "XAUUSD_ticks_${{ matrix.year }}.tar.gz" > "XAUUSD_ticks_${{ matrix.year }}.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XAUUSD-REAL-TICKS-${{ matrix.year }}
+          path: |
+            XAUUSD_ticks_${{ matrix.year }}.tar.gz
+            XAUUSD_ticks_${{ matrix.year }}.tar.gz.sha256
+            manifests/XAUUSD_ticks_${{ matrix.year }}_manifest.json
+          retention-days: 30
+          if-no-files-found: error
