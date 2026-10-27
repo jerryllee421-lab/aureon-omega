@@ -17,160 +17,161 @@ on:
 permissions:
   contents: read
 
+# A newer request supersedes old whole-year runs. Monthly artifacts from finished
+# shards remain available even if another shard fails.
 concurrency:
   group: aureon-xauusd-public-ticks
   cancel-in-progress: true
 
 jobs:
-  resolve:
+  plan:
     runs-on: ubuntu-latest
     outputs:
-      years: ${{ steps.set.outputs.years }}
+      shards: ${{ steps.plan.outputs.shards }}
     steps:
-      - id: set
+      - id: plan
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
           INPUT_YEAR: ${{ inputs.year }}
         run: |
-          if [ "$EVENT" = "workflow_dispatch" ]; then
-            echo "years=[\"$INPUT_YEAR\"]" >> "$GITHUB_OUTPUT"
-          else
-            echo 'years=["2025","2026"]' >> "$GITHUB_OUTPUT"
-          fi
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import datetime,json,os
+          today=datetime.datetime.now(datetime.timezone.utc).date()
+          years=[int(os.environ["INPUT_YEAR"])] if os.environ["EVENT"]=="workflow_dispatch" else [2025,2026]
+          shards=[]
+          for y in years:
+            last_month=12 if y<today.year else (today.month if y==today.year else 0)
+            for m in range(1,last_month+1):
+              shards.append({"year":y,"month":m})
+          print("shards="+json.dumps(shards,separators=(",",":")))
+          PY
 
   download:
-    needs: resolve
+    needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
-        year: ${{ fromJson(needs.resolve.outputs.years) }}
+        shard: ${{ fromJson(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Download raw hourly ticks (bounded parallelism, resume-safe)
+      - name: Download one monthly shard with bounded concurrency
         env:
-          YEAR: ${{ matrix.year }}
+          YEAR: ${{ matrix.shard.year }}
+          MONTH: ${{ matrix.shard.month }}
         run: |
           python - <<'PY'
-          import concurrent.futures, csv, datetime as dt, gzip, hashlib, json, lzma, os, random, struct, threading, time, urllib.error, urllib.request
+          import concurrent.futures,csv,datetime as dt,gzip,json,lzma,os,random,struct,time,urllib.error,urllib.request,hashlib
           from pathlib import Path
-          year=int(os.environ["YEAR"])
-          root=Path("tick-data/XAUUSD")/str(year); root.mkdir(parents=True,exist_ok=True)
-          start=dt.datetime(year,1,1,tzinfo=dt.timezone.utc); now=dt.datetime.now(dt.timezone.utc)
-          end=min(dt.datetime(year+1,1,1,tzinfo=dt.timezone.utc),now.replace(minute=0,second=0,microsecond=0))
-          hours=[start+dt.timedelta(hours=i) for i in range(int((end-start).total_seconds()//3600))]
-          lock=threading.Lock(); counters={"done":0,"ticks":0,"cached":0,"empty":0,"errors":0}; failures=[]
-          headers={"User-Agent":"AUREON-research-data/1.0"}
+          year=int(os.environ["YEAR"]); month=int(os.environ["MONTH"])
+          root=Path("tick-data/XAUUSD")/str(year)/f"{month:02d}"; root.mkdir(parents=True,exist_ok=True)
+          start=dt.datetime(year,month,1,tzinfo=dt.timezone.utc)
+          end=dt.datetime(year+1,1,1,tzinfo=dt.timezone.utc) if month==12 else dt.datetime(year,month+1,1,tzinfo=dt.timezone.utc)
+          now=dt.datetime.now(dt.timezone.utc).replace(minute=0,second=0,microsecond=0)
+          end=min(end,now)
+          hours=[] if end<=start else [start+dt.timedelta(hours=i) for i in range(int((end-start).total_seconds()//3600))]
+          lock=__import__("threading").Lock(); failures=[]; counts={"ticks":0,"empty":0,"done":0}
           def fetch(hour):
-              stem=f"{hour:%Y%m%d_%H}"
-              out=root/f"{stem}.csv.gz"; marker=root/f"{stem}.empty"
-              if out.exists() and out.stat().st_size>30 or marker.exists():
-                  with lock: counters["cached"]+=1
-                  return
-              url=f"https://datafeed.dukascopy.com/datafeed/XAUUSD/{hour.year}/{hour.month-1:02d}/{hour.day:02d}/{hour.hour:02d}h_ticks.bi5"
-              payload=None; last_error="unknown"
-              for attempt in range(5):
-                  try:
-                      req=urllib.request.Request(url,headers=headers)
-                      with urllib.request.urlopen(req,timeout=25) as resp: payload=resp.read()
-                      break
-                  except urllib.error.HTTPError as e:
-                      if e.code==404: payload=b""; break
-                      last_error=f"HTTP {e.code}"
-                      if e.code not in (408,425,429,500,502,503,504): break
-                  except Exception as e: last_error=repr(e)
-                  time.sleep(min(20,2**attempt)+random.random())
-              if payload is None:
-                  with lock:
-                      failures.append({"hour":hour.isoformat(),"error":last_error}); counters["errors"]+=1
-                  return
-              if not payload:
-                  marker.write_text("no tick payload for this UTC hour; source returned empty/404\n")
-                  with lock: counters["empty"]+=1; counters["done"]+=1
-                  return
+            stem=f"{hour:%Y%m%d_%H}"; out=root/f"{stem}.csv.gz"; marker=root/f"{stem}.empty"
+            if out.exists() and out.stat().st_size>30 or marker.exists(): return
+            url=f"https://datafeed.dukascopy.com/datafeed/XAUUSD/{hour.year}/{hour.month-1:02d}/{hour.day:02d}/{hour.hour:02d}h_ticks.bi5"
+            payload=None; error="retry limit"
+            for attempt in range(5):
               try:
-                  raw=lzma.decompress(payload)
-                  if len(raw)%20: raise ValueError(f"payload length {len(raw)} not divisible by 20")
-                  base=int(hour.timestamp()*1000); tmp=out.with_suffix(".csv.gz.tmp")
-                  count=0; prev=-1
-                  with gzip.open(tmp,"wt",newline="",encoding="utf-8",compresslevel=5) as f:
-                      w=csv.writer(f); w.writerow(["timestamp","askPrice","bidPrice","askVolume","bidVolume"])
-                      for pos in range(0,len(raw),20):
-                          ms,ask,bid,av,bv=struct.unpack_from(">IIIff",raw,pos)
-                          if ask<bid: raise ValueError(f"ask below bid at record {pos//20}")
-                          ts=base+ms
-                          if ts<prev: raise ValueError(f"non-chronological timestamp at record {pos//20}")
-                          prev=ts
-                          w.writerow((ts,ask/1000.0,bid/1000.0,av,bv)); count+=1
-                  tmp.replace(out)
-                  with lock: counters["ticks"]+=count; counters["done"]+=1
-              except Exception as e:
-                  try: tmp.unlink(missing_ok=True)
-                  except Exception: pass
-                  with lock: failures.append({"hour":hour.isoformat(),"error":f"decode/validate: {e}"}); counters["errors"]+=1
-              with lock:
-                  if counters["done"] and counters["done"]%250==0:
-                      print(f"Progress {counters['done']}/{len(hours)}; cached={counters['cached']}; ticks this run={counters['ticks']}; empty={counters['empty']}; errors={counters['errors']}",flush=True)
-          # Four concurrent requests balance throughput against the provider's rate limiting.
+                req=urllib.request.Request(url,headers={"User-Agent":"AUREON-research-data/1.0"})
+                with urllib.request.urlopen(req,timeout=20) as response: payload=response.read()
+                break
+              except urllib.error.HTTPError as e:
+                if e.code in (404,410): payload=b""; break
+                error=f"HTTP {e.code}"
+                if e.code not in (408,425,429,500,502,503,504): break
+              except Exception as e: error=repr(e)
+              time.sleep(min(16,2**attempt)+random.random())
+            if payload is None:
+              with lock: failures.append({"hour":hour.isoformat(),"error":error})
+              return
+            if not payload:
+              marker.write_text("source returned empty/404 for UTC hour; likely closed session or absent feed record\n")
+              with lock: counts["empty"]+=1; counts["done"]+=1
+              return
+            tmp=out.with_suffix(".csv.gz.tmp")
+            try:
+              raw=lzma.decompress(payload)
+              if len(raw)%20: raise ValueError(f"invalid BI5 byte length {len(raw)}")
+              base=int(hour.timestamp()*1000); count=0; prev=-1
+              with gzip.open(tmp,"wt",newline="",encoding="utf-8",compresslevel=5) as f:
+                w=csv.writer(f); w.writerow(["timestamp","askPrice","bidPrice","askVolume","bidVolume"])
+                for pos in range(0,len(raw),20):
+                  ms,ask,bid,av,bv=struct.unpack_from(">IIIff",raw,pos)
+                  ts=base+ms
+                  if ask<bid: raise ValueError(f"ask<bid at record {pos//20}")
+                  if ts<prev or ms>=3600000: raise ValueError(f"invalid timestamp offset at record {pos//20}")
+                  prev=ts
+                  w.writerow((ts,ask/1000.0,bid/1000.0,av,bv)); count+=1
+              tmp.replace(out)
+              with lock: counts["ticks"]+=count; counts["done"]+=1
+            except Exception as e:
+              tmp.unlink(missing_ok=True)
+              with lock: failures.append({"hour":hour.isoformat(),"error":f"decode/validation: {e}"})
           with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-              list(pool.map(fetch,hours))
-          report={"schema":"aureon.public_tick_download.v3","symbol":"XAUUSD","source":"Dukascopy public datafeed BI5 hourly archive","year":year,"requested_hours":len(hours),"completed_hours":counters["done"],"cached_hours":counters["cached"],"new_ticks_decoded":counters["ticks"],"empty_hours":counters["empty"],"failed_hours":failures}
+            list(pool.map(fetch,hours))
+          report={"schema":"aureon.public_tick_month.v1","symbol":"XAUUSD","source":"Dukascopy public BI5 feed","year":year,"month":month,"start_utc":start.isoformat(),"end_utc_exclusive":end.isoformat(),"requested_hours":len(hours),"completed_hours":counts["done"],"tick_rows_downloaded":counts["ticks"],"empty_hours":counts["empty"],"failed_hours":failures}
           Path("manifests").mkdir(exist_ok=True)
-          Path(f"manifests/XAUUSD_ticks_{year}_download_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
-          print(json.dumps({k:v for k,v in report.items() if k!="failed_hours"}|{"failed_hour_count":len(failures)},indent=2))
-          if failures: raise SystemExit(f"FAIL: {len(failures)} hours failed; partial compressed data and manifest retained")
+          p=Path(f"manifests/XAUUSD_ticks_{year}_{month:02d}_report.json");p.write_text(json.dumps(report,indent=2),encoding="utf-8")
+          print(json.dumps({k:v for k,v in report.items() if k!="failed_hours"}|{"failure_count":len(failures)},indent=2))
+          if failures: raise SystemExit(f"{len(failures)} hourly requests failed; see report and retry only this month")
           PY
-      - name: Validate archive coverage and write SHA-256 manifest
+      - name: Validate monthly shard and write SHA-256 manifest
         if: always()
         env:
-          YEAR: ${{ matrix.year }}
+          YEAR: ${{ matrix.shard.year }}
+          MONTH: ${{ matrix.shard.month }}
         run: |
           python - <<'PY'
-          import gzip,hashlib,json,os,csv
+          import csv,gzip,hashlib,json,os
           from pathlib import Path
-          year=os.environ["YEAR"]; root=Path("tick-data/XAUUSD")/year
-          files=sorted(root.glob("*.csv.gz")); empties=sorted(root.glob("*.empty"))
-          total=0; size=0; first=None; last=None; entries=[]
+          y=int(os.environ["YEAR"]);m=int(os.environ["MONTH"]);root=Path("tick-data/XAUUSD")/str(y)/f"{m:02d}"
+          files=sorted(root.glob("*.csv.gz"));empty=sorted(root.glob("*.empty"));entries=[];rows=0;first=None;last=None
           for p in files:
-              h=hashlib.sha256(); count=0
-              with p.open("rb") as f:
-                  for b in iter(lambda:f.read(1024*1024),b""): h.update(b)
-              with gzip.open(p,"rt",newline="",encoding="utf-8") as f:
-                  reader=csv.DictReader(f)
-                  if reader.fieldnames != ["timestamp","askPrice","bidPrice","askVolume","bidVolume"]: raise SystemExit(f"Bad CSV schema: {p}")
-                  for row in reader:
-                      ts=int(row["timestamp"]); ask=float(row["askPrice"]); bid=float(row["bidPrice"])
-                      if ask<bid: raise SystemExit(f"ask<bid: {p} timestamp={ts}")
-                      first=ts if first is None else min(first,ts); last=ts if last is None else max(last,ts); count+=1
-              total+=count; size+=p.stat().st_size
-              entries.append({"file":str(p),"bytes":p.stat().st_size,"ticks":count,"sha256":h.hexdigest()})
-          report_path=Path(f"manifests/XAUUSD_ticks_{year}_download_report.json")
-          report=json.loads(report_path.read_text()) if report_path.exists() else {}
-          manifest={"schema":"aureon.public_tick_download.v3","symbol":"XAUUSD","source":"Dukascopy public datafeed BI5 hourly archive","year":int(year),"timestamp_unit":"unix milliseconds UTC","compressed_csv_files":len(files),"empty_hour_markers":len(empties),"ticks":total,"bytes":size,"first_timestamp_ms":first,"last_timestamp_ms":last,"requested_hours":report.get("requested_hours"),"completed_hours":report.get("completed_hours"),"cached_hours":report.get("cached_hours"),"failed_hours":report.get("failed_hours",[]),"files_manifest":entries}
-          Path("manifests").mkdir(exist_ok=True)
-          Path(f"manifests/XAUUSD_ticks_{year}_manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
-          print(json.dumps({k:v for k,v in manifest.items() if k not in ("files_manifest","failed_hours")}|{"failed_hour_count":len(manifest["failed_hours"])},indent=2))
+            h=hashlib.sha256();n=0
+            with p.open("rb") as f:
+              for b in iter(lambda:f.read(1024*1024),b""):h.update(b)
+            with gzip.open(p,"rt",newline="",encoding="utf-8") as f:
+              r=csv.DictReader(f)
+              if r.fieldnames!=["timestamp","askPrice","bidPrice","askVolume","bidVolume"]:raise SystemExit(f"bad schema: {p}")
+              for row in r:
+                ts=int(row["timestamp"]);ask=float(row["askPrice"]);bid=float(row["bidPrice"])
+                if ask<bid:raise SystemExit(f"ask<bid {p} {ts}")
+                first=ts if first is None else min(first,ts);last=ts if last is None else max(last,ts);n+=1
+            rows+=n;entries.append({"file":str(p),"bytes":p.stat().st_size,"ticks":n,"sha256":h.hexdigest()})
+          rp=Path(f"manifests/XAUUSD_ticks_{y}_{m:02d}_report.json")
+          report=json.loads(rp.read_text()) if rp.exists() else {}
+          manifest={"schema":"aureon.public_tick_month.v1","symbol":"XAUUSD","source":"Dukascopy public BI5 feed; not PXBT broker-native","year":y,"month":m,"files":len(files),"empty_hour_markers":len(empty),"tick_rows":rows,"first_timestamp_ms":first,"last_timestamp_ms":last,"requested_hours":report.get("requested_hours"),"completed_hours":report.get("completed_hours"),"failed_hours":report.get("failed_hours",[]),"files_manifest":entries}
+          Path(f"manifests/XAUUSD_ticks_{y}_{m:02d}_manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
+          print(json.dumps({k:v for k,v in manifest.items() if k not in ("files_manifest","failed_hours")}|{"failure_count":len(manifest["failed_hours"])},indent=2))
           PY
-      - name: Package partial or complete year
+      - name: Package this month only
         if: always()
         env:
-          YEAR: ${{ matrix.year }}
+          YEAR: ${{ matrix.shard.year }}
+          MONTH: ${{ matrix.shard.month }}
         run: |
           mkdir -p artifacts
-          tar -czf "artifacts/XAUUSD_ticks_${YEAR}.tar.gz" "tick-data/XAUUSD/${YEAR}" "manifests" || true
-          sha256sum "artifacts/XAUUSD_ticks_${YEAR}.tar.gz" > "artifacts/XAUUSD_ticks_${YEAR}.tar.gz.sha256"
+          tar -czf "artifacts/XAUUSD_ticks_${YEAR}_${MONTH}.tar.gz" "tick-data/XAUUSD/${YEAR}/${MONTH}" manifests || true
+          sha256sum "artifacts/XAUUSD_ticks_${YEAR}_${MONTH}.tar.gz" > "artifacts/XAUUSD_ticks_${YEAR}_${MONTH}.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: XAUUSD-PUBLIC-TICKS-${{ matrix.year }}
+          name: XAUUSD-TICKS-${{ matrix.shard.year }}-${{ matrix.shard.month }}
           path: |
-            artifacts/XAUUSD_ticks_${{ matrix.year }}.tar.gz
-            artifacts/XAUUSD_ticks_${{ matrix.year }}.tar.gz.sha256
-            manifests/XAUUSD_ticks_${{ matrix.year }}_manifest.json
-            manifests/XAUUSD_ticks_${{ matrix.year }}_download_report.json
+            artifacts/XAUUSD_ticks_${{ matrix.shard.year }}_${{ matrix.shard.month }}.tar.gz
+            artifacts/XAUUSD_ticks_${{ matrix.shard.year }}_${{ matrix.shard.month }}.tar.gz.sha256
+            manifests/XAUUSD_ticks_${{ matrix.shard.year }}_${{ matrix.shard.month }}_manifest.json
+            manifests/XAUUSD_ticks_${{ matrix.shard.year }}_${{ matrix.shard.month }}_report.json
           retention-days: 30
           if-no-files-found: warn
