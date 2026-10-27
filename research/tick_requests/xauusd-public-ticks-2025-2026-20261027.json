@@ -1,11 +1,11 @@
 {
-  "id": "xauusd-public-ticks-optimized-v3-20261027",
-  "purpose": "Retry XAUUSD 2025 and 2026 YTD tick retrieval using HTTPS BI5 source, four bounded workers, compressed hourly CSV cache, strict validation, and integrity manifests.",
+  "id": "xauusd-public-ticks-monthly-shards-v1",
+  "purpose": "Run monthly sharded XAUUSD historical tick retrieval for 2025 and 2026 year-to-date. Each month produces its own resumable/retryable artifact and SHA-256 manifest.",
   "years": [
     2025,
     2026
   ],
   "created_at_utc": "2026-10-27",
   "note": "Public Dukascopy ticks are independent market-feed data, not PXBTTrading-1 broker-native MT5 tick cache.",
-  "pipeline_version": 3
+  "pipeline_version": 4
 }
